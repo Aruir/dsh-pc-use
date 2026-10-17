@@ -79,13 +79,14 @@ bundle 层已经插入过 `codex-cu` 了。在 profile 的 `cordis.patch.yml` �
 | `enabled` | `true` | `false` 则不注册任何工具 |
 | `autoApprove` | `false` | 只自动接受浏览器访问授权；其他 elicitation 审批一律 decline（fail-closed） |
 | `computer` | `false` | 开启 Windows 桌面应用操控（Codex Computer Use）；是否弹卡片由 DSH 的权限模式决定 |
+| `rememberDesktopApprovals` | `true` | 同一个 DSH 会话里，某个应用经你允许一次后不再询问；拒绝不会被记住 |
 | `codexHome` | `''` | 空表示 `%USERPROFILE%\.codex` |
 | `stateFile` | `''` | 会话状态文件路径；空表示 `~/.dsh/codex-cu-state.json` |
 | `logFile` | `''` | 桥接日志路径；空表示 `~/.dsh/codex-cu.log` |
 | `timeoutMs` | `120000` | 单次调用超时 |
 | `tools` | 全开 | `{ js, reset, addNodeModuleDir, status }` 逐项开关 |
 
-`autoApprove` / `computer` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载插件；`computer` 改变后，下一次调用会先停掉旧连接再按新值重连。`enabled`、`codexHome`、`stateFile`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。
+`autoApprove` / `computer` / `rememberDesktopApprovals` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载插件；`computer` 改变后，下一次调用会先停掉旧连接再按新值重连。`enabled`、`codexHome`、`stateFile`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。
 
 每一次审批都会写进日志（`logFile` 为空时写入 `~/.dsh/codex-cu.log`，不再只走 `console.warn`），记录原始文案、决定和原因，例如：
 
@@ -125,6 +126,18 @@ Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `C
 录音请求 `Allow Computer Use to record computer audio?` 不在识别范围内，会被拒绝。
 插件把桌面授权转成 DSH 的审批提示（例如“允许 Codex Computer Use 操作“记事本”？”），
 交给 DSH 的审批策略处理；`autoApprove` 对桌面授权不起作用。
+
+插件会记住你在同一个 DSH 会话内的桌面授权：同一个应用经你允许一次后，后续请求不再询问，
+日志原因写为 `approved earlier in this DSH session`。只记住“允许”，拒绝、取消或失败
+不会被记住。以下情况会重新询问：桥接重连（例如切换 `computer`、`.mcp.json` 变化或进程
+重启）、新开一个 DSH 会话、或把 `rememberDesktopApprovals` 设为 `false`（关闭期间的下一次
+调用或授权请求会清空记录）。想立刻重新询问，最可靠的办法是新开会话或切换一次 `computer`。
+注意：之后把权限模式改严，本会话内已经记住的应用仍会放行。
+
+每轮 DSH 轮次结束时，插件会用同一 agent 的 Codex `session_id` / `turn_id` 调用
+`turn_ended`（正常结束为 `Stop`，中途停止为 `Interrupt`，子 agent 为 `SubagentStop`）。
+这会让 Codex 收起屏幕上“正在使用你的电脑”的橙色光圈，并结束那一轮。本轮没有调用过
+`codex_js`、桥接未连接或插件已卸载时不会补发；桥接重连后从新的 `turn_id` 开始。
 
 在 `codex_js` 里使用（`computer: true` 且连接建立之后）：
 

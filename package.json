@@ -1,6 +1,6 @@
 {
   "name": "dsh-codex-cu",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Codex Computer Use (cua_repl) as native DSH tools: drive the user's real Chrome through Codex's browser backend, with turn metadata, elicitation approvals and config auto-detection handled for you.",
   "type": "module",
   "main": "index.js",

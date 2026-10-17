@@ -22,7 +22,9 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { DECLINE, decisionFromHostOutcome } from './lib/approval.js'
+import {
+  APPROVE, DECLINE, decisionFromHostOutcome, desktopAppKey, wantsSessionApproval,
+} from './lib/approval.js'
 import { defaultCodexHome, resolveCodexServer } from './lib/codex-config.js'
 import { unwrapConfigValue } from './lib/config-value.js'
 import { saveImage } from './lib/images.js'
@@ -53,18 +55,20 @@ try {
 }
 
 /**
- * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean, codexHome: string,
- *   stateFile: string, logFile: string, timeoutMs: number, tools: {js: boolean,
- *   reset: boolean, addNodeModuleDir: boolean, status: boolean}}} Config
+ * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean,
+ *   rememberDesktopApprovals: boolean, codexHome: string, stateFile: string, logFile: string,
+ *   timeoutMs: number, tools: {js: boolean, reset: boolean, addNodeModuleDir: boolean,
+ *   status: boolean}}} Config
  */
 
 /**
- * The plugin's configuration schema. `autoApprove`, `computer`, `logFile` and
- * `timeoutMs` are `.volatile()`: the loader writes new values into the running plugin
- * and every use re-reads them, so they never remount it. `enabled`, `codexHome`,
- * `stateFile` and `tools.*` are deliberately not volatile: changing one remounts the
- * plugin, the old bridge is disposed by `ctx.effect`, and the tools are registered again
- * for the new values. Volatile fields are the ones the settings UI can flip live.
+ * The plugin's configuration schema. `autoApprove`, `computer`,
+ * `rememberDesktopApprovals`, `logFile` and `timeoutMs` are `.volatile()`: the loader
+ * writes new values into the running plugin and every use re-reads them, so they never
+ * remount it. `enabled`, `codexHome`, `stateFile` and `tools.*` are deliberately not
+ * volatile: changing one remounts the plugin, the old bridge is disposed by `ctx.effect`,
+ * and the tools are registered again for the new values. Volatile fields are the ones the
+ * settings UI can flip live.
  */
 function buildConfig(schema) {
   if (schema === null) return undefined
@@ -78,6 +82,10 @@ function buildConfig(schema) {
       computer: schema.boolean().default(false)
         .description('开启 Windows 桌面应用操控（Codex Computer Use）；桌面授权交给 DSH 的审批策略，'
           + '“完全权限”下直接放行。')
+        .volatile(),
+      rememberDesktopApprovals: schema.boolean().default(true)
+        .description('同一个 DSH 会话里，某个应用经你允许一次后不再询问；拒绝不会被记住。'
+          + '桥接重连或关闭此项后重新询问。')
         .volatile(),
       codexHome: schema.string().default('')
         .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。'),
@@ -109,6 +117,7 @@ const DEFAULTS = {
   enabled: true,
   autoApprove: false,
   computer: false,
+  rememberDesktopApprovals: true,
   codexHome: '',
   logFile: '',
   timeoutMs: 120000,
@@ -206,6 +215,7 @@ export function apply(ctx, raw = {}) {
   // Hot-updatable values are read through these getters at every use, never captured.
   const autoApproveEnabled = () => unwrapConfigValue(source.autoApprove) === true
   const computerEnabled = () => unwrapConfigValue(source.computer) === true
+  const rememberEnabled = () => unwrapConfigValue(source.rememberDesktopApprovals) !== false
   const configuredStateFile = () => {
     const value = unwrapConfigValue(source.stateFile)
     return typeof value === 'string' && value !== '' ? value : stateFilePath()
@@ -244,12 +254,27 @@ export function apply(ctx, raw = {}) {
     }
   }
 
-  /** Ask DSH to approve one desktop app; O(1) apart from waiting for the user. */
-  const requestDesktopApproval = async ({ appName }) => {
-    const approval = readApprovalService()
-    if (approval === undefined || approval === null) {
-      return { action: DECLINE, reason: 'no DSH approval service' }
+  // Remembered desktop approvals: WeakMap(agent -> Set(appKey)). The agent object is a
+  // process-local object, so entries disappear with the agent; bridge rebuilds reset it.
+  let rememberedApps = new WeakMap()
+  /** Forget every remembered desktop approval. O(1). */
+  const resetRemembered = () => {
+    rememberedApps = new WeakMap()
+  }
+  /** True when this agent already allowed this app. O(1). */
+  const wasRemembered = (agent, appKey) => rememberedApps.get(agent)?.has(appKey) === true
+  /** Remember one app for one agent. O(1). */
+  const rememberApp = (agent, appKey) => {
+    let apps = rememberedApps.get(agent)
+    if (apps === undefined) {
+      apps = new Set()
+      rememberedApps.set(agent, apps)
     }
+    apps.add(appKey)
+  }
+
+  /** Ask DSH to approve one desktop app; O(1) apart from waiting for the user. */
+  const requestDesktopApproval = async ({ appName, meta }) => {
     const active = activeCalls[0]
     if (active === undefined || active.exec === undefined || active.exec === null) {
       return { action: DECLINE, reason: 'no active codex_js call' }
@@ -257,6 +282,18 @@ export function apply(ctx, raw = {}) {
     const exec = active.exec
     if (exec.agent === undefined || exec.agent === null) {
       return { action: DECLINE, reason: 'no agent for this call' }
+    }
+    const remember = rememberEnabled()
+    if (remember !== true) {
+      resetRemembered()
+    }
+    const appKey = desktopAppKey(meta, appName)
+    if (remember === true && appKey !== null && wasRemembered(exec.agent, appKey)) {
+      return { action: APPROVE, reason: 'approved earlier in this DSH session' }
+    }
+    const approval = readApprovalService()
+    if (approval === undefined || approval === null) {
+      return { action: DECLINE, reason: 'no DSH approval service' }
     }
     const callSignal = active.controller.signal
     const signals = [callSignal]
@@ -289,7 +326,16 @@ export function apply(ctx, raw = {}) {
       if (callSignal.aborted || outcome === CALL_ENDED) {
         return { action: DECLINE, reason: 'codex_js call ended' }
       }
-      return decisionFromHostOutcome(outcome)
+      const decision = decisionFromHostOutcome(outcome)
+      if (
+        remember === true
+        && decision.action === APPROVE
+        && appKey !== null
+        && wantsSessionApproval(meta)
+      ) {
+        rememberApp(exec.agent, appKey)
+      }
+      return decision
     } catch {
       // A request that failed because the call ended is a call-end decline, not a
       // host failure; keep the log reason accurate.
@@ -308,12 +354,80 @@ export function apply(ctx, raw = {}) {
   let activeServicesFrom = null
   let lastSpec = null
 
+  // F6: per-agent Codex session/turn identity, separate from remembered approvals.
+  const agentTurns = new WeakMap()
+  // Subagent sessions are keyed by the session object, so entries disappear with it.
+  const subagentSessions = new WeakSet()
+  let bridgeGeneration = 0
+  /** Get (or refresh after a reconnect) this agent's Codex identity. O(1). */
+  const turnStateFor = (agent) => {
+    let state = agentTurns.get(agent)
+    if (state === undefined) {
+      state = {
+        sessionId: randomUUID(),
+        turnId: randomUUID(),
+        used: false,
+        generation: bridgeGeneration,
+      }
+      agentTurns.set(agent, state)
+      return state
+    }
+    if (state.generation !== bridgeGeneration) {
+      state.turnId = randomUUID()
+      state.used = false
+      state.generation = bridgeGeneration
+    }
+    return state
+  }
+  /** Send turn_ended on the existing connection; never starts one. O(1). */
+  const reportTurnEnded = (hookEventName, state) => {
+    const active = bridge
+    if (active === null || active.alive !== true) return
+    active.call('turn_ended', {
+      hook_event_name: hookEventName,
+      session_id: state.sessionId,
+      turn_id: state.turnId,
+    }, 10_000, state).then(
+      () => log(`turn ended (${hookEventName})`),
+      (error) => log(`turn_ended failed: ${error.message}`),
+    )
+  }
+  /** Codex hook name for a finished DSH turn. O(1). */
+  const turnEndedHookName = (event, subagent) => {
+    if (subagent === true) return 'SubagentStop'
+    const kind = event?.data?.reason?.kind
+    if (kind === 'aborted' || kind === 'interrupted') return 'Interrupt'
+    return 'Stop'
+  }
+  /** Track subagent sessions and report finished turns. O(1). */
+  const onSessionEvent = (agents, session, event) => {
+    if (event?.type === 'subagent/descriptor') {
+      subagentSessions.add(session)
+      return
+    }
+    if (event?.type !== 'turn/end') return
+    const agent = agents?.get(session.id)
+    if (agent === undefined || agent === null) return
+    const state = agentTurns.get(agent)
+    if (state === undefined) return
+    const hookEventName = turnEndedHookName(event, subagentSessions.has(session))
+    if (state.used === true && state.generation === bridgeGeneration) {
+      reportTurnEnded(hookEventName, state)
+    }
+    state.turnId = randomUUID()
+    state.used = false
+    state.generation = bridgeGeneration
+  }
+
   const ensureBridge = async () => {
     if (connecting !== null) {
       await connecting
     }
     // Read after a possible wait, so a switch flipped during the handshake is honoured.
     const computer = computerEnabled()
+    if (rememberEnabled() !== true) {
+      resetRemembered()
+    }
     if (bridge !== null && bridge.alive) {
       if (activeComputer === computer) return bridge
       // The `computer` switch changed while connected: stop the old server, then connect
@@ -346,6 +460,10 @@ export function apply(ctx, raw = {}) {
     if (trusted.value !== undefined) {
       env.NODE_REPL_TRUSTED_SERVICES = trusted.value
     }
+    // A new connection is a new approval lifetime: remembered apps start empty and
+    // old turns are not reported; agents get a fresh turn id on their next call.
+    resetRemembered()
+    bridgeGeneration += 1
     const created = new McpBridge({
       command: spec.command,
       args: spec.args,
@@ -380,9 +498,11 @@ export function apply(ctx, raw = {}) {
     return connecting
   }
 
-  const call = async (method, args, timeoutMs = configuredTimeoutMs()) => {
+  const call = async (method, args, timeoutMs = configuredTimeoutMs(), agent = null) => {
     const active = await ensureBridge()
-    return renderResult(await active.call(method, args, timeoutMs))
+    const turn = agent === null || agent === undefined ? null : turnStateFor(agent)
+    if (turn !== null) turn.used = true
+    return renderResult(await active.call(method, args, timeoutMs, turn))
   }
 
   const definitions = {
@@ -409,6 +529,7 @@ export function apply(ctx, raw = {}) {
       async execute(args, exec) {
         // Desktop approvals are attributed to the earliest-started call still running,
         // so a call must be registered for its whole lifetime and removed in `finally`.
+        const agent = exec?.agent
         const registration = { exec, controller: new AbortController() }
         activeCalls.push(registration)
         try {
@@ -421,7 +542,7 @@ export function apply(ctx, raw = {}) {
             code: args.code,
             title: args.title,
             ...(Number.isFinite(requested) ? { timeout_ms: requested } : {}),
-          }, execTimeout)
+          }, execTimeout, agent)
         } finally {
           const position = activeCalls.indexOf(registration)
           if (position >= 0) activeCalls.splice(position, 1)
@@ -488,7 +609,16 @@ export function apply(ctx, raw = {}) {
     }
   }
 
+  // F6: DSH session events. `ctx.inject` waits for the `agents` service and the
+  // subscription is owned by this plugin context (removed on unload).
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['agents'], (scope) => {
+      scope.on('session/event', (session, event) => onSessionEvent(scope.agents, session, event))
+    })
+  }
+
   ctx.effect(() => () => {
+    resetRemembered()
     if (bridge !== null) bridge.stop()
   }, 'dsh-codex-cu: computer-use bridge')
 }

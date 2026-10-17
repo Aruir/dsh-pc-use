@@ -51,11 +51,13 @@ export function writeCodexHome(codexHome, args, env = {}) {
 
 /**
  * Apply the plugin against a minimal cordis context; returns the registered tools.
- * `options.services` is what the fake `ctx.get(name)` returns (e.g. an approval service).
+ * `options.services` is what the fake `ctx.get(name)` returns (e.g. an approval service);
+ * `inject()` and the returned `emit()` let tests drive `session/event` subscriptions.
  */
 export function registerPlugin(config, options = {}) {
   const tools = new Map()
   const disposers = []
+  const handlers = []
   const services = options.services ?? {}
   const ctx = {
     tools: {
@@ -71,15 +73,44 @@ export function registerPlugin(config, options = {}) {
     get(name) {
       return services[name]
     },
+    inject(names, callback) {
+      if (names.some((name) => services[name] === undefined)) return
+      const created = []
+      const scope = {
+        ...services,
+        on(event, handler) {
+          const entry = { event, handler }
+          created.push(entry)
+          handlers.push(entry)
+          return () => {
+            const index = handlers.indexOf(entry)
+            if (index >= 0) handlers.splice(index, 1)
+          }
+        },
+      }
+      callback(scope)
+      disposers.push(() => {
+        for (const entry of created) {
+          const index = handlers.indexOf(entry)
+          if (index >= 0) handlers.splice(index, 1)
+        }
+      })
+    },
   }
   apply(ctx, config)
   return {
     tools,
+    emit(event, ...args) {
+      for (const entry of handlers.filter((item) => item.event === event)) {
+        entry.handler(...args)
+      }
+    },
     dispose() {
       for (const disposer of disposers) {
         disposer()
       }
       disposers.length = 0
+      handlers.length = 0
     },
   }
 }
