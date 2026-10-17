@@ -114,6 +114,9 @@ const DEFAULTS = {
   tools: { js: true, reset: true, addNodeModuleDir: true, status: true },
 }
 
+// Marker for "the approving codex_js call ended while DSH was still asking".
+const CALL_ENDED = Symbol('codex_js call ended')
+
 function stateFilePath() {
   return join(homedir(), '.dsh', 'codex-cu-state.json')
 }
@@ -251,18 +254,42 @@ export function apply(ctx, raw = {}) {
       return { action: DECLINE, reason: 'no active codex_js call' }
     }
     const exec = active.exec
+    if (exec.agent === undefined || exec.agent === null) {
+      return { action: DECLINE, reason: 'no agent for this call' }
+    }
+    const callSignal = active.controller.signal
+    const signals = [callSignal]
+    if (exec.signal !== undefined && exec.signal !== null) {
+      signals.push(exec.signal)
+    }
+    const signal = signals.length > 1 ? AbortSignal.any(signals) : callSignal
     const displayReason = `允许 Codex Computer Use 操作“${appName}”？`
+    const ended = new Promise((resolve) => {
+      if (callSignal.aborted) {
+        resolve(CALL_ENDED)
+        return
+      }
+      callSignal.addEventListener('abort', () => resolve(CALL_ENDED), { once: true })
+    })
     try {
-      const outcome = await approval.request({
-        agent: exec.agent,
-        toolName: exec.name,
-        callId: exec.callId,
-        reason: `Codex Computer Use 请求操作桌面应用：${appName}`,
-        displayReason,
-        signal: exec.signal,
-      })
+      const outcome = await Promise.race([
+        approval.request({
+          agent: exec.agent,
+          toolName: exec.name,
+          callId: exec.callId,
+          reason: `Codex Computer Use 请求操作桌面应用：${appName}`,
+          displayReason,
+          signal,
+        }),
+        ended,
+      ])
+      // A call that already ended must never approve a stale card, even when the
+      // user answered at the same moment.
+      if (callSignal.aborted || outcome === CALL_ENDED) {
+        return { action: DECLINE, reason: 'codex_js call ended' }
+      }
       return decisionFromHostOutcome(outcome)
-    } catch (error) {
+    } catch {
       return { action: DECLINE, reason: 'approval request failed' }
     }
   }
@@ -274,10 +301,11 @@ export function apply(ctx, raw = {}) {
   let lastSpec = null
 
   const ensureBridge = async () => {
-    const computer = computerEnabled()
     if (connecting !== null) {
       await connecting
     }
+    // Read after a possible wait, so a switch flipped during the handshake is honoured.
+    const computer = computerEnabled()
     if (bridge !== null && bridge.alive) {
       if (activeComputer === computer) return bridge
       // The `computer` switch changed while connected: stop the old server, then connect
@@ -357,7 +385,7 @@ export function apply(ctx, raw = {}) {
       async execute(args, exec) {
         // Desktop approvals are attributed to the earliest-started call still running,
         // so a call must be registered for its whole lifetime and removed in `finally`.
-        const registration = { exec }
+        const registration = { exec, controller: new AbortController() }
         activeCalls.push(registration)
         try {
           const timeoutMs = configuredTimeoutMs()
@@ -373,6 +401,8 @@ export function apply(ctx, raw = {}) {
         } finally {
           const position = activeCalls.indexOf(registration)
           if (position >= 0) activeCalls.splice(position, 1)
+          // Ending the call must also end its pending desktop approval.
+          registration.controller.abort()
         }
       },
     }),

@@ -19,11 +19,26 @@ function approvalService(outcome, requests) {
   }
 }
 
-function execFixture() {
+/** An approval service that keeps every request pending until the test answers it. */
+function pendingApprovalService() {
+  const requests = []
+  return {
+    requests,
+    service: {
+      request(parameters) {
+        return new Promise((resolve) => {
+          requests.push({ parameters, resolve })
+        })
+      },
+    },
+  }
+}
+
+function execFixture(callId = 'call-42') {
   return {
     agent: { id: 'agent-test' },
     name: 'codex_js',
-    callId: 'call-42',
+    callId,
     signal: new AbortController().signal,
   }
 }
@@ -104,7 +119,10 @@ test('computer:true asks DSH and accepts allowed-once', async () => {
     assert.equal(request.agent, exec.agent)
     assert.equal(request.toolName, 'codex_js')
     assert.equal(request.callId, 'call-42')
-    assert.equal(request.signal, exec.signal)
+    // The signal handed to DSH is derived from exec.signal and the call lifetime, so it
+    // is already aborted once the call has returned.
+    assert.equal(typeof request.signal?.addEventListener, 'function')
+    assert.equal(request.signal.aborted, true)
     assert.equal(request.displayReason, '允许 Codex Computer Use 操作“记事本”？')
     const lines = approvalLines(context.logFile)
     assert.equal(lines.length, 1)
@@ -210,6 +228,78 @@ test('the Allow Codex to use form asks DSH with the app name', async () => {
     assert.match(result, /decision accept/)
     assert.equal(requests.length, 1)
     assert.equal(requests[0].displayReason, '允许 Codex Computer Use 操作“Notepad”？')
+  } finally {
+    finish(context)
+  }
+})
+
+test('a desktop approval goes to the earliest running codex_js call', async () => {
+  const { service, requests } = pendingApprovalService()
+  const context = setup({
+    mode: 'computer',
+    computer: true,
+    services: { approval: service },
+  })
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    const first = js.execute({ code: '1', title: 'first' }, execFixture('call-first'))
+    assert.equal(await waitFor(() => requests.length >= 1), true)
+    const second = js.execute({ code: '2', title: 'second' }, execFixture('call-second'))
+    assert.equal(await waitFor(() => requests.length >= 2), true)
+    assert.equal(requests[1].parameters.callId, 'call-first')
+    for (const request of requests) {
+      request.resolve('rejected')
+    }
+    await Promise.allSettled([first, second])
+  } finally {
+    finish(context)
+  }
+})
+
+test('a desktop approval after the last codex_js call ended is declined without DSH', async () => {
+  const requests = []
+  const context = setup({
+    mode: 'spontaneous-after-call',
+    computer: true,
+    services: { approval: approvalService('allowed-once', requests) },
+  })
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    const result = await js.execute({ code: '1', title: 'finish' }, execFixture('call-done'))
+    assert.equal(result, 'ran js')
+    const declined = await waitFor(
+      () => readFileSync(context.serverLog, 'utf8').includes('answer decline'),
+    )
+    assert.equal(declined, true)
+    assert.equal(requests.length, 0)
+    const lines = approvalLines(context.logFile)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0], /-> decline \(no active codex_js call\)/)
+  } finally {
+    finish(context)
+  }
+})
+
+test('a call without an agent is declined without asking DSH', async () => {
+  const requests = []
+  const context = setup({
+    mode: 'computer',
+    computer: true,
+    services: { approval: approvalService('allowed-once', requests) },
+  })
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    const exec = {
+      name: 'codex_js',
+      callId: 'call-no-agent',
+      signal: new AbortController().signal,
+    }
+    const result = await js.execute({ code: '1', title: 'no agent' }, exec)
+    assert.match(result, /decision decline/)
+    assert.equal(requests.length, 0)
+    const lines = approvalLines(context.logFile)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0], /-> decline \(no agent for this call\)/)
   } finally {
     finish(context)
   }

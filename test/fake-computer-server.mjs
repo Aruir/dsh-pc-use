@@ -2,9 +2,10 @@
 // approval answer is appended to the log file.
 // Usage: node fake-computer-server.mjs <mode> <log-file>
 // Modes:
-//   computer        on tools/call ask `Allow Computer Use to use "记事本"?`
-//   computer-codex  on tools/call ask `Allow Codex to use Notepad?`
-//   spontaneous     right after initialize, ask the computer question (no tool call)
+//   computer               on tools/call ask `Allow Computer Use to use "记事本"?`
+//   computer-codex         on tools/call ask `Allow Codex to use Notepad?`
+//   spontaneous            right after initialize, ask the computer question (no tool call)
+//   spontaneous-after-call answer one tools/call, then ask with no call pending
 import { appendFileSync } from 'node:fs'
 import readline from 'node:readline'
 
@@ -81,4 +82,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     id: message.id,
     result: { content: [{ type: 'text', text: 'ran js' }] },
   })
+  if (mode === 'spontaneous-after-call') {
+    // Answer the tool call first, then ask when the call has certainly finished.
+    setTimeout(() => ask('post-call', COMPUTER_QUESTION), 150)
+  }
 })
