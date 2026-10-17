@@ -6,7 +6,9 @@ import { join } from 'node:path'
 
 import { apply } from '../index.js'
 
-const logFile = join(mkdtempSync(join(tmpdir(), 'dsh-codex-cu-')), 'bridge.log')
+const stateDir = mkdtempSync(join(tmpdir(), 'dsh-codex-cu-'))
+const logFile = join(stateDir, 'bridge.log')
+const stateFile = join(stateDir, 'state.json')
 const tools = new Map()
 const disposers = []
 
@@ -23,7 +25,7 @@ const ctx = {
   },
 }
 
-apply(ctx, { autoApprove: true, logFile })
+apply(ctx, { autoApprove: true, logFile, stateFile })
 
 console.log('registered tools:', [...tools.keys()].join(', '))
 if (tools.size === 0) {

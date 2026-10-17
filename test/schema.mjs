@@ -1,21 +1,53 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
-import { definePortableTool } from '../lib/define-tool.js'
+
+// Point the platform home at an empty temp directory so nothing here can read or start
+// the user's real Codex installation.
+const home = mkdtempSync(join(tmpdir(), 'dsh-codex-cu-schema-'))
+process.env.HOME = home
+process.env.USERPROFILE = home
+
+const { apply } = await import('../index.js')
+const { definePortableTool } = await import('../lib/define-tool.js')
 
 const platform = process.env.DSH_TOOLS_TEST_MODULE
   ? await import(process.env.DSH_TOOLS_TEST_MODULE) : null
 
+const BAD_ARGUMENTS = /Missing required parameter|Invalid parameter|must be an object/
+
 function register(config = {}) {
   const tools = new Map()
   apply({
-    tools: { register(tool) {
-      assert.equal(tools.has(tool.name), false)
-      tools.set(tool.name, tool)
-    } },
-    effect(factory) { factory()() },
+    tools: {
+      register(tool) {
+        assert.equal(tools.has(tool.name), false)
+        tools.set(tool.name, tool)
+      },
+    },
+    effect(factory) {
+      factory()()
+    },
   }, config)
   return tools
+}
+
+function fixtureSpec(onCall = () => {}) {
+  return {
+    name: 'fixture',
+    description: 'Primitive tool fixture',
+    parameters: {
+      code: { type: 'string', required: true, description: 'Source' },
+      timeout_ms: { type: 'number', description: 'Timeout' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, text) => [{ type: 'text', text }] },
+    async execute(args) {
+      onCall(args)
+      return args.code
+    },
+  }
 }
 
 test('every registered tool publishes an object JSON Schema', () => {
@@ -39,42 +71,61 @@ test('every registered tool publishes an object JSON Schema', () => {
   assert.deepEqual(tools.get('codex_status').parameters.properties, {})
 })
 
-test('bad arguments are rejected before any bridge starts', async () => {
+test('bad arguments are rejected with a TypeError before any bridge starts', async () => {
   const tools = register()
   const js = tools.get('codex_js')
   for (const args of [null, [], {}, { code: '1' }, { code: 1, title: 'x' },
     { code: '1', title: 'x', timeout_ms: '30000' },
     { code: '1', title: 'x', timeout_ms: Infinity }]) {
-    await assert.rejects(() => js.execute(args, {}))
+    await assert.rejects(() => js.execute(args, {}), (error) => {
+      assert.ok(error instanceof TypeError, `expected a TypeError for ${String(args)}`)
+      assert.match(error.message, BAD_ARGUMENTS)
+      return true
+    })
   }
-  await assert.rejects(() => tools.get('codex_js_add_node_module_dir').execute({}, {}))
+  await assert.rejects(() => tools.get('codex_js_add_node_module_dir').execute({}, {}), (error) => {
+    assert.ok(error instanceof TypeError, 'expected a TypeError for a missing path')
+    assert.match(error.message, BAD_ARGUMENTS)
+    return true
+  })
 })
 
-test('fallback agrees with the bundled defineTool and validates before dispatch', async () => {
+test('the fallback validates before dispatch', async () => {
   let calls = 0
-  const spec = {
-    name: 'fixture', description: 'Primitive tool fixture',
-    parameters: {
-      code: { type: 'string', required: true, description: 'Source' },
-      timeout_ms: { type: 'number', description: 'Timeout' },
-    },
-    output: { schema: { type: 'string' }, render: (_args, text) => [{ type: 'text', text }] },
-    async execute(args) { calls++; return args.code },
-  }
+  const spec = fixtureSpec(() => { calls++ })
   const fallback = definePortableTool(spec)
-  if (platform) {
-    const native = definePortableTool(spec, platform.defineTool)
-    assert.deepEqual(fallback.parameters, native.parameters)
-    assert.deepEqual(fallback.output.schema, native.output.schema)
-    for (const args of [{}, { code: 3 }, { code: 'x', timeout_ms: '3' }]) {
-      assert.ok(platform.validateJsonSchemaValue(fallback.parameters, args, '').length)
-      await assert.rejects(() => native.execute(args, {}))
-    }
+  for (const args of [null, {}, { code: 3 }, { code: 'x', timeout_ms: '3' },
+    { code: 'x', timeout_ms: Infinity }]) {
+    await assert.rejects(() => fallback.execute(args, {}), (error) => {
+      assert.ok(error instanceof TypeError, `expected a TypeError for ${String(args)}`)
+      assert.match(error.message, BAD_ARGUMENTS)
+      return true
+    })
   }
   assert.equal(calls, 0)
   assert.equal(await fallback.execute({ code: 'ok', timeout_ms: 30000 }, {}), 'ok')
   assert.equal(calls, 1)
-  assert.throws(() => definePortableTool({ ...spec, parameters: { nested: { type: 'object' } } }))
+  assert.throws(() => definePortableTool({
+    ...fixtureSpec(),
+    parameters: { nested: { type: 'object' } },
+  }), TypeError)
+})
+
+test('the fallback agrees with the host defineTool', async (t) => {
+  if (platform === null) {
+    return t.skip('DSH_TOOLS_TEST_MODULE is not set; the bundled defineTool cannot be compared')
+  }
+  let calls = 0
+  const spec = fixtureSpec(() => { calls++ })
+  const fallback = definePortableTool(spec)
+  const native = definePortableTool(spec, platform.defineTool)
+  assert.deepEqual(fallback.parameters, native.parameters)
+  assert.deepEqual(fallback.output.schema, native.output.schema)
+  for (const args of [{}, { code: 3 }, { code: 'x', timeout_ms: '3' }]) {
+    assert.ok(platform.validateJsonSchemaValue(fallback.parameters, args, '').length)
+    await assert.rejects(() => native.execute(args, {}))
+  }
+  assert.equal(calls, 0)
 })
 
 test('plugin and individual tool switches still work', () => {

@@ -17,12 +17,15 @@
 //
 // Everything is lazy: importing or applying the plugin never spawns a process.
 
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import { defaultCodexHome, resolveCodexServer } from './lib/codex-config.js'
+import { unwrapConfigValue } from './lib/config-value.js'
+import { saveImage } from './lib/images.js'
+import { appendLogLine } from './lib/log-file.js'
 import { McpBridge } from './lib/mcp-bridge.js'
 import { definePortableTool } from './lib/define-tool.js'
 
@@ -47,39 +50,45 @@ try {
   console.warn('dsh-codex-cu: @deepseek-ai/dsh-tools unavailable — using the JSON Schema adapter')
 }
 
-const STATE_FILE = join(homedir(), '.dsh', 'codex-cu-state.json')
-
-/** @typedef {{enabled: boolean, autoApprove: boolean, codexHome: string, logFile: string, timeoutMs: number, tools: {js: boolean, reset: boolean, addNodeModuleDir: boolean, status: boolean}}} Config */
+/**
+ * @typedef {{enabled: boolean, autoApprove: boolean, codexHome: string, stateFile: string,
+ *   logFile: string, timeoutMs: number, tools: {js: boolean, reset: boolean,
+ *   addNodeModuleDir: boolean, status: boolean}}} Config
+ */
 
 /**
- * The plugin's configuration schema. Every leaf is `.volatile()` so a change can be
- * applied without remounting the plugin — that is also what makes the fields reach
- * `ctx.settings.describe()` and appear as switches in the settings UI.
+ * The plugin's configuration schema. `autoApprove`, `logFile` and `timeoutMs` are
+ * `.volatile()`: the loader writes new values into the running plugin and every use
+ * re-reads them, so they never remount it. `enabled`, `codexHome`, `stateFile` and
+ * `tools.*` are deliberately not volatile: changing one remounts the plugin, the old
+ * bridge is disposed by `ctx.effect`, and the tools are registered again for the new
+ * values. Volatile fields are the ones the settings UI can flip live.
  */
 function buildConfig(schema) {
   if (schema === null) return undefined
   try {
     return schema.object({
       enabled: schema.boolean().default(true)
-        .description('注册 Codex 工具。关闭后本插件不提供任何工具（相当于停用）。')
-        .volatile(),
-      autoApprove: schema.boolean().default(true)
-        .description('自动应答 Codex 的浏览器/应用授权请求。每次审批都会写入 logFile；关闭则一律拒绝（fail-closed）。')
+        .description('注册 Codex 工具。关闭后本插件不提供任何工具（相当于停用）。'),
+      autoApprove: schema.boolean().default(false)
+        .description('自动接受 Codex 的浏览器访问授权；其他审批请求一律拒绝。每次审批都会记录到日志。')
         .volatile(),
       codexHome: schema.string().default('')
-        .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。')
-        .volatile(),
+        .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。'),
+      stateFile: schema.string().default('')
+        .description('会话状态文件路径；留空则写入 ~/.dsh/codex-cu-state.json。'),
       logFile: schema.string().default('')
-        .description('桥接日志路径；留空则只写到宿主控制台。')
+        .description('桥接日志路径；留空则写入 ~/.dsh/codex-cu.log。')
         .volatile(),
       timeoutMs: schema.number().default(120000)
         .description('单次工具调用超时（毫秒）。')
         .volatile(),
       tools: schema.object({
-        js: schema.boolean().default(true).description('注册 `codex_js`：在持久的 cua_repl 内核中执行 JS。').volatile(),
-        reset: schema.boolean().default(true).description('注册 `codex_js_reset`：重置 JS 内核。').volatile(),
-        addNodeModuleDir: schema.boolean().default(true).description('注册 `codex_js_add_node_module_dir`：增加模块解析目录。').volatile(),
-        status: schema.boolean().default(true).description('注册 `codex_status`：报告解析结果与连接状态。').volatile(),
+        js: schema.boolean().default(true).description('注册 `codex_js`：在持久的 cua_repl 内核中执行 JS。'),
+        reset: schema.boolean().default(true).description('注册 `codex_js_reset`：重置 JS 内核。'),
+        addNodeModuleDir: schema.boolean().default(true)
+          .description('注册 `codex_js_add_node_module_dir`：增加模块解析目录。'),
+        status: schema.boolean().default(true).description('注册 `codex_status`：报告解析结果与连接状态。'),
       }).description('要注册哪些工具。'),
     }).description('dsh-codex-cu 的功能开关与默认值。')
   } catch (error) {
@@ -92,29 +101,41 @@ export const Config = buildConfig(Schema)
 
 const DEFAULTS = {
   enabled: true,
-  autoApprove: true,
+  autoApprove: false,
   codexHome: '',
   logFile: '',
   timeoutMs: 120000,
   tools: { js: true, reset: true, addNodeModuleDir: true, status: true },
 }
 
-function readState() {
+function stateFilePath() {
+  return join(homedir(), '.dsh', 'codex-cu-state.json')
+}
+
+function defaultLogFile() {
+  return join(homedir(), '.dsh', 'codex-cu.log')
+}
+
+function imagesDirectory() {
+  return join(homedir(), '.dsh', 'codex-cu-images')
+}
+
+function readState(file) {
   try {
-    return JSON.parse(readFileSync(STATE_FILE, 'utf8'))
+    return JSON.parse(readFileSync(file, 'utf8'))
   } catch {
     return null
   }
 }
 
 /** A session id that survives restarts, so Codex keeps the approvals it already granted. */
-function stableSessionId() {
-  const state = readState()
+function stableSessionId(file) {
+  const state = readState(file)
   if (state?.session_id) return state.session_id
   const created = { session_id: `dsh-codex-${randomUUID()}`, created_at: new Date().toISOString() }
   try {
-    mkdirSync(dirname(STATE_FILE), { recursive: true })
-    writeFileSync(STATE_FILE, `${JSON.stringify(created, null, 2)}\n`)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, `${JSON.stringify(created, null, 2)}\n`)
   } catch {}
   return created.session_id
 }
@@ -128,11 +149,8 @@ function renderResult(result) {
       parts.push(item.text)
     } else if (item?.type === 'image' && typeof item.data === 'string') {
       // The canonical value is a string, so keep the image reachable instead of dropping it.
-      const ext = item.mimeType === 'image/png' ? 'png' : 'jpg'
-      const file = join(homedir(), '.dsh', 'codex-cu-images', `${randomUUID()}.${ext}`)
       try {
-        mkdirSync(dirname(file), { recursive: true })
-        writeFileSync(file, Buffer.from(item.data, 'base64'))
+        const file = saveImage(item, imagesDirectory())
         parts.push(`[image saved: ${file}]`)
       } catch {
         parts.push('[image could not be saved]')
@@ -156,52 +174,94 @@ const output = {
   render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
 }
 
-/** @param {{enabled?: boolean, autoApprove?: boolean, codexHome?: string, logFile?: string, timeoutMs?: number, tools?: Record<string, boolean>}} raw */
+/**
+ * @param {{enabled?: boolean, autoApprove?: boolean, codexHome?: string, stateFile?: string,
+ *   logFile?: string, timeoutMs?: number, tools?: Record<string, boolean>}} raw
+ */
 export function apply(ctx, raw = {}) {
-  const config = {
-    ...DEFAULTS,
-    ...raw,
-    tools: { ...DEFAULTS.tools, ...(raw?.tools ?? {}) },
-  }
-  if (config.enabled === false) return
+  const source = raw ?? {}
+  if (unwrapConfigValue(source.enabled) === false) return
 
-  const codexHome = config.codexHome !== '' ? config.codexHome : defaultCodexHome()
+  const configuredHome = unwrapConfigValue(source.codexHome)
+  const codexHome = typeof configuredHome === 'string' && configuredHome !== ''
+    ? configuredHome
+    : defaultCodexHome()
+
+  const toolEnabled = (key) => {
+    const tools = unwrapConfigValue(source.tools)
+    const value = tools === null || tools === undefined ? undefined : unwrapConfigValue(tools[key])
+    return value === undefined ? DEFAULTS.tools[key] : value
+  }
+
+  // Hot-updatable values are read through these getters at every use, never captured.
+  const autoApproveEnabled = () => unwrapConfigValue(source.autoApprove) === true
+  const configuredStateFile = () => {
+    const value = unwrapConfigValue(source.stateFile)
+    return typeof value === 'string' && value !== '' ? value : stateFilePath()
+  }
+  const configuredLogFile = () => {
+    const value = unwrapConfigValue(source.logFile)
+    return typeof value === 'string' && value !== '' ? value : defaultLogFile()
+  }
+  const configuredTimeoutMs = () => {
+    const value = unwrapConfigValue(source.timeoutMs)
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      return DEFAULTS.timeoutMs
+    }
+    return value
+  }
 
   const log = (message) => {
     const line = `${new Date().toISOString()} ${message}\n`
-    if (config.logFile !== '') {
-      try {
-        mkdirSync(dirname(config.logFile), { recursive: true })
-        appendFileSync(config.logFile, line)
-        return
-      } catch {}
+    try {
+      appendLogLine(configuredLogFile(), line)
+    } catch (error) {
+      console.warn(`dsh-codex-cu: ${message} (log write failed: ${error.message})`)
     }
-    console.warn(`dsh-codex-cu: ${message}`)
   }
 
   let bridge = null
+  let connecting = null
   let lastSpec = null
 
   const ensureBridge = async () => {
     if (bridge !== null && bridge.alive) return bridge
+    if (connecting !== null) return connecting
     const spec = resolveCodexServer({ codexHome })
     if (!spec.ok) throw new Error(`dsh-codex-cu: ${spec.reason}`)
-    bridge = new McpBridge({
+    if (bridge !== null) {
+      bridge.stop()
+      bridge = null
+    }
+    const created = new McpBridge({
       command: spec.command,
       args: spec.args,
       env: spec.env,
       cwd: spec.cwd,
-      sessionId: stableSessionId(),
-      autoApprove: config.autoApprove !== false,
+      sessionId: stableSessionId(configuredStateFile()),
+      shouldApprove: autoApproveEnabled,
       log,
     })
     lastSpec = spec
-    await bridge.start()
-    log(`connected via ${spec.source}`)
-    return bridge
+    bridge = created
+    // One promise for the whole handshake: a second call during the first handshake
+    // reuses this connection instead of spawning another server.
+    connecting = created.start().then(
+      () => {
+        connecting = null
+        log(`connected via ${spec.source}`)
+        return created
+      },
+      (error) => {
+        connecting = null
+        if (bridge === created) bridge = null
+        throw error
+      },
+    )
+    return connecting
   }
 
-  const call = async (method, args, timeoutMs) => {
+  const call = async (method, args, timeoutMs = configuredTimeoutMs()) => {
     const active = await ensureBridge()
     return renderResult(await active.call(method, args, timeoutMs))
   }
@@ -222,11 +282,15 @@ export function apply(ctx, raw = {}) {
       },
       output,
       async execute(args) {
-        const execTimeout = Number.isFinite(args.timeout_ms) ? Math.max(args.timeout_ms + 30_000, config.timeoutMs) : config.timeoutMs
+        const timeoutMs = configuredTimeoutMs()
+        const requested = args.timeout_ms
+        const execTimeout = Number.isFinite(requested)
+          ? Math.max(requested + 30_000, timeoutMs)
+          : timeoutMs
         return call('js', {
           code: args.code,
           title: args.title,
-          ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
+          ...(Number.isFinite(requested) ? { timeout_ms: requested } : {}),
         }, execTimeout)
       },
     }),
@@ -267,7 +331,7 @@ export function apply(ctx, raw = {}) {
           cwd: spec.ok === true ? spec.cwd : undefined,
           nativePipe: spec.ok === true ? spec.pipeDirectory : undefined,
           connected: bridge !== null && bridge.alive,
-          autoApprove: config.autoApprove !== false,
+          autoApprove: autoApproveEnabled(),
           codexHome,
         }, null, 2)
       },
@@ -276,7 +340,7 @@ export function apply(ctx, raw = {}) {
 
   // Registration is effect-based: disposing the plugin fiber unregisters the tools.
   for (const [key, factory] of Object.entries(definitions)) {
-    if (config.tools[key] !== true) continue
+    if (toolEnabled(key) !== true) continue
     try {
       ctx.tools.register(factory())
     } catch (error) {

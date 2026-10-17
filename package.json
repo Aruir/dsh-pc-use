@@ -1,6 +1,6 @@
 {
   "name": "dsh-codex-cu",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Codex Computer Use (cua_repl) as native DSH tools: drive the user's real Chrome through Codex's browser backend, with turn metadata, elicitation approvals and config auto-detection handled for you.",
   "type": "module",
   "main": "index.js",
@@ -14,9 +14,23 @@
     "node": ">=20"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-tools": "*",
-    "@deepseek-ai/schemastery": "*"
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-0 <0.3.0",
+    "@deepseek-ai/schemastery": "~3.18.5"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/schemastery": "3.18.5"
   },
   "keywords": [
     "dsh",
@@ -36,7 +50,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/schema.mjs",
+    "test": "node --test test/config-value.test.mjs test/config-real.test.mjs test/approval.test.mjs test/bridge.test.mjs test/concurrency.test.mjs test/images.test.mjs test/log-file.test.mjs test/schema.mjs",
     "test:smoke": "node test/smoke.mjs"
   },
   "dsh": {
