@@ -158,6 +158,7 @@ test('codex_status reports surfaces and service names for a computer bridge', as
     assert.equal(status.connected, true)
     assert.equal(status.computer, 'browser,computer')
     assert.deepEqual(status.services, ['browser', 'sky'])
+    assert.equal(status.servicesFrom, 'env')
     startedPids.push(...context.allPids())
   } finally {
     await disposeAndFinish(context, startedPids)
@@ -174,6 +175,7 @@ test('codex_status reports only service names when computer is off', async () =>
     const status = JSON.parse(await context.plugin.tools.get('codex_status').execute({}, {}))
     assert.equal(status.computer, 'browser')
     assert.deepEqual(status.services, ['browser', 'sky'])
+    assert.equal(status.servicesFrom, 'env')
     startedPids.push(...context.allPids())
   } finally {
     await disposeAndFinish(context, startedPids)
@@ -188,6 +190,7 @@ test('codex_status reports null surfaces and services before connecting', async 
     assert.equal(status.connected, false)
     assert.equal(status.computer, null)
     assert.equal(status.services, null)
+    assert.equal(status.servicesFrom, null)
   } finally {
     await disposeAndFinish(context, [])
   }
@@ -288,7 +291,42 @@ test('computer:true leaves an absent services variable absent', async () => {
     await js.execute({ code: '1', title: 'services test' }, {})
     assert.deepEqual(readLines(context.servicesFile), ['<unset>'])
     const status = JSON.parse(await context.plugin.tools.get('codex_status').execute({}, {}))
-    assert.deepEqual(status.services, [])
+    assert.equal(status.services, null)
+    assert.equal(status.servicesFrom, 'launcher')
+    startedPids.push(...context.allPids())
+  } finally {
+    await disposeAndFinish(context, startedPids)
+  }
+})
+
+test('computer:false reports launcher-generated services when the variable is absent', async () => {
+  const context = setup('browser', {}, { present: false })
+  const startedPids = []
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    await js.execute({ code: '1', title: 'services test' }, {})
+    assert.deepEqual(readLines(context.servicesFile), ['<unset>'])
+    const status = JSON.parse(await context.plugin.tools.get('codex_status').execute({}, {}))
+    assert.equal(status.services, null)
+    assert.equal(status.servicesFrom, 'launcher')
+    startedPids.push(...context.allPids())
+  } finally {
+    await disposeAndFinish(context, startedPids)
+  }
+})
+
+test('computer:false reports env source for an invalid services value', async () => {
+  const raw = 'not-json'
+  const trusted = { present: true, value: raw }
+  const context = setup('browser', {}, trusted)
+  const startedPids = []
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    await js.execute({ code: '1', title: 'services test' }, {})
+    assert.deepEqual(readRawLines(context.servicesFile), [raw])
+    const status = JSON.parse(await context.plugin.tools.get('codex_status').execute({}, {}))
+    assert.equal(status.services, null)
+    assert.equal(status.servicesFrom, 'env')
     startedPids.push(...context.allPids())
   } finally {
     await disposeAndFinish(context, startedPids)

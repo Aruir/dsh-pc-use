@@ -1,6 +1,8 @@
 # dsh-codex-cu
 
-0.3.0 新增：Windows 桌面操控（`computer`，默认关闭；桌面授权由用户在 DSH 中按应用确认）。
+0.3.1 修正：补充桌面授权与 DSH 权限模式的说明；`codex_status` 增加 `servicesFrom`；测试夹具移入 `test/fixtures`。
+
+0.3.0 新增：Windows 桌面操控（`computer`，默认关闭；桌面授权交给 DSH 的审批策略）。
 
 0.2.0 修正：
 
@@ -76,7 +78,7 @@ bundle 层已经插入过 `codex-cu` 了。在 profile 的 `cordis.patch.yml` �
 |---|---|---|
 | `enabled` | `true` | `false` 则不注册任何工具 |
 | `autoApprove` | `false` | 只自动接受浏览器访问授权；其他 elicitation 审批一律 decline（fail-closed） |
-| `computer` | `false` | 开启 Windows 桌面应用操控（Codex Computer Use）；每个应用首次使用都要在 DSH 中确认 |
+| `computer` | `false` | 开启 Windows 桌面应用操控（Codex Computer Use）；是否弹卡片由 DSH 的权限模式决定 |
 | `codexHome` | `''` | 空表示 `%USERPROFILE%\.codex` |
 | `stateFile` | `''` | 会话状态文件路径；空表示 `~/.dsh/codex-cu-state.json` |
 | `logFile` | `''` | 桥接日志路径；空表示 `~/.dsh/codex-cu.log` |
@@ -108,7 +110,9 @@ Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `C
 重新生成，所以插件同时在该变量里加入 `"sky": "@oai/sky/service"`（已有的 `sky` 不覆盖）；
 原值不是 JSON 对象时插件拒绝启动并报错。
 
-开启方式（`cordis.patch.yml` 的 `config:` 或设置界面）：
+开启方式：在 profile 的 `cordis.patch.yml` 里设置，改完重启桌面版。实测 DSH 桌面版
+0.2.1-rc.2 的“设置 → 内置插件”页只显示插件状态，不显示配置表单。该 patch 的
+`config:` 会整体替换配置，要把原有的键一起写上。
 
 ```yaml
 - id: codex-cu
@@ -116,10 +120,11 @@ Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `C
     computer: true
 ```
 
-首次用 `sky` 操作某个桌面应用时，Codex 会发来授权请求
-（`Allow Computer Use to use "<应用显示名>"?` 或 `Allow Codex to use <名称>?`），
-插件把它转成 DSH 的审批提示，例如“允许 Codex Computer Use 操作“记事本”？”，
-由你逐次决定；`autoApprove` 对桌面授权不起作用。
+首次用 `sky` 操作某个桌面应用时，Codex 会发来授权请求。插件识别两种桌面授权文案：
+`Allow Codex to use <应用名>?`（桌面版实测所用）和 `Allow Computer Use to use "<应用名>"?`。
+录音请求 `Allow Computer Use to record computer audio?` 不在识别范围内，会被拒绝。
+插件把桌面授权转成 DSH 的审批提示（例如“允许 Codex Computer Use 操作“记事本”？”），
+交给 DSH 的审批策略处理；`autoApprove` 对桌面授权不起作用。
 
 在 `codex_js` 里使用（`computer: true` 且连接建立之后）：
 
@@ -132,8 +137,9 @@ await sky.list_apps();
 （开启 `computer` 后，`codex_js` 的首次返回里可能包含这份说明）。
 
 **风险提示：** 桌面操控的权限大于浏览器——它可以读取屏幕、移动鼠标并向任意应用发送
-输入。默认关闭；只在你确有必要时开启。桌面授权总是逐次由你在 DSH 中确认，
-`autoApprove` 对它不起作用。
+输入。默认关闭；只在你确有必要时开启。桌面授权交给 DSH 的审批策略：在“完全权限”模式下
+DSH 不询问、直接放行；要逐次确认，请使用“仅可查看”或“工作区内修改”。Codex 也可能记住
+以前的授权而不再询问。`autoApprove` 对桌面授权不起作用。
 
 ## 前置条件
 
@@ -147,7 +153,10 @@ await sky.list_apps();
 await cua.listBrowsers();
 ```
 
-或先调 `codex_status`。命令行冒烟测试：
+或先调 `codex_status`。第一次 `codex_js` 建立连接之前，`codex_status` 的 `computer`、
+`services`、`servicesFrom` 都是 `null`，这是正常的（尚未连接）。连接后 `servicesFrom`
+为 `env` 或 `launcher`：`launcher` 表示 `.mcp.json` 没写 `NODE_REPL_TRUSTED_SERVICES`、
+由 Codex 启动器生成，此时 `services` 为 `null`，插件不知道具体内容。命令行冒烟测试：
 
 ```powershell
 npm run test:smoke
@@ -164,7 +173,7 @@ npm run test:smoke
 - `lib/codex-config.js` — 从 `.mcp.json` / `config.toml` 解析启动参数，易变值以 config.toml 为准
 - `lib/mcp-bridge.js` — 极简 MCP stdio 客户端：注入 turn metadata、声明 elicitation、按策略应答审批、超时后通知取消
 - `lib/approval.js` — 审批判定：浏览器授权按 `autoApprove`，桌面授权交给 DSH 确认，其余一律拒绝并给出原因
-- `lib/surfaces.js` — 合并 `CUA_REPL_ENABLED_SURFACES`：开启 `computer` 时追加桌面能力，保持顺序并去重
+- `lib/surfaces.js` — 合并 `CUA_REPL_ENABLED_SURFACES`（追加桌面能力、去重）与 `NODE_REPL_TRUSTED_SERVICES`（开启 `computer` 时加入 `sky`）
 - `cordis.patch.yml` — bundle 层，把插件插进每个 preset
 
 进程是**懒启动**的：加载插件本身不会 spawn 任何东西，Codex 没装也不会影响 profile 启动，错误只在真正调用工具时暴露。
@@ -176,11 +185,14 @@ npm run test:smoke
 0.1.0 在这里踩过坑：拿不到 `defineTool` 时直接把参数 DSL（`{ code: { type: 'string', required: true } }`）当成 JSON Schema 注册，模型请求里出现了非法 schema（属性里带 `required`、根缺 `type: object`），DeepSeek 直接拒绝**整轮**请求。`npm test` 会在离线环境断言四个工具都发布合法的对象 JSON Schema。
 
 只有插件目录里装了 `@deepseek-ai/schemastery` 之后，设置界面才会出现这些开关——这是插件自己的 devDependency 带来的效果（本地 `npm install` 后插件目录里才会有一份）。发布和安装方式需要留意这一点。
+桌面版 0.2.1-rc.2 实测不显示配置表单，`computer` 等配置仍需改 profile 的 `cordis.patch.yml`。
 
 ## 已知限制
 
 - 非官方用法，Codex 更新可能改变 `.mcp.json` 结构或管道机制；失效先看 `codex_status` 和 `logFile`。
 - 自动审批只认 `Allow Browser use to access <origin>?` 这条文案；Codex 改文案后浏览器授权会被拒绝（fail-closed），被拒绝的原文会写进日志。
-- 桌面授权只认 `Allow Computer Use to use "<名称>"?` 和 `Allow Codex to use <名称>?` 两种文案，改文案后会被拒绝；桌面操控默认关闭，开启后每个应用首次使用都要在 DSH 确认。
+- 桌面授权只认 `Allow Computer Use to use "<名称>"?` 和 `Allow Codex to use <名称>?` 两种文案，
+  改文案后会被拒绝；桌面操控默认关闭，是否弹卡片由 DSH 的权限模式决定（“完全权限”直接放行，
+  “仅可查看”/“工作区内修改”逐次确认），Codex 也可能记住授权而不再询问。
 - 同一时间只维持一个 Codex 连接；插件被卸载或进程退出时子进程会一起结束。
 - 兜底分支只支持 `string` / `number` / `boolean` 三种原始参数；需要嵌套对象时必须在宿主里真正拿到 `defineTool`。

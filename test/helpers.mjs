@@ -1,6 +1,5 @@
 // Shared fixtures: temp directories, a fake Codex home, a plugin harness and polling
-// helpers. The fake MCP server lives in the review directory so the tests run against
-// exactly the fixture the review used.
+// helpers. The fake MCP server lives in test/fixtures so the test suite is self-contained.
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { apply } from '../index.js'
 
 export const FAKE_SERVER = process.env.CODEX_CU_FAKE_SERVER
-  ?? fileURLToPath(new URL('../../dsh-codex-cu-review/repro/fake-server.mjs', import.meta.url))
+  ?? fileURLToPath(new URL('./fixtures/fake-server.mjs', import.meta.url))
 
 export function tempDir(prefix = 'codex-cu-test-') {
   return mkdtempSync(join(tmpdir(), prefix))

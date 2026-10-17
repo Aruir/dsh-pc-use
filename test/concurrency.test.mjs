@@ -10,7 +10,7 @@ import { McpBridge } from '../lib/mcp-bridge.js'
 import { registerPlugin, tempDir, useHome, waitFor, writeCodexHome } from './helpers.mjs'
 
 const PID_SERVER = process.env.CODEX_CU_PID_SERVER
-  ?? fileURLToPath(new URL('../../dsh-codex-cu-review/repro/pid-server.mjs', import.meta.url))
+  ?? fileURLToPath(new URL('./fixtures/pid-server.mjs', import.meta.url))
 
 function readPids(file) {
   try {

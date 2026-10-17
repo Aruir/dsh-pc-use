@@ -76,7 +76,8 @@ function buildConfig(schema) {
         .description('自动接受 Codex 的浏览器访问授权；其他审批请求一律拒绝。每次审批都会记录到日志。')
         .volatile(),
       computer: schema.boolean().default(false)
-        .description('开启 Windows 桌面应用操控（Codex Computer Use）；每个应用首次使用都要在 DSH 中确认。')
+        .description('开启 Windows 桌面应用操控（Codex Computer Use）；桌面授权交给 DSH 的审批策略，'
+          + '“完全权限”下直接放行。')
         .volatile(),
       codexHome: schema.string().default('')
         .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。'),
@@ -304,6 +305,7 @@ export function apply(ctx, raw = {}) {
   let activeComputer = null
   let activeSurfaces = null
   let activeServices = null
+  let activeServicesFrom = null
   let lastSpec = null
 
   const ensureBridge = async () => {
@@ -321,6 +323,7 @@ export function apply(ctx, raw = {}) {
       activeComputer = null
       activeSurfaces = null
       activeServices = null
+      activeServicesFrom = null
     }
     if (bridge !== null) {
       bridge.stop()
@@ -328,6 +331,7 @@ export function apply(ctx, raw = {}) {
       activeComputer = null
       activeSurfaces = null
       activeServices = null
+      activeServicesFrom = null
     }
     const spec = resolveCodexServer({ codexHome })
     if (!spec.ok) throw new Error(`dsh-codex-cu: ${spec.reason}`)
@@ -363,6 +367,7 @@ export function apply(ctx, raw = {}) {
         activeComputer = computer
         activeSurfaces = surfaces
         activeServices = trusted.names
+        activeServicesFrom = trusted.source
         log(`connected via ${spec.source}`)
         return created
       },
@@ -388,7 +393,13 @@ export function apply(ctx, raw = {}) {
         '`cua` API: `cua.listBrowsers()`, `cua.createBrowserTab("chrome", url)`, `cua.getTab(...)`, ' +
         '`cua.getState()`; tabs expose `getAXState()`, `click(index)`, `getScreenshot()`, `goto()`, ' +
         '`markDeliverable()`. Use it to open pages, read them, click and type. On the first call of a ' +
-        'session run exactly one API call, then read the returned documentation and UI state.',
+        'session run exactly one API call, then read the returned documentation and UI state. ' +
+        'The code runs as one persistent REPL unit: top-level `await` is allowed, a top-level ' +
+        '`return` is not; the value of the last expression is returned, or use `console.log`. ' +
+        'With `computer` enabled, control Windows apps via `const { sky } = await ' +
+        'import("@oai/sky")`, e.g. `sky.list_windows()` or ' +
+        '`sky.get_window_state({ window: { app, id } })`; the rest of the API is in the ' +
+        'first-call notes.',
       parameters: {
         code: { type: 'string', required: true, description: 'JavaScript to run in the persistent cua_repl kernel.' },
         title: { type: 'string', required: true, description: 'Short user-facing description of what the code does.' },
@@ -460,6 +471,7 @@ export function apply(ctx, raw = {}) {
           autoApprove: autoApproveEnabled(),
           computer: connected ? activeSurfaces : null,
           services: connected ? activeServices : null,
+          servicesFrom: connected ? activeServicesFrom : null,
           codexHome,
         }, null, 2)
       },
