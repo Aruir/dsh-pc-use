@@ -1,0 +1,27 @@
+# Insert the codex-cu plugin process-wide, so every agent preset gets the
+# codex_js / codex_js_reset / codex_js_add_node_module_dir / codex_status tools
+# without declaring anything in the preset.
+#
+# The entry name is PATH-RELATIVE on purpose: DSH anchors a relative `name:` to the
+# directory of the patch file that declared it, so this row always loads this
+# package's own index.js whatever the install folder is called.
+
+- insert:
+    - id: codex-cu
+      name: './index.js'
+      config:
+        enabled: true
+        # Answer Codex's "Allow Browser use to access <origin>?" prompts automatically.
+        # Every approval is written to logFile, so it stays auditable. Set false to
+        # fail closed instead.
+        autoApprove: true
+        # Empty means %USERPROFILE%\.codex
+        codexHome: ''
+        # Empty means console.warn only.
+        logFile: ''
+        timeoutMs: 120000
+        tools:
+          js: true
+          reset: true
+          addNodeModuleDir: true
+          status: true

@@ -1,0 +1,47 @@
+{
+  "name": "dsh-codex-cu",
+  "version": "0.1.1",
+  "description": "Codex Computer Use (cua_repl) as native DSH tools: drive the user's real Chrome through Codex's browser backend, with turn metadata, elicitation approvals and config auto-detection handled for you.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "engines": {
+    "dsh": ">=0.2.0-0 <0.3.0",
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "codex",
+    "computer-use",
+    "browser-automation",
+    "cua",
+    "chrome"
+  ],
+  "license": "MIT",
+  "files": [
+    "index.js",
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/schema.mjs",
+    "test:smoke": "node test/smoke.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
