@@ -1,6 +1,6 @@
 {
   "name": "dsh-codex-cu",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Codex Computer Use (cua_repl) as native DSH tools: drive the user's real Chrome through Codex's browser backend, with turn metadata, elicitation approvals and config auto-detection handled for you.",
   "type": "module",
   "main": "index.js",
@@ -50,7 +50,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/config-value.test.mjs test/config-real.test.mjs test/approval.test.mjs test/bridge.test.mjs test/concurrency.test.mjs test/images.test.mjs test/log-file.test.mjs test/schema.mjs",
+    "test": "node --test \"test/*.test.mjs\" test/schema.mjs",
     "test:smoke": "node test/smoke.mjs"
   },
   "dsh": {

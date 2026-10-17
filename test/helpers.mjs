@@ -32,7 +32,7 @@ export function useHome(home) {
 }
 
 /** Write the `.mcp.json` that `resolveCodexServer` reads, pointing at the fake server. */
-export function writeCodexHome(codexHome, args) {
+export function writeCodexHome(codexHome, args, env = {}) {
   const directory = join(
     codexHome, 'plugins', 'cache', 'openai-bundled', 'unified-computer-use', '26.1013.31256',
   )
@@ -42,7 +42,7 @@ export function writeCodexHome(codexHome, args) {
       cua_repl: {
         command: process.execPath,
         args,
-        env: {},
+        env,
         env_vars: [],
       },
     },
@@ -50,10 +50,14 @@ export function writeCodexHome(codexHome, args) {
   writeFileSync(join(directory, '.mcp.json'), JSON.stringify(config))
 }
 
-/** Apply the plugin against a minimal cordis context; returns the registered tools. */
-export function registerPlugin(config) {
+/**
+ * Apply the plugin against a minimal cordis context; returns the registered tools.
+ * `options.services` is what the fake `ctx.get(name)` returns (e.g. an approval service).
+ */
+export function registerPlugin(config, options = {}) {
   const tools = new Map()
   const disposers = []
+  const services = options.services ?? {}
   const ctx = {
     tools: {
       register(tool) {
@@ -64,6 +68,9 @@ export function registerPlugin(config) {
     },
     effect(factory) {
       disposers.push(factory())
+    },
+    get(name) {
+      return services[name]
     },
   }
   apply(ctx, config)

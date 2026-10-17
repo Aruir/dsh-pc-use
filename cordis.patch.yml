@@ -17,6 +17,9 @@
         # reason. Set true to auto-accept browser access again (everything else is
         # still declined).
         autoApprove: false
+        # Windows desktop control (Codex Computer Use). Off by default; when on, every
+        # desktop app must be approved in DSH the first time it is used.
+        computer: false
         # Empty means %USERPROFILE%\.codex
         codexHome: ''
         # Empty means ~/.dsh/codex-cu.log; approvals are always logged, no longer

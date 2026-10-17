@@ -22,11 +22,13 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import { DECLINE, decisionFromHostOutcome } from './lib/approval.js'
 import { defaultCodexHome, resolveCodexServer } from './lib/codex-config.js'
 import { unwrapConfigValue } from './lib/config-value.js'
 import { saveImage } from './lib/images.js'
 import { appendLogLine } from './lib/log-file.js'
 import { McpBridge } from './lib/mcp-bridge.js'
+import { enableComputerSurface } from './lib/surfaces.js'
 import { definePortableTool } from './lib/define-tool.js'
 
 export const name = 'codex-cu'
@@ -51,18 +53,18 @@ try {
 }
 
 /**
- * @typedef {{enabled: boolean, autoApprove: boolean, codexHome: string, stateFile: string,
- *   logFile: string, timeoutMs: number, tools: {js: boolean, reset: boolean,
- *   addNodeModuleDir: boolean, status: boolean}}} Config
+ * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean, codexHome: string,
+ *   stateFile: string, logFile: string, timeoutMs: number, tools: {js: boolean,
+ *   reset: boolean, addNodeModuleDir: boolean, status: boolean}}} Config
  */
 
 /**
- * The plugin's configuration schema. `autoApprove`, `logFile` and `timeoutMs` are
- * `.volatile()`: the loader writes new values into the running plugin and every use
- * re-reads them, so they never remount it. `enabled`, `codexHome`, `stateFile` and
- * `tools.*` are deliberately not volatile: changing one remounts the plugin, the old
- * bridge is disposed by `ctx.effect`, and the tools are registered again for the new
- * values. Volatile fields are the ones the settings UI can flip live.
+ * The plugin's configuration schema. `autoApprove`, `computer`, `logFile` and
+ * `timeoutMs` are `.volatile()`: the loader writes new values into the running plugin
+ * and every use re-reads them, so they never remount it. `enabled`, `codexHome`,
+ * `stateFile` and `tools.*` are deliberately not volatile: changing one remounts the
+ * plugin, the old bridge is disposed by `ctx.effect`, and the tools are registered again
+ * for the new values. Volatile fields are the ones the settings UI can flip live.
  */
 function buildConfig(schema) {
   if (schema === null) return undefined
@@ -72,6 +74,9 @@ function buildConfig(schema) {
         .description('注册 Codex 工具。关闭后本插件不提供任何工具（相当于停用）。'),
       autoApprove: schema.boolean().default(false)
         .description('自动接受 Codex 的浏览器访问授权；其他审批请求一律拒绝。每次审批都会记录到日志。')
+        .volatile(),
+      computer: schema.boolean().default(false)
+        .description('开启 Windows 桌面应用操控（Codex Computer Use）；每个应用首次使用都要在 DSH 中确认。')
         .volatile(),
       codexHome: schema.string().default('')
         .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。'),
@@ -102,6 +107,7 @@ export const Config = buildConfig(Schema)
 const DEFAULTS = {
   enabled: true,
   autoApprove: false,
+  computer: false,
   codexHome: '',
   logFile: '',
   timeoutMs: 120000,
@@ -175,8 +181,8 @@ const output = {
 }
 
 /**
- * @param {{enabled?: boolean, autoApprove?: boolean, codexHome?: string, stateFile?: string,
- *   logFile?: string, timeoutMs?: number, tools?: Record<string, boolean>}} raw
+ * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean, codexHome?: string,
+ *   stateFile?: string, logFile?: string, timeoutMs?: number, tools?: Record<string, boolean>}} raw
  */
 export function apply(ctx, raw = {}) {
   const source = raw ?? {}
@@ -195,6 +201,7 @@ export function apply(ctx, raw = {}) {
 
   // Hot-updatable values are read through these getters at every use, never captured.
   const autoApproveEnabled = () => unwrapConfigValue(source.autoApprove) === true
+  const computerEnabled = () => unwrapConfigValue(source.computer) === true
   const configuredStateFile = () => {
     const value = unwrapConfigValue(source.stateFile)
     return typeof value === 'string' && value !== '' ? value : stateFilePath()
@@ -220,26 +227,90 @@ export function apply(ctx, raw = {}) {
     }
   }
 
+  // An elicitation request carries no tool-call id, so a desktop approval is attributed
+  // to the earliest-started `codex_js` call that is still running; with none it is
+  // declined. Only the exec fields the host needs are passed on, never logged.
+  const activeCalls = []
+  const readApprovalService = () => {
+    if (typeof ctx.get !== 'function') return undefined
+    try {
+      return ctx.get('approval')
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Ask DSH to approve one desktop app; O(1) apart from waiting for the user. */
+  const requestDesktopApproval = async ({ appName }) => {
+    const approval = readApprovalService()
+    if (approval === undefined || approval === null) {
+      return { action: DECLINE, reason: 'no DSH approval service' }
+    }
+    const active = activeCalls[0]
+    if (active === undefined || active.exec === undefined || active.exec === null) {
+      return { action: DECLINE, reason: 'no active codex_js call' }
+    }
+    const exec = active.exec
+    const displayReason = `允许 Codex Computer Use 操作“${appName}”？`
+    try {
+      const outcome = await approval.request({
+        agent: exec.agent,
+        toolName: exec.name,
+        callId: exec.callId,
+        reason: `Codex Computer Use 请求操作桌面应用：${appName}`,
+        displayReason,
+        signal: exec.signal,
+      })
+      return decisionFromHostOutcome(outcome)
+    } catch (error) {
+      return { action: DECLINE, reason: 'approval request failed' }
+    }
+  }
+
   let bridge = null
   let connecting = null
+  let activeComputer = null
+  let activeSurfaces = null
   let lastSpec = null
 
   const ensureBridge = async () => {
-    if (bridge !== null && bridge.alive) return bridge
-    if (connecting !== null) return connecting
-    const spec = resolveCodexServer({ codexHome })
-    if (!spec.ok) throw new Error(`dsh-codex-cu: ${spec.reason}`)
+    const computer = computerEnabled()
+    if (connecting !== null) {
+      await connecting
+    }
+    if (bridge !== null && bridge.alive) {
+      if (activeComputer === computer) return bridge
+      // The `computer` switch changed while connected: stop the old server, then connect
+      // again with the new surfaces. The concurrent first call still shares `connecting`.
+      bridge.stop()
+      bridge = null
+      activeComputer = null
+      activeSurfaces = null
+    }
     if (bridge !== null) {
       bridge.stop()
       bridge = null
+      activeComputer = null
+      activeSurfaces = null
+    }
+    const spec = resolveCodexServer({ codexHome })
+    if (!spec.ok) throw new Error(`dsh-codex-cu: ${spec.reason}`)
+    const env = { ...spec.env }
+    const surfaces = computer
+      ? enableComputerSurface(env.CUA_REPL_ENABLED_SURFACES)
+      : (env.CUA_REPL_ENABLED_SURFACES ?? null)
+    if (computer) {
+      env.CUA_REPL_ENABLED_SURFACES = surfaces
     }
     const created = new McpBridge({
       command: spec.command,
       args: spec.args,
-      env: spec.env,
+      env,
       cwd: spec.cwd,
       sessionId: stableSessionId(configuredStateFile()),
       shouldApprove: autoApproveEnabled,
+      isComputerEnabled: computerEnabled,
+      requestDesktopApproval,
       log,
     })
     lastSpec = spec
@@ -249,6 +320,8 @@ export function apply(ctx, raw = {}) {
     connecting = created.start().then(
       () => {
         connecting = null
+        activeComputer = computer
+        activeSurfaces = surfaces
         log(`connected via ${spec.source}`)
         return created
       },
@@ -281,17 +354,26 @@ export function apply(ctx, raw = {}) {
         timeout_ms: { type: 'number', description: 'Execution timeout in milliseconds (default 30000).' },
       },
       output,
-      async execute(args) {
-        const timeoutMs = configuredTimeoutMs()
-        const requested = args.timeout_ms
-        const execTimeout = Number.isFinite(requested)
-          ? Math.max(requested + 30_000, timeoutMs)
-          : timeoutMs
-        return call('js', {
-          code: args.code,
-          title: args.title,
-          ...(Number.isFinite(requested) ? { timeout_ms: requested } : {}),
-        }, execTimeout)
+      async execute(args, exec) {
+        // Desktop approvals are attributed to the earliest-started call still running,
+        // so a call must be registered for its whole lifetime and removed in `finally`.
+        const registration = { exec }
+        activeCalls.push(registration)
+        try {
+          const timeoutMs = configuredTimeoutMs()
+          const requested = args.timeout_ms
+          const execTimeout = Number.isFinite(requested)
+            ? Math.max(requested + 30_000, timeoutMs)
+            : timeoutMs
+          return await call('js', {
+            code: args.code,
+            title: args.title,
+            ...(Number.isFinite(requested) ? { timeout_ms: requested } : {}),
+          }, execTimeout)
+        } finally {
+          const position = activeCalls.indexOf(registration)
+          if (position >= 0) activeCalls.splice(position, 1)
+        }
       },
     }),
     reset: () => tool({
@@ -323,6 +405,7 @@ export function apply(ctx, raw = {}) {
       output,
       async execute() {
         const spec = lastSpec ?? resolveCodexServer({ codexHome })
+        const connected = bridge !== null && bridge.alive
         return JSON.stringify({
           resolved: spec.ok === true,
           reason: spec.ok === true ? undefined : spec.reason,
@@ -330,8 +413,9 @@ export function apply(ctx, raw = {}) {
           command: spec.ok === true ? spec.command : undefined,
           cwd: spec.ok === true ? spec.cwd : undefined,
           nativePipe: spec.ok === true ? spec.pipeDirectory : undefined,
-          connected: bridge !== null && bridge.alive,
+          connected,
           autoApprove: autoApproveEnabled(),
+          computer: connected ? activeSurfaces : null,
           codexHome,
         }, null, 2)
       },

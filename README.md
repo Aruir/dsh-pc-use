@@ -1,5 +1,7 @@
 # dsh-codex-cu
 
+0.3.0 新增：Windows 桌面操控（`computer`，默认关闭；桌面授权由用户在 DSH 中按应用确认）。
+
 0.2.0 修正：
 
 - 参数 schema 兜底：拿不到宿主 `defineTool` 时把参数 DSL 转成对象 JSON Schema，并在执行前校验参数；
@@ -74,13 +76,14 @@ bundle 层已经插入过 `codex-cu` 了。在 profile 的 `cordis.patch.yml` �
 |---|---|---|
 | `enabled` | `true` | `false` 则不注册任何工具 |
 | `autoApprove` | `false` | 只自动接受浏览器访问授权；其他 elicitation 审批一律 decline（fail-closed） |
+| `computer` | `false` | 开启 Windows 桌面应用操控（Codex Computer Use）；每个应用首次使用都要在 DSH 中确认 |
 | `codexHome` | `''` | 空表示 `%USERPROFILE%\.codex` |
 | `stateFile` | `''` | 会话状态文件路径；空表示 `~/.dsh/codex-cu-state.json` |
 | `logFile` | `''` | 桥接日志路径；空表示 `~/.dsh/codex-cu.log` |
 | `timeoutMs` | `120000` | 单次调用超时 |
 | `tools` | 全开 | `{ js, reset, addNodeModuleDir, status }` 逐项开关 |
 
-`autoApprove` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载插件。`enabled`、`codexHome`、`stateFile`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。
+`autoApprove` / `computer` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载插件；`computer` 改变后，下一次调用会先停掉旧连接再按新值重连。`enabled`、`codexHome`、`stateFile`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。
 
 每一次审批都会写进日志（`logFile` 为空时写入 `~/.dsh/codex-cu.log`，不再只走 `console.warn`），记录原始文案、决定和原因，例如：
 
@@ -88,12 +91,46 @@ bundle 层已经插入过 `codex-cu` 了。在 profile 的 `cordis.patch.yml` �
 approval "Allow Browser use to access https://www.bilibili.com?" -> accept (browser access auto-approved)
 ```
 
-- `autoApprove: false`（默认）：一律 decline，原因记为 `auto-approve is off`；
-- `autoApprove: true`：只有浏览器访问授权会 accept（原因 `browser access auto-approved`），其他审批一律 decline，原因记为 `not a browser-access approval`。
+- `autoApprove: false`（默认）：浏览器授权一律 decline，原因记为 `auto-approve is off`；
+- `autoApprove: true`：只有浏览器访问授权会 accept（原因 `browser access auto-approved`），其他审批一律 decline，原因记为 `not a browser-access approval`；
+- 桌面授权不适用 `autoApprove`：`computer: false` 时一律 decline（`computer use is off`）；`computer: true` 时交给 DSH 审批，结果写进日志（`approved in DSH` / `rejected in DSH` / `approval cancelled` / `approval unavailable`），没有审批服务或没有进行中的 `codex_js` 调用时 decline。
 
-如果 Codex 改掉授权文案，浏览器授权会被拒绝——这是安全的失败方式。
+如果 Codex 改掉授权文案，浏览器授权和桌面授权都会被拒绝——这是安全的失败方式。
 
 `stateFile` 保存一个持久的 `session_id`，重启后沿用同一个 id；它是否让 Codex 按 session_id 跨会话保留已授予的授权，**未验证**。冒烟测试会传入临时路径，避免测试产生的状态和授权写进日常使用的那一份。
+
+## 桌面操控
+
+Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `CUA_REPL_ENABLED_SURFACES`
+决定启用哪些能力，`.mcp.json` 里写死为 `browser`；插件只在子进程的 env 里追加
+`computer`（得到 `browser,computer`），不修改任何 Codex 文件。
+
+开启方式（`cordis.patch.yml` 的 `config:` 或设置界面）：
+
+```yaml
+- id: codex-cu
+  config:
+    computer: true
+```
+
+首次用 `sky` 操作某个桌面应用时，Codex 会发来授权请求
+（`Allow Computer Use to use "<应用显示名>"?` 或 `Allow Codex to use <名称>?`），
+插件把它转成 DSH 的审批提示，例如“允许 Codex Computer Use 操作“记事本”？”，
+由你逐次决定；`autoApprove` 对桌面授权不起作用。
+
+在 `codex_js` 里使用（`computer: true` 且连接建立之后）：
+
+```js
+const { sky } = await import('@oai/sky');
+await sky.list_apps();
+```
+
+`sky` 还提供截屏、点击、输入等桌面操作，具体 API 见 Codex 自带的桌面操作说明
+（开启 `computer` 后，`codex_js` 的首次返回里会包含这份说明）。
+
+**风险提示：** 桌面操控的权限大于浏览器——它可以读取屏幕、移动鼠标并向任意应用发送
+输入。默认关闭；只在你确有必要时开启，并且不要在没有人工确认的情况下把
+`autoApprove` 当作桌面授权的前置条件。
 
 ## 前置条件
 
@@ -123,7 +160,8 @@ npm run test:smoke
 - `lib/images.js` — 保存工具结果里的截图：按 mimeType 取扩展名，保存后只保留最新 50 个文件
 - `lib/codex-config.js` — 从 `.mcp.json` / `config.toml` 解析启动参数，易变值以 config.toml 为准
 - `lib/mcp-bridge.js` — 极简 MCP stdio 客户端：注入 turn metadata、声明 elicitation、按策略应答审批、超时后通知取消
-- `lib/approval.js` — 审批判定：只自动接受浏览器访问授权，其余一律拒绝并给出原因
+- `lib/approval.js` — 审批判定：浏览器授权按 `autoApprove`，桌面授权交给 DSH 确认，其余一律拒绝并给出原因
+- `lib/surfaces.js` — 合并 `CUA_REPL_ENABLED_SURFACES`：开启 `computer` 时追加桌面能力，保持顺序并去重
 - `cordis.patch.yml` — bundle 层，把插件插进每个 preset
 
 进程是**懒启动**的：加载插件本身不会 spawn 任何东西，Codex 没装也不会影响 profile 启动，错误只在真正调用工具时暴露。
@@ -140,6 +178,6 @@ npm run test:smoke
 
 - 非官方用法，Codex 更新可能改变 `.mcp.json` 结构或管道机制；失效先看 `codex_status` 和 `logFile`。
 - 自动审批只认 `Allow Browser use to access <origin>?` 这条文案；Codex 改文案后浏览器授权会被拒绝（fail-closed），被拒绝的原文会写进日志。
-- 只启用浏览器能力。原生应用控制（`sky`）走的是另一条路径，需要额外的 turn-ended 处理来收掉橙色光标。
+- 桌面授权只认 `Allow Computer Use to use "<名称>"?` 和 `Allow Codex to use <名称>?` 两种文案，改文案后会被拒绝；桌面操控默认关闭，开启后每个应用首次使用都要在 DSH 确认。
 - 同一时间只维持一个 Codex 连接；插件被卸载或进程退出时子进程会一起结束。
 - 兜底分支只支持 `string` / `number` / `boolean` 三种原始参数；需要嵌套对象时必须在宿主里真正拿到 `defineTool`。
