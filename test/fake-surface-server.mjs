@@ -1,13 +1,16 @@
-// Fake cua_repl server that records its pid and the CUA_REPL_ENABLED_SURFACES value it
-// was spawned with, then answers initialize and tools/call like the `ok` fake server.
-// Usage: node fake-surface-server.mjs <pid-file> <surfaces-file> <log-file>
+// Fake cua_repl server that records its pid, CUA_REPL_ENABLED_SURFACES and
+// NODE_REPL_TRUSTED_SERVICES as it was spawned, then answers initialize and tools/call
+// like the `ok` fake server.
+// Usage: node fake-surface-server.mjs <pid-file> <surfaces-file> <services-file> <log-file>
 import { appendFileSync } from 'node:fs'
 import readline from 'node:readline'
 
-const [pidFile, surfacesFile, logFile] = process.argv.slice(2)
+const [pidFile, surfacesFile, servicesFile, logFile] = process.argv.slice(2)
 appendFileSync(pidFile, `${process.pid}\n`)
 const surfaces = process.env.CUA_REPL_ENABLED_SURFACES
 appendFileSync(surfacesFile, `${surfaces === undefined ? '<unset>' : surfaces}\n`)
+const services = process.env.NODE_REPL_TRUSTED_SERVICES
+appendFileSync(servicesFile, `${services === undefined ? '<unset>' : services}\n`)
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`)

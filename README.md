@@ -103,7 +103,10 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 
 Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `CUA_REPL_ENABLED_SURFACES`
 决定启用哪些能力，`.mcp.json` 里写死为 `browser`；插件只在子进程的 env 里追加
-`computer`（得到 `browser,computer`），不修改任何 Codex 文件。
+`computer`（得到 `browser,computer`），不修改任何 Codex 文件。桌面能力还需要 `sky`
+可信服务：`.mcp.json` 已经把 `NODE_REPL_TRUSTED_SERVICES` 写死，启动器不会按 surfaces
+重新生成，所以插件同时在该变量里加入 `"sky": "@oai/sky/service"`（已有的 `sky` 不覆盖）；
+原值不是 JSON 对象时插件拒绝启动并报错。
 
 开启方式（`cordis.patch.yml` 的 `config:` 或设置界面）：
 

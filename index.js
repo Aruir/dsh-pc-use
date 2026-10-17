@@ -28,7 +28,7 @@ import { unwrapConfigValue } from './lib/config-value.js'
 import { saveImage } from './lib/images.js'
 import { appendLogLine } from './lib/log-file.js'
 import { McpBridge } from './lib/mcp-bridge.js'
-import { enableComputerSurface } from './lib/surfaces.js'
+import { enableComputerSurface, mergeTrustedServices } from './lib/surfaces.js'
 import { definePortableTool } from './lib/define-tool.js'
 
 export const name = 'codex-cu'
@@ -290,6 +290,11 @@ export function apply(ctx, raw = {}) {
       }
       return decisionFromHostOutcome(outcome)
     } catch {
+      // A request that failed because the call ended is a call-end decline, not a
+      // host failure; keep the log reason accurate.
+      if (callSignal.aborted) {
+        return { action: DECLINE, reason: 'codex_js call ended' }
+      }
       return { action: DECLINE, reason: 'approval request failed' }
     }
   }
@@ -298,6 +303,7 @@ export function apply(ctx, raw = {}) {
   let connecting = null
   let activeComputer = null
   let activeSurfaces = null
+  let activeServices = null
   let lastSpec = null
 
   const ensureBridge = async () => {
@@ -314,12 +320,14 @@ export function apply(ctx, raw = {}) {
       bridge = null
       activeComputer = null
       activeSurfaces = null
+      activeServices = null
     }
     if (bridge !== null) {
       bridge.stop()
       bridge = null
       activeComputer = null
       activeSurfaces = null
+      activeServices = null
     }
     const spec = resolveCodexServer({ codexHome })
     if (!spec.ok) throw new Error(`dsh-codex-cu: ${spec.reason}`)
@@ -329,6 +337,10 @@ export function apply(ctx, raw = {}) {
       : (env.CUA_REPL_ENABLED_SURFACES ?? null)
     if (computer) {
       env.CUA_REPL_ENABLED_SURFACES = surfaces
+    }
+    const trusted = mergeTrustedServices(env.NODE_REPL_TRUSTED_SERVICES, computer)
+    if (trusted.value !== undefined) {
+      env.NODE_REPL_TRUSTED_SERVICES = trusted.value
     }
     const created = new McpBridge({
       command: spec.command,
@@ -350,6 +362,7 @@ export function apply(ctx, raw = {}) {
         connecting = null
         activeComputer = computer
         activeSurfaces = surfaces
+        activeServices = trusted.names
         log(`connected via ${spec.source}`)
         return created
       },
@@ -446,6 +459,7 @@ export function apply(ctx, raw = {}) {
           connected,
           autoApprove: autoApproveEnabled(),
           computer: connected ? activeSurfaces : null,
+          services: connected ? activeServices : null,
           codexHome,
         }, null, 2)
       },

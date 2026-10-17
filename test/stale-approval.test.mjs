@@ -73,3 +73,46 @@ test('a timed-out codex_js call withdraws the pending desktop approval', async (
     restore()
   }
 })
+
+test('the signal handed to DSH follows a host cancellation', async () => {
+  const home = tempDir('codex-cu-cancel-')
+  const restore = useHome(home)
+  const serverLog = join(home, 'server.log')
+  writeFileSync(serverLog, '')
+  const codexHome = join(home, 'codex')
+  writeCodexHome(codexHome, [DESKTOP_SERVER, 'computer', serverLog])
+  let seenSignal = null
+  const approval = {
+    request(parameters) {
+      seenSignal = parameters.signal
+      return new Promise(() => {})
+    },
+  }
+  const plugin = registerPlugin({
+    codexHome,
+    computer: true,
+    timeoutMs: 60_000,
+    logFile: join(home, 'bridge.log'),
+    stateFile: join(home, 'state.json'),
+  }, { services: { approval } })
+  const controller = new AbortController()
+  const exec = {
+    agent: { id: 'agent' },
+    name: 'codex_js',
+    callId: 'call-cancel',
+    signal: controller.signal,
+  }
+  try {
+    const js = plugin.tools.get('codex_js')
+    const pending = js.execute({ code: '1', title: 'cancel' }, exec)
+      .then((value) => value, (error) => error)
+    assert.equal(await waitFor(() => seenSignal !== null), true)
+    controller.abort()
+    assert.equal(await waitFor(() => seenSignal.aborted === true, 2000), true)
+    plugin.dispose()
+    await pending
+  } finally {
+    plugin.dispose()
+    restore()
+  }
+})

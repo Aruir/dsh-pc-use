@@ -1,5 +1,6 @@
-// F1: the `computer` switch adds the computer surface to the child env only, is read on
-// every ensureBridge call, and a hot change restarts the bridge without leaking servers.
+// F1/R10: the `computer` switch adds the computer surface and the sky trusted service to
+// the child env only, is read on every ensureBridge call, and a hot change restarts the
+// bridge without leaking servers.
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -11,6 +12,10 @@ import { registerPlugin, tempDir, useHome, waitFor, writeCodexHome } from './hel
 const SURFACE_SERVER = process.env.CODEX_CU_SURFACE_SERVER
   ?? fileURLToPath(new URL('./fake-surface-server.mjs', import.meta.url))
 const WRITE = Symbol.for('cosmokit.volatile.write')
+const INVALID_SERVICES = 'dsh-codex-cu: NODE_REPL_TRUSTED_SERVICES is not a JSON object'
+
+// Keep the "variable is absent" cases independent from the machine running the tests.
+delete process.env.NODE_REPL_TRUSTED_SERVICES
 
 function createVolatile(value) {
   let current = value
@@ -26,8 +31,17 @@ function readLines(file) {
   return readFileSync(file, 'utf8').trim().split('\n').filter(Boolean)
 }
 
+/** Lines without trimming, for byte-for-byte comparisons of an env value. */
+function readRawLines(file) {
+  return readFileSync(file, 'utf8').replace(/\n$/, '').split('\n')
+}
+
 function readPids(file) {
   return readLines(file).map(Number)
+}
+
+function parsedServices(file) {
+  return readLines(file).map((line) => (line === '<unset>' ? null : JSON.parse(line)))
 }
 
 function isRunning(pid) {
@@ -47,20 +61,24 @@ function killAll(pids) {
   }
 }
 
-function setup(envSurfaces = 'browser', config = {}) {
+function setup(envSurfaces = 'browser', config = {}, trusted = { present: false }) {
   const home = tempDir('codex-cu-surfaces-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
   const pidFile = join(home, 'pids.txt')
   const surfacesFile = join(home, 'surfaces.txt')
+  const servicesFile = join(home, 'services.txt')
   writeFileSync(serverLog, '')
   writeFileSync(pidFile, '')
   writeFileSync(surfacesFile, '')
+  writeFileSync(servicesFile, '')
   const codexHome = join(home, 'codex')
+  const env = { CUA_REPL_ENABLED_SURFACES: envSurfaces }
+  if (trusted.present) env.NODE_REPL_TRUSTED_SERVICES = trusted.value
   writeCodexHome(
     codexHome,
-    [SURFACE_SERVER, pidFile, surfacesFile, serverLog],
-    { CUA_REPL_ENABLED_SURFACES: envSurfaces },
+    [SURFACE_SERVER, pidFile, surfacesFile, servicesFile, serverLog],
+    env,
   )
   const plugin = registerPlugin({
     codexHome,
@@ -73,6 +91,7 @@ function setup(envSurfaces = 'browser', config = {}) {
     restore,
     pidFile,
     surfacesFile,
+    servicesFile,
     plugin,
     allPids: () => readPids(pidFile),
   }
@@ -128,8 +147,9 @@ test('computer:true does not duplicate an existing computer surface', async () =
   }
 })
 
-test('codex_status reports the surfaces of the connected bridge', async () => {
-  const context = setup('browser', { computer: true })
+test('codex_status reports surfaces and service names for a computer bridge', async () => {
+  const trusted = { present: true, value: '{"browser":"x"}' }
+  const context = setup('browser', { computer: true }, trusted)
   const startedPids = []
   try {
     const js = context.plugin.tools.get('codex_js')
@@ -137,26 +157,62 @@ test('codex_status reports the surfaces of the connected bridge', async () => {
     const status = JSON.parse(await context.plugin.tools.get('codex_status').execute({}, {}))
     assert.equal(status.connected, true)
     assert.equal(status.computer, 'browser,computer')
+    assert.deepEqual(status.services, ['browser', 'sky'])
     startedPids.push(...context.allPids())
   } finally {
     await disposeAndFinish(context, startedPids)
   }
 })
 
-test('enabling computer hot restarts the bridge with the new surfaces', async () => {
+test('codex_status reports only service names when computer is off', async () => {
+  const trusted = { present: true, value: '{"browser":"x","sky":"custom"}' }
+  const context = setup('browser', {}, trusted)
+  const startedPids = []
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    await js.execute({ code: '1', title: 'surface test' }, {})
+    const status = JSON.parse(await context.plugin.tools.get('codex_status').execute({}, {}))
+    assert.equal(status.computer, 'browser')
+    assert.deepEqual(status.services, ['browser', 'sky'])
+    startedPids.push(...context.allPids())
+  } finally {
+    await disposeAndFinish(context, startedPids)
+  }
+})
+
+test('codex_status reports null surfaces and services before connecting', async () => {
+  const trusted = { present: true, value: '{"browser":"x"}' }
+  const context = setup('browser', { computer: true }, trusted)
+  try {
+    const status = JSON.parse(await context.plugin.tools.get('codex_status').execute({}, {}))
+    assert.equal(status.connected, false)
+    assert.equal(status.computer, null)
+    assert.equal(status.services, null)
+  } finally {
+    await disposeAndFinish(context, [])
+  }
+})
+
+test('enabling computer hot restarts the bridge with the new surfaces and services', async () => {
   const computer = createVolatile(false)
-  const context = setup('browser', { computer })
+  const trusted = { present: true, value: '{"browser":"x"}' }
+  const context = setup('browser', { computer }, trusted)
   const startedPids = []
   try {
     const js = context.plugin.tools.get('codex_js')
     await js.execute({ code: '1', title: 'first' }, {})
     assert.deepEqual(readLines(context.surfacesFile), ['browser'])
+    assert.deepEqual(parsedServices(context.servicesFile), [{ browser: 'x' }])
     const firstPids = context.allPids()
     assert.equal(firstPids.length, 1)
     startedPids.push(...firstPids)
     computer[WRITE](true)
     await js.execute({ code: '2', title: 'second' }, {})
     assert.deepEqual(readLines(context.surfacesFile), ['browser', 'browser,computer'])
+    assert.deepEqual(parsedServices(context.servicesFile), [
+      { browser: 'x' },
+      { browser: 'x', sky: '@oai/sky/service' },
+    ])
     const allPids = context.allPids()
     assert.equal(allPids.length, 2)
     startedPids.push(...allPids.filter((pid) => !startedPids.includes(pid)))
@@ -181,6 +237,98 @@ test('two parallel first calls with computer enabled start one server', async ()
     startedPids.push(...context.allPids())
     assert.equal(startedPids.length, 1)
     assert.deepEqual(readLines(context.surfacesFile), ['browser,computer'])
+  } finally {
+    await disposeAndFinish(context, startedPids)
+  }
+})
+
+test('computer:true adds the sky service to an existing services object', async () => {
+  const trusted = { present: true, value: '{"browser":"x"}' }
+  const context = setup('browser', { computer: true }, trusted)
+  const startedPids = []
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    await js.execute({ code: '1', title: 'services test' }, {})
+    const services = parsedServices(context.servicesFile)
+    assert.equal(services.length, 1)
+    assert.deepEqual(Object.keys(services[0]), ['browser', 'sky'])
+    assert.equal(services[0].browser, 'x')
+    assert.equal(services[0].sky, '@oai/sky/service')
+    startedPids.push(...context.allPids())
+  } finally {
+    await disposeAndFinish(context, startedPids)
+  }
+})
+
+test('computer:true keeps an existing sky service value', async () => {
+  const trusted = {
+    present: true,
+    value: '{"browser":"x","sky":"custom-sky"}',
+  }
+  const context = setup('browser', { computer: true }, trusted)
+  const startedPids = []
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    await js.execute({ code: '1', title: 'services test' }, {})
+    const services = parsedServices(context.servicesFile)
+    assert.equal(services.length, 1)
+    assert.deepEqual(Object.keys(services[0]), ['browser', 'sky'])
+    assert.equal(services[0].sky, 'custom-sky')
+    startedPids.push(...context.allPids())
+  } finally {
+    await disposeAndFinish(context, startedPids)
+  }
+})
+
+test('computer:true leaves an absent services variable absent', async () => {
+  const context = setup('browser', { computer: true }, { present: false })
+  const startedPids = []
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    await js.execute({ code: '1', title: 'services test' }, {})
+    assert.deepEqual(readLines(context.servicesFile), ['<unset>'])
+    const status = JSON.parse(await context.plugin.tools.get('codex_status').execute({}, {}))
+    assert.deepEqual(status.services, [])
+    startedPids.push(...context.allPids())
+  } finally {
+    await disposeAndFinish(context, startedPids)
+  }
+})
+
+for (const invalid of ['not-json', '[1,2]', 'null']) {
+  test(`computer:true rejects an invalid services value (${invalid})`, async () => {
+    const trusted = { present: true, value: invalid }
+    const context = setup('browser', { computer: true }, trusted)
+    const startedPids = []
+    try {
+      const js = context.plugin.tools.get('codex_js')
+      await assert.rejects(
+        () => js.execute({ code: '1', title: 'invalid services' }, {}),
+        (error) => {
+          assert.match(error.message, new RegExp(INVALID_SERVICES))
+          assert.equal(error.message.includes(invalid), false)
+          return true
+        },
+      )
+      assert.deepEqual(context.allPids(), [])
+      assert.deepEqual(readPids(context.pidFile), [])
+    } finally {
+      await disposeAndFinish(context, startedPids)
+    }
+  })
+}
+
+test('computer:false passes the services value through byte for byte', async () => {
+  const raw = '  { "browser" : "x" }  '
+  const trusted = { present: true, value: raw }
+  const context = setup('browser', {}, trusted)
+  const startedPids = []
+  try {
+    const js = context.plugin.tools.get('codex_js')
+    await js.execute({ code: '1', title: 'services test' }, {})
+    assert.deepEqual(readRawLines(context.servicesFile), [raw])
+    startedPids.push(...context.allPids())
+    assert.equal(startedPids.length, 1)
   } finally {
     await disposeAndFinish(context, startedPids)
   }
