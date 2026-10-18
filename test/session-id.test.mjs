@@ -11,26 +11,21 @@ import { registerPlugin, tempDir, useHome, waitFor, writeCodexHome } from './hel
 // The turn-ended fake server records `call <tool> <session_id> <turn_id>` per call.
 const SERVER = process.env.CODEX_CU_TURN_SERVER
   ?? fileURLToPath(new URL('./fake-computer-server.mjs', import.meta.url))
-const WRITE = Symbol.for('cosmokit.volatile.write')
-
-function createVolatile(value) {
-  let current = value
-  return Object.freeze({
-    get: () => current,
-    [WRITE](next) {
-      current = next
-    },
-  })
-}
 
 function setup(home, config = {}) {
   const codexHome = join(home, 'codex')
-  writeCodexHome(codexHome, [SERVER, 'turn-ended', join(home, 'server.log')])
+  writeCodexHome(codexHome, serverArgs(home))
   return registerPlugin({
     codexHome,
     logFile: join(home, 'bridge.log'),
     ...config,
   })
+}
+
+/** The fake server launch args; `extra` forces a launch-spec change. O(1). */
+function serverArgs(home, extra = null) {
+  const args = [SERVER, 'turn-ended', join(home, 'server.log')]
+  return extra === null ? args : [...args, extra]
 }
 
 function callLines(home) {
@@ -61,8 +56,7 @@ test(
   async () => {
   const home = tempDir('pc-use-session-id-')
   const restore = useHome(home)
-  const computer = createVolatile(false)
-  const plugin = setup(home, { computer })
+  const plugin = setup(home)
   const second = setup(home)
   try {
     await reset(plugin)
@@ -70,8 +64,8 @@ test(
     const first = callParts(callLines(home)[0])
     assert.equal(first.name, 'js_reset')
     assert.equal(first.sessionId.startsWith('dsh-pc-'), true, first.sessionId)
-    // Changing a tool switch that remounts the connection rebuilds the bridge.
-    computer[WRITE](true)
+    // Changing the browser launch args rebuilds the bridge, and `_meta` gets a fresh id.
+    writeCodexHome(join(home, 'codex'), serverArgs(home, 'rebuilt'))
     await reset(plugin)
     assert.equal(await waitFor(() => callLines(home).length === 2), true)
     const rebuilt = callParts(callLines(home)[1])

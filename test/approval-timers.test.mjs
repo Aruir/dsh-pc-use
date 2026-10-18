@@ -21,7 +21,13 @@ function setup(options = {}) {
   writeFileSync(serverLog, '')
   writeFileSync(pidFile, '')
   const codexHome = join(home, 'codex')
-  writeCodexHome(codexHome, [SERVER, pidFile, options.mode ?? 'computer', serverLog])
+  // The desktop server comes from [mcp_servers.node_repl]; the browser source is unused.
+  writeCodexHome(
+    codexHome,
+    [SERVER, pidFile, options.mode ?? 'computer', serverLog],
+    {},
+    { desktop: true },
+  )
   const plugin = registerPlugin({
     codexHome,
     computer: true,
@@ -74,11 +80,11 @@ async function finish(context) {
   assert.equal(stopped, true, 'every fake server must exit after the plugin is disposed')
 }
 
-/** The same exec shape the host hands pc_codex_js; a distinct call id per call. O(1). */
+/** The same exec shape the host hands pc_codex_desktop_js; a distinct call id per call. O(1). */
 function execFor(callId) {
   return {
     agent: { id: 'agent-timers', session: { id: 'session-timers' } },
-    name: 'pc_codex_js',
+    name: 'pc_codex_desktop_js',
     callId,
     signal: new AbortController().signal,
   }
@@ -101,7 +107,7 @@ function approvalAfter(ms, outcome = 'allowed-once') {
 }
 
 function runJs(context, callId = 'call-1') {
-  return context.plugin.tools.get('pc_codex_js')
+  return context.plugin.tools.get('pc_codex_desktop_js')
     .execute({ code: '1', title: 'timer' }, execFor(callId))
 }
 

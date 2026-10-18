@@ -85,7 +85,13 @@ function setup(options = {}) {
   writeFileSync(serverLog, '')
   const logFile = join(home, 'bridge.log')
   const codexHome = join(home, 'codex')
-  writeCodexHome(codexHome, [SERVER, options.mode ?? 'flow-meta', serverLog])
+  // The desktop server comes from [mcp_servers.node_repl]; the browser source is unused.
+  writeCodexHome(
+    codexHome,
+    [SERVER, options.mode ?? 'flow-meta', serverLog],
+    {},
+    { desktop: true },
+  )
   const plugin = registerPlugin({
     codexHome,
     computer: true,
@@ -100,14 +106,14 @@ function setup(options = {}) {
 function execFor(callId = 'call-1') {
   return {
     agent: { id: 'agent-choice', session: { id: 'session-choice' } },
-    name: 'pc_codex_js',
+    name: 'pc_codex_desktop_js',
     callId,
     signal: new AbortController().signal,
   }
 }
 
 function runJs(context, exec = execFor(), code = '记事本@app') {
-  return context.plugin.tools.get('pc_codex_js')
+  return context.plugin.tools.get('pc_codex_desktop_js')
     .execute({ code, title: 'desktop choice' }, exec)
 }
 
@@ -361,7 +367,7 @@ test('ending the call withdraws the choice card', async () => {
   const controller = new AbortController()
   const exec = {
     agent: { id: 'agent-choice', session: { id: 'session-choice' } },
-    name: 'pc_codex_js',
+    name: 'pc_codex_desktop_js',
     callId: 'call-end',
     signal: controller.signal,
   }

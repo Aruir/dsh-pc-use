@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
 import { Config } from '../index.js'
-import { resolveLanguage, TEXT } from '../lib/text.js'
+import { CONFIG_I18N, resolveLanguage, TEXT } from '../lib/text.js'
 import { registerPlugin, tempDir, useHome, writeCodexHome } from './helpers.mjs'
 
 const SERVER = process.env.CODEX_CU_DESKTOP_SERVER
@@ -101,7 +101,11 @@ function setup(options = {}) {
   writeFileSync(serverLog, '')
   const logFile = join(home, 'bridge.log')
   const codexHome = join(home, 'codex')
-  writeCodexHome(codexHome, [SERVER, options.mode ?? 'flow-meta', serverLog])
+  // Desktop approvals are only raised by the desktop server; the browser server is absent.
+  writeCodexHome(codexHome, [SERVER, options.mode ?? 'flow-meta', serverLog], {}, {
+    browser: false,
+    desktop: true,
+  })
   const plugin = registerPlugin({
     codexHome,
     computer: true,
@@ -116,14 +120,14 @@ function setup(options = {}) {
 function execFor(callId = 'call-1') {
   return {
     agent: { id: 'agent-language', session: { id: 'session-language' } },
-    name: 'pc_codex_js',
+    name: 'pc_codex_desktop_js',
     callId,
     signal: new AbortController().signal,
   }
 }
 
 function runJs(context, exec = execFor()) {
-  return context.plugin.tools.get('pc_codex_js')
+  return context.plugin.tools.get('pc_codex_desktop_js')
     .execute({ code: '记事本@app', title: 'language' }, exec)
 }
 
@@ -296,8 +300,25 @@ test('every configuration field has zh and en descriptions', () => {
   for (const field of fields) {
     descriptionOf(Config.dict[field], field)
   }
-  for (const tool of ['js', 'reset', 'docs', 'status']) {
+  for (const tool of [
+    'js', 'reset', 'desktopJs', 'desktopReset', 'desktopAddNodeModuleDir', 'docs', 'status',
+  ]) {
     descriptionOf(Config.dict.tools.dict[tool], `tools.${tool}`)
+  }
+})
+
+test('the three desktop tool switches describe their tools in zh and en', () => {
+  const expected = {
+    desktopJs: '`pc_codex_desktop_js`',
+    desktopReset: '`pc_codex_desktop_js_reset`',
+    desktopAddNodeModuleDir: '`pc_codex_desktop_js_add_node_module_dir`',
+  }
+  for (const [key, toolName] of Object.entries(expected)) {
+    for (const language of ['zh', 'en']) {
+      const text = CONFIG_I18N[language].tools[key]
+      assert.equal(typeof text, 'string', `${language} tools.${key}`)
+      assert.equal(text.includes(toolName), true, `${language} tools.${key}`)
+    }
   }
 })
 

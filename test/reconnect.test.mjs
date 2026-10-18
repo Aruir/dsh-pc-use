@@ -2,7 +2,7 @@
 // rewrote a launch field (for example the native pipe directory after a restart).
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
@@ -149,54 +149,6 @@ test('a config that no longer resolves keeps the current connection', async () =
       readFileSync(context.logFile, 'utf8'),
       /Codex server re-check failed; keeping the current connection/,
     )
-  } finally {
-    finish(context)
-  }
-})
-
-/** Minimal config.toml that Codex's resolver reads when no .mcp.json exists yet. O(1). */
-function configToml(args, pipe) {
-  return [
-    '[mcp_servers.node_repl]',
-    `command = '${process.execPath}'`,
-    `args = ${JSON.stringify(args)}`,
-    'env_vars = []',
-    '',
-    '[mcp_servers.node_repl.env]',
-    `SKY_CUA_NATIVE_PIPE_DIRECTORY = '${pipe}'`,
-    '',
-  ].join('\n')
-}
-
-/** A plugin whose server resolves from config.toml first, so `source` can change. O(1). */
-function setupFromConfigToml() {
-  const home = tempDir('pc-use-reconnect-source-')
-  const restore = useHome(home)
-  const serverLog = join(home, 'server.log')
-  const pidFile = join(home, 'pids.txt')
-  const logFile = join(home, 'bridge.log')
-  writeFileSync(serverLog, '')
-  writeFileSync(pidFile, '')
-  const codexHome = join(home, 'codex')
-  const args = [PID_SERVER, pidFile, 'ok', serverLog]
-  mkdirSync(codexHome, { recursive: true })
-  writeFileSync(join(codexHome, 'config.toml'), configToml(args, 'pipe-same'))
-  const plugin = registerPlugin({ codexHome, logFile })
-  return { home, restore, serverLog, pidFile, logFile, codexHome, args, plugin, started: [] }
-}
-
-test('a changed resolution source reconnects to a new server process', async () => {
-  const context = setupFromConfigToml()
-  try {
-    await runJs(context)
-    assert.equal(await waitFor(() => readPids(context.pidFile).length === 1), true)
-    // Same command/args/cwd/pipe, now also available as .mcp.json: only `source` changes.
-    writeCodexHome(context.codexHome, context.args, { SKY_CUA_NATIVE_PIPE_DIRECTORY: 'pipe-same' })
-    await runJs(context)
-    assert.equal(await waitFor(() => readPids(context.pidFile).length === 2), true)
-    const log = readFileSync(context.logFile, 'utf8')
-    assert.match(log, /Codex server changed \(source\); reconnecting/)
-    assert.equal(log.includes('(pipeDirectory'), false)
   } finally {
     finish(context)
   }

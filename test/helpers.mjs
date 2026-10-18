@@ -1,6 +1,6 @@
 // Shared fixtures: temp directories, a fake Codex home, a plugin harness and polling
 // helpers. The fake MCP server lives in test/fixtures so the test suite is self-contained.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -30,23 +30,67 @@ export function useHome(home) {
   }
 }
 
-/** Write the `.mcp.json` that `resolveCodexServer` reads, pointing at the fake server. */
-export function writeCodexHome(codexHome, args, env = {}) {
-  const directory = join(
-    codexHome, 'plugins', 'cache', 'openai-bundled', 'unified-computer-use', '26.1013.31256',
-  )
-  mkdirSync(directory, { recursive: true })
-  const config = {
-    mcpServers: {
-      cua_repl: {
-        command: process.execPath,
-        args,
-        env,
-        env_vars: [],
-      },
-    },
+/** One TOML basic string; JSON escaping is a valid subset of TOML's. O(1). */
+function tomlString(value) {
+  return JSON.stringify(value)
+}
+
+/** The fake `[mcp_servers.node_repl]` table Codex's desktop resolver reads. O(bytes). */
+function desktopSection({ args, env, envVars }) {
+  const lines = [
+    '[mcp_servers.node_repl]',
+    `command = ${tomlString(process.execPath)}`,
+    `args = ${JSON.stringify(args)}`,
+    `env_vars = ${JSON.stringify(envVars)}`,
+  ]
+  const entries = Object.entries(env ?? {})
+  if (entries.length > 0) {
+    lines.push('', '[mcp_servers.node_repl.env]')
+    for (const [key, value] of entries) lines.push(`${key} = ${tomlString(value)}`)
   }
-  writeFileSync(join(directory, '.mcp.json'), JSON.stringify(config))
+  return `${lines.join('\n')}\n`
+}
+
+/** Append TOML text to `<codexHome>/config.toml`, creating the directory if needed. O(bytes). */
+function appendConfigToml(codexHome, text) {
+  mkdirSync(codexHome, { recursive: true })
+  const file = join(codexHome, 'config.toml')
+  const existing = existsSync(file) ? readFileSync(file, 'utf8').replace(/\n*$/, '\n') : ''
+  const separator = existing === '' || text.startsWith('\n') ? '' : '\n'
+  writeFileSync(file, `${existing}${separator}${text.endsWith('\n') ? text : `${text}\n`}`)
+}
+
+/**
+ * Write the fake Codex home the resolvers read. Defaults write only the browser
+ * `.mcp.json` (v0.4.3 behaviour). `options.browser === false` omits it, `options.mcpJson`
+ * replaces the `cua_repl` entry, `options.desktop` adds `[mcp_servers.node_repl]`, and
+ * `options.toml` appends raw TOML. O(bytes).
+ */
+export function writeCodexHome(codexHome, args, env = {}, options = {}) {
+  if (options.browser !== false) {
+    const directory = join(
+      codexHome, 'plugins', 'cache', 'openai-bundled', 'unified-computer-use', '26.1013.31256',
+    )
+    mkdirSync(directory, { recursive: true })
+    const entry = options.mcpJson ?? {
+      command: process.execPath,
+      args,
+      env: { ...env },
+      env_vars: [],
+    }
+    writeFileSync(join(directory, '.mcp.json'), JSON.stringify({ mcpServers: { cua_repl: entry } }))
+  }
+  if (options.desktop) {
+    const desktop = options.desktop === true ? {} : options.desktop
+    appendConfigToml(codexHome, desktopSection({
+      args: desktop.args ?? args,
+      env: desktop.env ?? env,
+      envVars: desktop.envVars ?? [],
+    }))
+  }
+  if (typeof options.toml === 'string' && options.toml !== '') {
+    appendConfigToml(codexHome, options.toml)
+  }
 }
 
 /**
@@ -71,6 +115,14 @@ export function registerPlugin(config, options = {}) {
     },
     effect(factory) {
       disposers.push(factory())
+    },
+    on(event, handler) {
+      const entry = { event, handler }
+      handlers.push(entry)
+      return () => {
+        const index = handlers.indexOf(entry)
+        if (index >= 0) handlers.splice(index, 1)
+      }
     },
     get(name) {
       return services[name]

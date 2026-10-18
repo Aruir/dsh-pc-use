@@ -26,7 +26,7 @@ function createVolatile(value) {
 function approach(agent, callId) {
   return {
     agent,
-    name: 'pc_codex_js',
+    name: 'pc_codex_desktop_js',
     callId,
     signal: new AbortController().signal,
   }
@@ -52,7 +52,13 @@ function setup(options = {}) {
   const serverLog = join(home, 'server.log')
   writeFileSync(serverLog, '')
   const codexHome = join(home, 'codex')
-  writeCodexHome(codexHome, [DESKTOP_SERVER, options.mode ?? 'flow-meta', serverLog])
+  // The desktop server comes from [mcp_servers.node_repl]; the browser source is unused.
+  writeCodexHome(
+    codexHome,
+    [DESKTOP_SERVER, options.mode ?? 'flow-meta', serverLog],
+    {},
+    { desktop: true },
+  )
   const logFile = join(home, 'bridge.log')
   const plugin = registerPlugin({
     codexHome,
@@ -78,7 +84,7 @@ function finish(context) {
 }
 
 function runJs(context, code, exec) {
-  return context.plugin.tools.get('pc_codex_js').execute({ code, title: code }, exec)
+  return context.plugin.tools.get('pc_codex_desktop_js').execute({ code, title: code }, exec)
 }
 
 test('same agent and app: the second request is remembered', async () => {
@@ -252,7 +258,7 @@ test('rememberDesktopApprovals:false asks every time and resets the memory', asy
   }
 })
 
-test('hot switching computer asks again after the bridge is rebuilt', async () => {
+test('hot switching computer off and on rebuilds the desktop bridge and asks again', async () => {
   const agent = { id: 'agent-eleven' }
   const computer = createVolatile(true)
   const requests = []
@@ -264,17 +270,20 @@ test('hot switching computer asks again after the bridge is rebuilt', async () =
     await runJs(context, APP, execFor(agent, 'call-1'))
     assert.equal(requests.length, 1)
     computer[WRITE](false)
-    const declined = await runJs(context, APP, execFor(agent, 'call-2'))
-    assert.match(declined, /decision decline/)
+    await assert.rejects(
+      () => runJs(context, APP, execFor(agent, 'call-2')),
+      /computer use is off/,
+    )
+    assert.equal(requests.length, 1)
     computer[WRITE](true)
     await runJs(context, APP, execFor(agent, 'call-3'))
-    assert.equal(requests.length, 2)
+    assert.equal(requests.length, 2, 'a fresh desktop bridge must ask again')
   } finally {
     finish(context)
   }
 })
 
-test('a remembered app still needs a running pc_codex_js call', async () => {
+test('a remembered app still needs a running desktop call', async () => {
   const agent = { id: 'agent-twelve' }
   const requests = []
   const context = setup({
@@ -283,7 +292,7 @@ test('a remembered app still needs a running pc_codex_js call', async () => {
   try {
     await runJs(context, APP, execFor(agent, 'call-1'))
     assert.equal(requests.length, 1)
-    const js = context.plugin.tools.get('pc_codex_js')
+    const js = context.plugin.tools.get('pc_codex_desktop_js')
     const result = await js.execute(
       { code: `${APP}|spontaneous`, title: 'after' },
       execFor(agent, 'call-2'),
@@ -295,13 +304,13 @@ test('a remembered app still needs a running pc_codex_js call', async () => {
     assert.equal(declined, true)
     assert.equal(requests.length, 1)
     const lines = approvalLines(context.logFile)
-    assert.match(lines[1], /-> decline \(no active pc_codex_js call\)/)
+    assert.match(lines[1], /-> decline \(no active pc_codex_desktop_js call\)/)
   } finally {
     finish(context)
   }
 })
 
-test('a remembered app is declined while computer is off', async () => {
+test('computer off rejects a remembered desktop call before asking', async () => {
   const agent = { id: 'agent-thirteen' }
   const computer = createVolatile(true)
   const requests = []
@@ -313,11 +322,12 @@ test('a remembered app is declined while computer is off', async () => {
     await runJs(context, APP, execFor(agent, 'call-1'))
     assert.equal(requests.length, 1)
     computer[WRITE](false)
-    const result = await runJs(context, APP, execFor(agent, 'call-2'))
-    assert.match(result, /decision decline/)
+    await assert.rejects(
+      () => runJs(context, APP, execFor(agent, 'call-2')),
+      /computer use is off/,
+    )
     assert.equal(requests.length, 1)
-    const lines = approvalLines(context.logFile)
-    assert.match(lines[1], /-> decline \(computer use is off\)/)
+    assert.equal(approvalLines(context.logFile).length, 1)
   } finally {
     finish(context)
   }

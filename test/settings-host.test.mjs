@@ -78,7 +78,7 @@ test('the settings service receives configure({ auto: false })', () => {
     assert.equal(configured.length, 1)
     assert.deepEqual(configured[0].policy, { auto: false })
     assert.equal(configured[0].fiber, plugin.fiber, 'configure must own the plugin fiber')
-    assert.equal(plugin.tools.size, 4)
+    assert.equal(plugin.tools.size, 7)
   } finally {
     plugin.dispose()
     restore()
@@ -91,7 +91,7 @@ test('the plugin loads and registers its tools without a settings service', () =
   const server = setupServer(home, 'codex')
   const plugin = registerPlugin({ codexHome: server.codexHome, logFile: join(home, 'bridge.log') })
   try {
-    assert.equal(plugin.tools.size, 4)
+    assert.equal(plugin.tools.size, 7)
   } finally {
     plugin.dispose()
     restore()
@@ -160,8 +160,10 @@ test('an invalid codexHome fails the call instead of keeping the stale bridge', 
       'the old server must exit',
     )
     const status = JSON.parse(await plugin.tools.get('pc_status').execute({}, {}))
-    assert.equal(status.backends.codex.resolved, false)
-    assert.equal(typeof status.backends.codex.reason, 'string')
+    assert.equal(status.backends.codex.browser.resolved, false)
+    assert.equal(typeof status.backends.codex.browser.reason, 'string')
+    assert.equal(status.backends.codex.desktop.resolved, false)
+    assert.equal(typeof status.backends.codex.desktop.reason, 'string')
     assert.equal(status.backends.codex.codexHome, missing)
     const log = readFileSync(logFile, 'utf8')
     assert.match(log, /Codex home changed; reconnecting/)
@@ -182,7 +184,7 @@ test('an invalid codexHome fails the call instead of keeping the stale bridge', 
 
 test('the package ships the browser client and settings manifest', () => {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-  assert.equal(pkg.version, '0.4.3')
+  assert.equal(pkg.version, '0.5.0')
   assert.equal(pkg.exports['./client'], './client.js')
   assert.equal(pkg.dsh.client.platform, 'web')
   assert.deepEqual([...pkg.dsh.client.inject].sort(), [

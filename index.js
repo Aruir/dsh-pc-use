@@ -1,19 +1,13 @@
-// dsh-pc-use — Codex computer-use (cua_repl) as native DeepSeek Harness tools.
+// dsh-pc-use — Codex Computer Use as native DeepSeek Harness tools.
 //
-// Written against the official plugin docs:
-//   docs/user/develop/basic/index.zh.md   (apply / inject / ctx.effect)
-//   docs/user/develop/basic/tool.zh.md    (defineTool + parameters DSL + output.render)
-//   docs/user/develop/basic/config.zh.md  (exported Schemastery Config)
-//   docs/user/develop/basic/publish.zh.md (dsh.bundle bundle package)
-//
-// The Codex desktop app ships a `cua_repl` MCP server that drives the user's real
-// Chrome through the Codex browser extension. Using it from outside Codex needs three
-// things a vanilla MCP client does not do, all handled by `lib/mcp-bridge.js`:
-// turn metadata on every call, an advertised elicitation capability, and local
-// answers to the approval requests the server sends back.
-//
-// `lib/codex-config.js` resolves the launch spec from Codex's own config on every
-// start, because the app rewrites the native pipe GUID and runtime hashes on restart.
+// Codex runs browser computer use in its `cua_repl` MCP server and Windows desktop
+// control in `node_repl`; this plugin starts each server the way Codex does, with its
+// own source and its own unmodified environment:
+//   browser tools -> cua_repl  (`lib/codex-config.js` resolveBrowserServer)
+//   desktop tools -> node_repl (resolveDesktopServer)
+// `lib/mcp-bridge.js` adds the three things a vanilla MCP client does not do: turn
+// metadata on every call, an advertised elicitation capability, and local answers to
+// the approval requests the servers send back.
 //
 // Everything is lazy: importing or applying the plugin never spawns a process.
 
@@ -26,14 +20,13 @@ import {
   APPROVE, DECLINE, decisionFromHostOutcome, desktopAppKey, wantsSessionApproval,
 } from './lib/approval.js'
 import {
-  COMPUTER_USE_DOC_TOPICS, defaultCodexHome, resolveCodexServer, resolveComputerUseDocs,
-  versionFromSource,
+  COMPUTER_USE_DOC_TOPICS, defaultCodexHome, resolveBrowserServer, resolveComputerUseDocs,
+  resolveDesktopServer, versionFromSource,
 } from './lib/codex-config.js'
 import { unwrapConfigValue } from './lib/config-value.js'
 import { saveImage } from './lib/images.js'
 import { appendLogLine } from './lib/log-file.js'
 import { McpBridge } from './lib/mcp-bridge.js'
-import { enableComputerSurface, mergeTrustedServices } from './lib/surfaces.js'
 import { definePortableTool } from './lib/define-tool.js'
 import {
   CONFIG_I18N, auditReason, choiceDecision, desktopApprovalQuestion, legacyDisplayReason,
@@ -65,7 +58,8 @@ try {
  * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean,
  *   rememberDesktopApprovals: boolean, desktopApprovalChoices: boolean, language: string,
  *   codexHome: string, logFile: string, timeoutMs: number,
- *   tools: {js: boolean, reset: boolean, docs: boolean, status: boolean}}} Config
+ *   tools: {js: boolean, reset: boolean, desktopJs: boolean, desktopReset: boolean,
+ *     desktopAddNodeModuleDir: boolean, docs: boolean, status: boolean}}} Config
  */
 
 /**
@@ -74,7 +68,7 @@ try {
  * and `timeoutMs` are `.volatile()`: the loader writes new values into the running plugin
  * and every use re-reads them, so they never remount it (the settings page edits them live).
  * `enabled` and `tools.*` are deliberately not volatile: changing one remounts the plugin,
- * the old bridge is disposed by `ctx.effect`, and the tools are registered again.
+ * the old bridges are disposed by `ctx.effect`, and the tools are registered again.
  */
 function buildConfig(schema) {
   if (schema === null) return undefined
@@ -111,7 +105,13 @@ function buildConfig(schema) {
         .volatile(),
       tools: schema.object({
         js: schema.boolean().default(true).description('注册 `pc_codex_js`：在持久的 cua_repl 内核中执行 JS。'),
-        reset: schema.boolean().default(true).description('注册 `pc_codex_js_reset`：重置 JS 内核。'),
+        reset: schema.boolean().default(true).description('注册 `pc_codex_js_reset`：重置浏览器 JS 内核。'),
+        desktopJs: schema.boolean().default(true)
+          .description('注册 `pc_codex_desktop_js`：在持久的 node_repl 内核中执行 JS。'),
+        desktopReset: schema.boolean().default(true)
+          .description('注册 `pc_codex_desktop_js_reset`：重置桌面 JS 内核。'),
+        desktopAddNodeModuleDir: schema.boolean().default(true)
+          .description('注册 `pc_codex_desktop_js_add_node_module_dir`：为 node_repl 增加模块目录。'),
         docs: schema.boolean().default(true)
           .description('注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档。'),
         status: schema.boolean().default(true).description('注册 `pc_status`：报告解析结果与连接状态。'),
@@ -136,16 +136,26 @@ const DEFAULTS = {
   codexHome: '',
   logFile: '',
   timeoutMs: 120000,
-  tools: { js: true, reset: true, docs: true, status: true },
+  tools: {
+    js: true,
+    reset: true,
+    desktopJs: true,
+    desktopReset: true,
+    desktopAddNodeModuleDir: true,
+    docs: true,
+    status: true,
+  },
 }
 
-// Marker for "the approving pc_codex_js call ended while DSH was still asking".
-const CALL_ENDED = Symbol('pc_codex_js call ended')
+// Marker for "the approving desktop call ended while DSH was still asking".
+const CALL_ENDED = Symbol('pc_codex_desktop_js call ended')
 
 // Marker for "only the one-shot approval card can be used (no top-level agent)".
 const DELEGATED = Symbol('delegated caller')
 
 const SPEC_FIELDS = ['command', 'args', 'cwd', 'pipeDirectory', 'source']
+const SERVER_KINDS = ['browser', 'desktop']
+const RESOLVERS = { browser: resolveBrowserServer, desktop: resolveDesktopServer }
 
 /** Names of the launch fields that differ between two resolved specs. O(n), n = args. */
 function changedSpecFields(previous, next) {
@@ -162,6 +172,19 @@ function changedSpecFields(previous, next) {
     if (!same) changed.push(field)
   }
   return changed
+}
+
+/** Trusted service names from a server's own env; null when absent or invalid. O(n). */
+function trustedServiceNames(env) {
+  const raw = env?.NODE_REPL_TRUSTED_SERVICES
+  if (typeof raw !== 'string') return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return Object.keys(parsed)
+  } catch {
+    return null
+  }
 }
 
 function defaultLogFile() {
@@ -209,11 +232,15 @@ const output = {
 const MAX_DOC_BYTES = 512 * 1024
 const DOCS_EXPLANATION = [
   'In DSH this document maps to the following:',
-  '- `node_repl` JavaScript runs through the `pc_codex_js` tool.',
-  '- Reset the JavaScript session with `pc_codex_js_reset`.',
-  '- Run the code from the Initialize section inside `pc_codex_js`.',
+  '- `node_repl` JavaScript runs through the `pc_codex_desktop_js` tool.',
+  '- Reset the JavaScript session with `pc_codex_desktop_js_reset`.',
+  '- Run the code from the Initialize section inside `pc_codex_desktop_js`.',
   '- Desktop approvals appear as DSH approval cards.',
 ].join('\n')
+
+/** What a desktop call reports when `computer` is off. O(1). */
+const COMPUTER_OFF = 'dsh-pc-use: computer use is off; '
+  + 'set computer: true in the dsh-pc-use configuration'
 
 /**
  * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean,
@@ -284,8 +311,8 @@ export function apply(ctx, raw = {}) {
   }
 
   // An elicitation request carries no tool-call id, so a desktop approval is attributed
-  // to the earliest-started `pc_codex_js` call that is still running; with none it is
-  // declined. Only the exec fields the host needs are passed on, never logged.
+  // to the earliest-started desktop call that is still running; with none it is declined.
+  // Only desktop tools register here. Only the exec fields the host needs are passed on.
   const activeCalls = []
   const readApprovalService = () => {
     if (typeof ctx.get !== 'function') return undefined
@@ -305,7 +332,8 @@ export function apply(ctx, raw = {}) {
   }
 
   // Remembered desktop approvals: WeakMap(agent -> Set(appKey)). The agent object is a
-  // process-local object, so entries disappear with the agent; bridge rebuilds reset it.
+  // process-local object, so entries disappear with the agent; a desktop bridge rebuild
+  // resets it, a browser bridge rebuild does not.
   let rememberedApps = new WeakMap()
   /** Forget every remembered desktop approval. O(1). */
   const resetRemembered = () => {
@@ -331,7 +359,7 @@ export function apply(ctx, raw = {}) {
   const requestDesktopApproval = async ({ appName, meta }) => {
     const active = activeCalls[0]
     if (active === undefined || active.exec === undefined || active.exec === null) {
-      return { action: DECLINE, reason: 'no active pc_codex_js call' }
+      return { action: DECLINE, reason: 'no active pc_codex_desktop_js call' }
     }
     const exec = active.exec
     if (exec.agent === undefined || exec.agent === null) {
@@ -414,7 +442,7 @@ export function apply(ctx, raw = {}) {
         ended,
       ])
       if (callSignal.aborted || answer === CALL_ENDED) {
-        return { action: DECLINE, reason: 'pc_codex_js call ended' }
+        return { action: DECLINE, reason: 'pc_codex_desktop_js call ended' }
       }
       const decision = choiceDecision(answer, language, sessionOption)
       if (
@@ -428,7 +456,7 @@ export function apply(ctx, raw = {}) {
       return decision
     } catch (error) {
       if (callSignal.aborted) {
-        return { action: DECLINE, reason: 'pc_codex_js call ended' }
+        return { action: DECLINE, reason: 'pc_codex_desktop_js call ended' }
       }
       if (error?.code === 'DELEGATED_CALLER') return DELEGATED
       return { action: DECLINE, reason: 'no valid choice' }
@@ -457,7 +485,7 @@ export function apply(ctx, raw = {}) {
       // A call that already ended must never approve a stale card, even when the
       // user answered at the same moment.
       if (callSignal.aborted || outcome === CALL_ENDED) {
-        return { action: DECLINE, reason: 'pc_codex_js call ended' }
+        return { action: DECLINE, reason: 'pc_codex_desktop_js call ended' }
       }
       const decision = decisionFromHostOutcome(outcome)
       if (
@@ -473,54 +501,56 @@ export function apply(ctx, raw = {}) {
       // A request that failed because the call ended is a call-end decline, not a
       // host failure; keep the log reason accurate.
       if (callSignal.aborted) {
-        return { action: DECLINE, reason: 'pc_codex_js call ended' }
+        return { action: DECLINE, reason: 'pc_codex_desktop_js call ended' }
       }
       return { action: DECLINE, reason: 'approval request failed' }
     }
   }
 
-  let bridge = null
-  let connecting = null
-  let activeComputer = null
-  let activeSurfaces = null
-  let activeServices = null
-  let activeServicesFrom = null
-  let lastSpec = null
-  // Which codexHome produced lastSpec; a change makes the old connection stale.
-  let lastSpecHome = null
+  /** One independently resolved, lazily started MCP server. O(1). */
+  const makeServer = (kind) => ({
+    kind,
+    bridge: null,
+    connecting: null,
+    generation: 0,
+    lastSpec: null,
+    lastSpecHome: null,
+    services: null,
+  })
+  const servers = { browser: makeServer('browser'), desktop: makeServer('desktop') }
 
-  // F6: per-agent Codex session/turn identity, separate from remembered approvals.
+  // F6: per-agent Codex session/turn identity, one identity shared by both servers.
   const agentTurns = new WeakMap()
   // Subagent sessions are keyed by the session object, so entries disappear with it.
   const subagentSessions = new WeakSet()
-  let bridgeGeneration = 0
-  /** Get (or refresh after a reconnect) this agent's Codex identity. O(1). */
+
+  /** A fresh per-agent turn identity. O(1). */
+  const newTurnState = () => ({
+    sessionId: randomUUID(),
+    turnId: randomUUID(),
+    used: { browser: false, desktop: false },
+    generations: { browser: -1, desktop: -1 },
+  })
+  /** Get this agent's Codex identity; created on first use. O(1). */
   const turnStateFor = (agent) => {
     let state = agentTurns.get(agent)
     if (state === undefined) {
-      state = {
-        sessionId: randomUUID(),
-        turnId: randomUUID(),
-        used: false,
-        generation: bridgeGeneration,
-      }
+      state = newTurnState()
       agentTurns.set(agent, state)
-      return state
-    }
-    if (state.generation !== bridgeGeneration) {
-      state.turnId = randomUUID()
-      state.used = false
-      state.generation = bridgeGeneration
     }
     return state
   }
-  /** Send turn_ended on the existing connection; never starts one. O(1). */
-  const reportTurnEnded = (hookEventName, state) => {
-    const active = bridge
+  /** Record that this turn used one server, with that bridge's generation. O(1). */
+  const markServerUsed = (state, kind) => {
+    state.used[kind] = true
+    state.generations[kind] = servers[kind].generation
+  }
+  /** Send turn_ended on one server's existing connection; never starts one. O(1). */
+  const reportTurnEnded = (kind, hookEventName, identity) => {
+    const active = servers[kind].bridge
     if (active === null || active.alive !== true) return
-    // D16: copy the identity before onSessionEvent rotates `state` in the same tick;
-    // call() fixes its _meta from this snapshot before its first await.
-    const identity = { sessionId: state.sessionId, turnId: state.turnId }
+    // D16: the identity was copied before onSessionEvent rotates it below; call() fixes
+    // its _meta from this snapshot before its first await.
     active.call('turn_ended', {
       hook_event_name: hookEventName,
       session_id: identity.sessionId,
@@ -537,7 +567,7 @@ export function apply(ctx, raw = {}) {
     if (kind === 'aborted' || kind === 'interrupted') return 'Interrupt'
     return 'Stop'
   }
-  /** Track subagent sessions and report finished turns. O(1). */
+  /** Track subagent sessions and report finished turns to each used server. O(1). */
   const onSessionEvent = (agents, session, event) => {
     if (event?.type === 'subagent/descriptor') {
       subagentSessions.add(session)
@@ -549,100 +579,81 @@ export function apply(ctx, raw = {}) {
     const state = agentTurns.get(agent)
     if (state === undefined) return
     const hookEventName = turnEndedHookName(event, subagentSessions.has(session))
-    if (state.used === true && state.generation === bridgeGeneration) {
-      reportTurnEnded(hookEventName, state)
+    const identity = { sessionId: state.sessionId, turnId: state.turnId }
+    for (const kind of SERVER_KINDS) {
+      if (state.used[kind] !== true) continue
+      // A bridge rebuilt since this turn's call must not receive that turn.
+      if (state.generations[kind] !== servers[kind].generation) continue
+      reportTurnEnded(kind, hookEventName, identity)
     }
     state.turnId = randomUUID()
-    state.used = false
-    state.generation = bridgeGeneration
+    state.used = { browser: false, desktop: false }
+    state.generations = { browser: -1, desktop: -1 }
   }
 
-  /** Stop the current bridge and forget its active fields. O(1). */
-  const dropBridge = () => {
-    if (bridge !== null) bridge.stop()
-    bridge = null
-    activeComputer = null
-    activeSurfaces = null
-    activeServices = null
-    activeServicesFrom = null
-  }
-
-  /** Re-resolve the launch spec; null when Codex's config cannot be read. O(file size). */
-  const resolveSpecOrNull = () => {
+  /** Re-resolve one server's launch spec; never throws. O(file size). */
+  const resolveSpecOrNull = (kind, home) => {
     try {
-      const spec = resolveCodexServer({ codexHome: codexHome() })
+      const spec = RESOLVERS[kind]({ codexHome: home })
       return spec.ok === true ? spec : null
     } catch {
       return null
     }
   }
 
-  /** Last spec only while codexHome is unchanged; otherwise re-resolve. O(file size). */
-  const currentSpec = () => {
+  /** Last resolved spec only while codexHome is unchanged; else re-resolve. O(file size). */
+  const statusSpec = (kind) => {
+    const server = servers[kind]
     const home = codexHome()
-    if (lastSpec !== null && lastSpecHome === home) return lastSpec
-    return resolveCodexServer({ codexHome: home })
+    if (server.lastSpec !== null && server.lastSpecHome === home) return server.lastSpec
+    try {
+      return RESOLVERS[kind]({ codexHome: home })
+    } catch (error) {
+      return { ok: false, reason: error.message }
+    }
   }
 
-  const ensureBridge = async () => {
-    if (connecting !== null) {
-      await connecting
-    }
-    // Read after a possible wait, so a switch flipped during the handshake is honoured.
-    const computer = computerEnabled()
-    if (rememberEnabled() !== true) {
-      resetRemembered()
-    }
+  /**
+   * Stop one server and forget its live state. A desktop rebuild forgets remembered
+   * approvals; a browser rebuild does not. O(1).
+   */
+  const dropServer = (kind) => {
+    const server = servers[kind]
+    if (server.bridge !== null) server.bridge.stop()
+    server.bridge = null
+    server.services = null
+    if (kind === 'desktop') resetRemembered()
+  }
+
+  /** Lazy start, per-server D15 re-check and codexHome handling. O(file size) per call. */
+  const ensureServer = async (kind) => {
+    const server = servers[kind]
+    if (server.connecting !== null) await server.connecting
     const home = codexHome()
-    // A changed codexHome is not an unreadable config: the old bridge belongs to another
-    // directory, so disconnect first and resolve the new directory below.
-    if (lastSpecHome !== null && lastSpecHome !== home) {
-      log('Codex home changed; reconnecting')
-      dropBridge()
+    // A changed codexHome belongs to another directory: drop this server first and
+    // resolve below, so a failure never keeps the old connection (0.4.3 behaviour).
+    if (server.lastSpecHome !== null && server.lastSpecHome !== home) {
+      log(`Codex home changed; reconnecting (${kind})`)
+      dropServer(kind)
     }
-    // D15: Codex rewrites .mcp.json on every app start, so re-read the launch spec
-    // before reusing a live bridge. O(file size): one config.toml + .mcp.json read.
-    let keepCurrent = false
-    if (bridge !== null && bridge.alive && connecting === null) {
-      const fresh = resolveSpecOrNull()
+    // D15: Codex rewrites its config on every app start, so re-read this server's
+    // launch spec before reusing its live bridge. Only this server is re-resolved.
+    if (server.bridge !== null && server.bridge.alive) {
+      const fresh = resolveSpecOrNull(kind, home)
       if (fresh === null) {
         log('Codex server re-check failed; keeping the current connection')
-        keepCurrent = true
-      } else {
-        const changed = lastSpec === null ? [] : changedSpecFields(lastSpec, fresh)
-        if (changed.length > 0) {
-          // Log the field names only: the values contain paths and pipe names.
-          log(`Codex server changed (${changed.join(', ')}); reconnecting`)
-          dropBridge()
-        }
+        return server.bridge
       }
+      const changed = server.lastSpec === null ? [] : changedSpecFields(server.lastSpec, fresh)
+      if (changed.length === 0) return server.bridge
+      // Log the field names only: the values contain paths and pipe names.
+      log(`Codex server changed (${changed.join(', ')}); reconnecting (${kind})`)
+      dropServer(kind)
     }
-    if (bridge !== null && bridge.alive) {
-      if (keepCurrent === true || activeComputer === computer) return bridge
-      // The `computer` switch changed while connected: stop the old server, then connect
-      // again with the new surfaces. The concurrent first call still shares `connecting`.
-      dropBridge()
-    }
-    if (bridge !== null) {
-      dropBridge()
-    }
-    const spec = resolveCodexServer({ codexHome: home })
-    if (!spec.ok) throw new Error(`dsh-pc-use: ${spec.reason}`)
+    if (server.bridge !== null) dropServer(kind)
+    const spec = RESOLVERS[kind]({ codexHome: home })
+    if (spec.ok !== true) throw new Error(`dsh-pc-use: ${spec.reason}`)
     const env = { ...spec.env }
-    const surfaces = computer
-      ? enableComputerSurface(env.CUA_REPL_ENABLED_SURFACES)
-      : (env.CUA_REPL_ENABLED_SURFACES ?? null)
-    if (computer) {
-      env.CUA_REPL_ENABLED_SURFACES = surfaces
-    }
-    const trusted = mergeTrustedServices(env.NODE_REPL_TRUSTED_SERVICES, computer)
-    if (trusted.value !== undefined) {
-      env.NODE_REPL_TRUSTED_SERVICES = trusted.value
-    }
-    // A new connection is a new approval lifetime: remembered apps start empty and
-    // old turns are not reported; agents get a fresh turn id on their next call.
-    resetRemembered()
-    bridgeGeneration += 1
     const created = new McpBridge({
       command: spec.command,
       args: spec.args,
@@ -652,39 +663,65 @@ export function apply(ctx, raw = {}) {
       // every new bridge; no state file is read or written.
       sessionId: `dsh-pc-${randomUUID()}`,
       shouldApprove: autoApproveEnabled,
-      isComputerEnabled: computerEnabled,
+      isComputerEnabled: () => kind === 'desktop' && computerEnabled() === true,
+      // Each server only accepts its own approval kinds; the other kind is declined
+      // and logged with an explicit reason.
+      unexpectedApprovalReason: (approvalKind) => {
+        if (kind === 'browser' && approvalKind === 'computer') {
+          return 'unexpected approval for the browser server'
+        }
+        if (kind === 'desktop' && approvalKind === 'browser') {
+          return 'unexpected approval for the desktop server'
+        }
+        return null
+      },
       requestDesktopApproval,
       log,
     })
-    lastSpec = spec
-    lastSpecHome = home
-    bridge = created
+    server.lastSpec = spec
+    server.lastSpecHome = home
+    server.bridge = created
     // One promise for the whole handshake: a second call during the first handshake
     // reuses this connection instead of spawning another server.
-    connecting = created.start().then(
+    server.connecting = created.start().then(
       () => {
-        connecting = null
-        activeComputer = computer
-        activeSurfaces = surfaces
-        activeServices = trusted.names
-        activeServicesFrom = trusted.source
+        server.connecting = null
+        server.generation += 1
+        server.services = trustedServiceNames(spec.env)
         log(`connected via ${spec.source}`)
         return created
       },
       (error) => {
-        connecting = null
-        if (bridge === created) bridge = null
+        server.connecting = null
+        if (server.bridge === created) server.bridge = null
         throw error
       },
     )
-    return connecting
+    return server.connecting
   }
 
-  const call = async (method, args, timeoutMs = configuredTimeoutMs(), agent = null) => {
-    const active = await ensureBridge()
+  /** The `computer` switch is read on every use: off always stops the desktop server. O(1). */
+  const syncComputerSwitch = () => {
+    if (computerEnabled() !== true && servers.desktop.bridge !== null) dropServer('desktop')
+  }
+
+  /** Reject a desktop call while `computer` is off, before any process could start. O(1). */
+  const requireComputer = () => {
+    if (computerEnabled() !== true) throw new Error(COMPUTER_OFF)
+  }
+
+  /** Run one MCP call on one server with the agent's shared turn identity. O(1). */
+  const callOn = async (kind, method, args, timeoutMs, agent) => {
+    const active = await ensureServer(kind)
     const turn = agent === null || agent === undefined ? null : turnStateFor(agent)
-    if (turn !== null) turn.used = true
+    if (turn !== null) markServerUsed(turn, kind)
     return renderResult(await active.call(method, args, timeoutMs, turn))
+  }
+
+  /** Timeout for a `js` call, honouring an explicit `timeout_ms`. O(1). */
+  const jsTimeoutMs = (requested) => {
+    const timeoutMs = configuredTimeoutMs()
+    return Number.isFinite(requested) ? Math.max(requested + 30_000, timeoutMs) : timeoutMs
   }
 
   const definitions = {
@@ -698,11 +735,7 @@ export function apply(ctx, raw = {}) {
         'session run exactly one API call, then read the returned documentation and UI state. ' +
         'The code runs as one persistent REPL unit: top-level `await` is allowed, a top-level ' +
         '`return` is not; the value of the last expression is returned, or use `console.log`. ' +
-        'With `computer` enabled, control Windows apps via `const { sky } = await ' +
-        'import("@oai/sky")`, e.g. `sky.list_windows()` or ' +
-        '`sky.get_window_state({ window: { app, id } })`; the rest of the API is in the ' +
-        'first-call notes. Before controlling Windows apps, call `pc_codex_docs` for `skill`, ' +
-        '`guidance` and `confirmations`; call it for `api` when you need method signatures.',
+        'To operate Windows desktop apps, use `pc_codex_desktop_js`.',
       parameters: {
         code: { type: 'string', required: true, description: 'JavaScript to run in the persistent cua_repl kernel.' },
         title: { type: 'string', required: true, description: 'Short user-facing description of what the code does.' },
@@ -710,22 +743,69 @@ export function apply(ctx, raw = {}) {
       },
       output,
       async execute(args, exec) {
-        // Desktop approvals are attributed to the earliest-started call still running,
-        // so a call must be registered for its whole lifetime and removed in `finally`.
-        const agent = exec?.agent
+        syncComputerSwitch()
+        return callOn('browser', 'js', {
+          code: args.code,
+          title: args.title,
+          ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
+        }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null)
+      },
+    }),
+    reset: () => tool({
+      name: 'pc_codex_js_reset',
+      description: 'Reset the persistent cua_repl JavaScript kernel. Bindings are discarded; '
+        + 'browser tabs and apps are not closed.',
+      parameters: {},
+      output,
+      async execute(_args, exec) {
+        // Same turn identity as pc_codex_js, so a reset-only turn still reports turn_ended.
+        syncComputerSwitch()
+        return callOn('browser', 'js_reset', {}, configuredTimeoutMs(), exec?.agent ?? null)
+      },
+    }),
+    desktopJs: () => tool({
+      name: 'pc_codex_desktop_js',
+      description:
+        'Drive Windows desktop apps through Codex Computer Use (node_repl). Runs ' +
+        'JavaScript in the persistent node_repl kernel with the `sky` API: ' +
+        '`const { sky } = await import("@oai/sky")`, e.g. `sky.list_windows()` or ' +
+        '`sky.get_window_state({ window: { app, id } })`; the rest of the API is in ' +
+        'the first-call notes. The code runs as one persistent REPL unit: top-level ' +
+        '`await` is allowed, a top-level `return` is not; the value of the last ' +
+        'expression is returned, or use `console.log`. Use it to control Windows ' +
+        'applications; for browser pages use `pc_codex_js`. Before controlling ' +
+        'Windows apps, call `pc_codex_docs` for `skill`, `guidance` and ' +
+        '`confirmations`; call it for `api` when you need method signatures.',
+      parameters: {
+        code: {
+          type: 'string',
+          required: true,
+          description: 'JavaScript to run in the persistent node_repl kernel.',
+        },
+        title: {
+          type: 'string',
+          required: true,
+          description: 'Short user-facing description of what the code does.',
+        },
+        timeout_ms: {
+          type: 'number',
+          description: 'Execution timeout in milliseconds (default 30000).',
+        },
+      },
+      output,
+      async execute(args, exec) {
+        syncComputerSwitch()
+        requireComputer()
+        // Desktop approvals are attributed to the earliest-started desktop call still
+        // running, so every desktop call is registered for its whole lifetime.
         const registration = { exec, controller: new AbortController() }
         activeCalls.push(registration)
         try {
-          const timeoutMs = configuredTimeoutMs()
-          const requested = args.timeout_ms
-          const execTimeout = Number.isFinite(requested)
-            ? Math.max(requested + 30_000, timeoutMs)
-            : timeoutMs
-          return await call('js', {
+          return await callOn('desktop', 'js', {
             code: args.code,
             title: args.title,
-            ...(Number.isFinite(requested) ? { timeout_ms: requested } : {}),
-          }, execTimeout, agent)
+            ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
+          }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null)
         } finally {
           const position = activeCalls.indexOf(registration)
           if (position >= 0) activeCalls.splice(position, 1)
@@ -734,14 +814,45 @@ export function apply(ctx, raw = {}) {
         }
       },
     }),
-    reset: () => tool({
-      name: 'pc_codex_js_reset',
-      description: 'Reset the persistent cua_repl JavaScript kernel. Bindings are discarded; browser tabs and apps are not closed.',
+    desktopReset: () => tool({
+      name: 'pc_codex_desktop_js_reset',
+      description: 'Reset the persistent node_repl JavaScript kernel. Bindings are discarded; '
+        + 'desktop apps are not closed.',
       parameters: {},
       output,
       async execute(_args, exec) {
-        // Same turn identity as pc_codex_js, so a reset-only turn still reports turn_ended.
-        return call('js_reset', {}, configuredTimeoutMs(), exec?.agent ?? null)
+        syncComputerSwitch()
+        requireComputer()
+        return callOn('desktop', 'js_reset', {}, configuredTimeoutMs(), exec?.agent ?? null)
+      },
+    }),
+    desktopAddNodeModuleDir: () => tool({
+      name: 'pc_codex_desktop_js_add_node_module_dir',
+      description:
+        'Add a Node.js module directory to the persistent node_repl kernel so its ' +
+        'packages can be imported. Passes `path` to Codex\'s `js_add_node_module_dir`.',
+      parameters: {
+        path: {
+          type: 'string',
+          required: true,
+          description: 'Directory to add to the node_repl module search path.',
+        },
+      },
+      output,
+      async execute(args, exec) {
+        syncComputerSwitch()
+        requireComputer()
+        // It uses the same agent identity as pc_codex_desktop_js and counts as desktop use.
+        const registration = { exec, controller: new AbortController() }
+        activeCalls.push(registration)
+        try {
+          return await callOn('desktop', 'js_add_node_module_dir', { path: args.path },
+            configuredTimeoutMs(), exec?.agent ?? null)
+        } finally {
+          const position = activeCalls.indexOf(registration)
+          if (position >= 0) activeCalls.splice(position, 1)
+          registration.controller.abort()
+        }
       },
     }),
     docs: () => tool({
@@ -762,13 +873,16 @@ export function apply(ctx, raw = {}) {
       },
       output,
       async execute(args) {
+        syncComputerSwitch()
         const topic = args.topic
         if (!COMPUTER_USE_DOC_TOPICS.includes(topic)) {
           throw new Error(
             `pc_codex_docs topic must be one of: ${COMPUTER_USE_DOC_TOPICS.join(', ')}`,
           )
         }
-        const spec = currentSpec()
+        // The `unified-computer-use` version lives in the browser source; it selects the
+        // matching docs directory.
+        const spec = statusSpec('browser')
         const preferVersion = spec.ok === true ? versionFromSource(spec.source) : null
         const resolved = resolveComputerUseDocs({ codexHome: codexHome(), preferVersion })
         const file = resolved.files[topic]
@@ -797,28 +911,37 @@ export function apply(ctx, raw = {}) {
     status: () => tool({
       name: 'pc_status',
       description:
-        'Report how this plugin resolved Codex Computer Use: config source, launch command, native pipe, ' +
-        'connection state. Use it first when a pc_ tool fails.',
+        'Report how this plugin resolved Codex Computer Use: browser and desktop config sources, ' +
+        'launch commands, native pipes and connection state. Use it first when a pc_ tool fails.',
       parameters: {},
       output,
       async execute() {
-        const spec = currentSpec()
-        const connected = bridge !== null && bridge.alive
+        syncComputerSwitch()
+        /** One server's status section. O(file size). */
+        const sectionFor = (kind) => {
+          const server = servers[kind]
+          const spec = statusSpec(kind)
+          const resolved = spec.ok === true
+          const connected = server.bridge !== null && server.bridge.alive
+          return {
+            resolved,
+            reason: resolved ? null : spec.reason,
+            source: resolved ? spec.source : null,
+            command: resolved ? spec.command : null,
+            cwd: resolved ? spec.cwd : null,
+            nativePipe: resolved ? spec.pipeDirectory : null,
+            connected,
+            services: connected ? server.services : null,
+          }
+        }
         return JSON.stringify({
           backends: {
             codex: {
-              resolved: spec.ok === true,
-              reason: spec.ok === true ? undefined : spec.reason,
-              source: spec.ok === true ? spec.source : undefined,
-              command: spec.ok === true ? spec.command : undefined,
-              cwd: spec.ok === true ? spec.cwd : undefined,
-              nativePipe: spec.ok === true ? spec.pipeDirectory : undefined,
-              connected,
-              autoApprove: autoApproveEnabled(),
-              computer: connected ? activeSurfaces : null,
-              services: connected ? activeServices : null,
-              servicesFrom: connected ? activeServicesFrom : null,
               codexHome: codexHome(),
+              autoApprove: autoApproveEnabled(),
+              computer: computerEnabled(),
+              browser: sectionFor('browser'),
+              desktop: sectionFor('desktop'),
             },
           },
         }, null, 2)
@@ -834,6 +957,19 @@ export function apply(ctx, raw = {}) {
     } catch (error) {
       console.error(`dsh-pc-use: registering the ${key} tool failed`, error)
     }
+  }
+
+  // S1.4: the loader emits `loader/volatile-update` after writing volatile fields into the
+  // running plugin. Turning `computer` off must stop the desktop server immediately, not on
+  // the next tool call; the browser server is untouched. syncComputerSwitch stays as a
+  // fallback for a host that never emits the event.
+  if (typeof ctx.on === 'function') {
+    ctx.effect(() => ctx.on('loader/volatile-update', () => {
+      if (computerEnabled() !== true && servers.desktop.bridge !== null) {
+        log('computer turned off; stopping the desktop server')
+        dropServer('desktop')
+      }
+    }), 'dsh-pc-use: computer switch')
   }
 
   // The settings page edits the volatile fields, so tell the settings service this
@@ -853,7 +989,9 @@ export function apply(ctx, raw = {}) {
   }
 
   ctx.effect(() => () => {
-    resetRemembered()
-    if (bridge !== null) bridge.stop()
-  }, 'dsh-pc-use: computer-use bridge')
+    // Stop both servers; only the desktop stop needs to forget remembered approvals,
+    // which dropServer handles.
+    dropServer('browser')
+    dropServer('desktop')
+  }, 'dsh-pc-use: computer-use bridges')
 }

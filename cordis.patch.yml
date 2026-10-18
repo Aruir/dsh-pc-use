@@ -1,6 +1,7 @@
 # Insert the pc-use plugin process-wide, so every agent preset gets the
-# pc_codex_js / pc_codex_js_reset / pc_codex_docs / pc_status tools without
-# declaring anything in the preset.
+# pc_codex_js / pc_codex_js_reset / pc_codex_docs / pc_status tools plus the desktop
+# tools (pc_codex_desktop_js / pc_codex_desktop_js_reset /
+# pc_codex_desktop_js_add_node_module_dir) without declaring anything in the preset.
 #
 # The row is named after the package: the profile already records the package as
 # `dsh-pc-use` (a `link:` dependency), so the Loader resolves the package entry and
@@ -38,5 +39,10 @@
         tools:
           js: true
           reset: true
+          # Desktop tools run on Codex's node_repl server; they need `computer: true` and
+          # are not on the settings page.
+          desktopJs: true
+          desktopReset: true
+          desktopAddNodeModuleDir: true
           docs: true
           status: true

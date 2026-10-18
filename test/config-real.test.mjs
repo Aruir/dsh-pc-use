@@ -1,6 +1,7 @@
 // F1 through the host's real config path: validate with the real schemastery, then apply.
 // Skipped with a stated reason when schemastery is not installed.
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -11,8 +12,17 @@ import { FAKE_SERVER, registerPlugin, tempDir, useHome, writeCodexHome } from '.
 const schemastery = await import('@deepseek-ai/schemastery').catch(() => null)
 const canResolve = schemastery !== null && Config !== undefined
 const SKIP = '@deepseek-ai/schemastery is not installed; the real Config resolution path cannot run'
+const PATCH = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 
-const TOOL_NAMES = ['pc_codex_js', 'pc_codex_js_reset', 'pc_codex_docs', 'pc_status']
+const TOOL_NAMES = [
+  'pc_codex_js',
+  'pc_codex_js_reset',
+  'pc_codex_desktop_js',
+  'pc_codex_desktop_js_reset',
+  'pc_codex_desktop_js_add_node_module_dir',
+  'pc_codex_docs',
+  'pc_status',
+]
 
 function validate(raw) {
   const result = Config['~standard'].validate(raw)
@@ -27,11 +37,19 @@ function bundlePatch(codexHome = '') {
     codexHome,
     logFile: '',
     timeoutMs: 120000,
-    tools: { js: true, reset: true, docs: true, status: true },
+    tools: {
+      js: true,
+      reset: true,
+      desktopJs: true,
+      desktopReset: true,
+      desktopAddNodeModuleDir: true,
+      docs: true,
+      status: true,
+    },
   }
 }
 
-test('the bundle patch config registers all four tools', (t) => {
+test('the bundle patch config registers all seven tools', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate(bundlePatch()))
   try {
@@ -76,12 +94,13 @@ test('enabled:false registers nothing through the real config path', (t) => {
   }
 })
 
-test('tools.js:false registers the other three tools through the real config path', (t) => {
+test('tools.js:false registers the other six tools through the real config path', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate({ tools: { js: false } }))
   try {
     assert.deepEqual([...plugin.tools.keys()], [
-      'pc_codex_js_reset', 'pc_codex_docs', 'pc_status',
+      'pc_codex_js_reset', 'pc_codex_desktop_js', 'pc_codex_desktop_js_reset',
+      'pc_codex_desktop_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
     ])
   } finally {
     plugin.dispose()
@@ -103,13 +122,25 @@ test('only the hot-updatable fields come back as Volatile', (t) => {
   }
 })
 
+test('the three new tool switches default to true and are not volatile', (t) => {
+  if (!canResolve) return t.skip(SKIP)
+  const value = validate({})
+  for (const key of ['desktopJs', 'desktopReset', 'desktopAddNodeModuleDir']) {
+    assert.equal(unwrapConfigValue(value.tools[key]), true, `tools.${key} must default to true`)
+    assert.equal(isVolatile(value.tools[key]), false, `tools.${key} must not be volatile`)
+    // The bundle patch must ship the same default, or a fresh profile would differ.
+    const line = new RegExp(`^\\s+${key}: true$`, 'm')
+    assert.match(PATCH, line, `cordis.patch.yml must enable tools.${key}`)
+  }
+})
+
 test('autoApprove defaults to false (fail-closed)', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const value = validate({})
   assert.equal(unwrapConfigValue(value.autoApprove), false)
   const plugin = registerPlugin(value)
   try {
-    assert.equal(plugin.tools.size, 4)
+    assert.equal(plugin.tools.size, 7)
   } finally {
     plugin.dispose()
   }

@@ -1,7 +1,9 @@
 // Runs under `node --experimental-test-module-mocks --test` from reconnect.test.mjs:
-// it mocks lib/codex-config.js so the resolved spec keeps every field but `cwd` constant.
-// The plugin must notice the cwd change and start a second server process. It lives in a
-// child process so the normal `npm test` command needs no experimental flag.
+// it mocks lib/codex-config.js so the resolved browser spec keeps every field but `cwd`
+// constant. The plugin must notice the cwd change and start a second server process. It
+// lives in a child process so the normal `npm test` command needs no experimental flag.
+// The mock must cover every named export index.js imports (the desktop resolver is never
+// reached here because only pc_codex_js is called).
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -26,7 +28,7 @@ mock.module(pathToFileURL(join(ROOT, 'lib', 'codex-config.js')).href, {
   namedExports: {
     COMPUTER_USE_DOC_TOPICS: [],
     defaultCodexHome: () => home,
-    resolveCodexServer: () => ({
+    resolveBrowserServer: () => ({
       ok: true,
       command: process.execPath,
       args,
@@ -35,6 +37,7 @@ mock.module(pathToFileURL(join(ROOT, 'lib', 'codex-config.js')).href, {
       source: 'mocked-resolver',
       pipeDirectory: 'pipe-mock',
     }),
+    resolveDesktopServer: () => ({ ok: false, reason: 'desktop is not used by this test' }),
     resolveComputerUseDocs: () => {
       throw new Error('pc_codex_docs is not used by this test')
     },

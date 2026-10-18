@@ -9,17 +9,6 @@ import { registerPlugin, tempDir, useHome, waitFor, writeCodexHome } from './hel
 
 const SERVER = process.env.CODEX_CU_TURN_SERVER
   ?? fileURLToPath(new URL('./fake-computer-server.mjs', import.meta.url))
-const WRITE = Symbol.for('cosmokit.volatile.write')
-
-function createVolatile(value) {
-  let current = value
-  return Object.freeze({
-    get: () => current,
-    [WRITE](next) {
-      current = next
-    },
-  })
-}
 
 function makeAgents() {
   const byId = new Map()
@@ -239,16 +228,18 @@ test('a failed turn_ended call is logged and does not throw', async () => {
 })
 
 test('a turn from before a bridge rebuild is not reported on the new bridge', async () => {
-  const computer = createVolatile(true)
-  const context = setup({ config: { computer } })
+  const context = setup()
   try {
     const { agent, session } = context.agents.add('session-reconnect')
     await runJs(context, execFor(agent, 'call-old'))
     assert.equal(await waitFor(() => callLines(context.serverLog).length === 1), true)
     const oldCall = callLines(context.serverLog)[0].split(' ')
     const oldTurnId = oldCall[3]
-    computer[WRITE](false)
-    // A non-pc_codex_js call rebuilds the bridge without marking the new turn used.
+    // A changed launch spec rebuilds the browser bridge; the reset has no agent, so the
+    // new bridge is not marked as used in this turn.
+    writeCodexHome(join(context.home, 'codex'), [
+      SERVER, 'turn-ended', context.serverLog, context.pidFile, 'rebuilt',
+    ])
     await context.plugin.tools.get('pc_codex_js_reset').execute({}, {})
     assert.equal(await waitFor(() => readLines(context.pidFile).length === 2), true)
     emitTurnEnd(context, session)

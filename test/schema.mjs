@@ -20,6 +20,9 @@ const BAD_ARGUMENTS = /Missing required parameter|Invalid parameter|must be an o
 const REGISTERED = [
   'pc_codex_js',
   'pc_codex_js_reset',
+  'pc_codex_desktop_js',
+  'pc_codex_desktop_js_reset',
+  'pc_codex_desktop_js_add_node_module_dir',
   'pc_codex_docs',
   'pc_status',
 ]
@@ -72,6 +75,17 @@ test('every registered tool publishes an object JSON Schema', () => {
   assert.deepEqual(tools.get('pc_codex_js').parameters.required, ['code', 'title'])
   assert.deepEqual(tools.get('pc_codex_js_reset').parameters.properties, {})
   assert.deepEqual(tools.get('pc_status').parameters.properties, {})
+  assert.deepEqual(tools.get('pc_codex_desktop_js').parameters.required, ['code', 'title'])
+  assert.deepEqual(tools.get('pc_codex_desktop_js_reset').parameters.properties, {})
+  assert.deepEqual(
+    tools.get('pc_codex_desktop_js_add_node_module_dir').parameters.required,
+    ['path'],
+  )
+  assert.equal(
+    tools.get('pc_codex_desktop_js_add_node_module_dir').parameters.properties.path.type,
+    'string',
+  )
+  assert.equal(tools.has('pc_codex_js_add_node_module_dir'), false)
   assert.deepEqual(tools.get('pc_codex_docs').parameters.required, ['topic'])
   assert.deepEqual(tools.get('pc_codex_docs').parameters.properties.topic.type, 'string')
 })
@@ -136,6 +150,11 @@ test('the fallback agrees with the host defineTool', async (t) => {
 test('plugin and individual tool switches still work', () => {
   assert.equal(register({ enabled: false }).size, 0)
   assert.deepEqual([...register({ tools: { js: false } }).keys()], [
-    'pc_codex_js_reset', 'pc_codex_docs', 'pc_status',
+    'pc_codex_js_reset', 'pc_codex_desktop_js', 'pc_codex_desktop_js_reset',
+    'pc_codex_desktop_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
+  ])
+  assert.deepEqual([...register({ tools: { desktopJs: false } }).keys()], [
+    'pc_codex_js', 'pc_codex_js_reset', 'pc_codex_desktop_js_reset',
+    'pc_codex_desktop_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
   ])
 })

@@ -18,6 +18,12 @@
 0.4.0 新增：改名为 `dsh-pc-use`；新增 `pc_codex_docs` 读取 Codex 自带文档；按包名加载并补上
 显示名与图标；`pc_status` 改为按后端分组（`backends`）。
 
+0.5.0 把浏览器与桌面拆成两个服务器，按 Codex 应用的方式分别启动：浏览器用 `cua_repl`，桌面用
+`node_repl`。新增桌面工具 `pc_codex_desktop_js`、`pc_codex_desktop_js_reset` 与
+`pc_codex_desktop_js_add_node_module_dir`（开关 `tools.desktopJs` / `tools.desktopReset` /
+`tools.desktopAddNodeModuleDir`，默认全开）；`pc_status` 改为分别报告 `browser` 与 `desktop`，
+删除 `servicesFrom`；两个服务器各用自己的启动环境。
+
 0.4.3 新增：DSH 设置侧栏“插件市场”下方的“电脑操控”设置页，可改桌面操控、三选项卡片、记住授权、
 界面文字、浏览器自动授权、调用超时、Codex 配置目录与日志路径；`codexHome` 改为 volatile，改完下一次
 调用即重新解析并换到新目录，插件不重新挂载。
@@ -51,22 +57,26 @@ Codex `turn_ended`，收起“正在使用你的电脑”的橙色光圈。
 
 `npm test` 运行离线回归检查；`npm run test:smoke` 会连接 Codex 并操作浏览器。
 
-把 **Codex Computer Use**（`cua_repl`）做成 DeepSeek Harness 的原生工具插件：用本机 Codex
-操作真实的 Chrome 与 Windows 桌面应用，不需要任何手工 MCP 配置。目前后端是 Codex，
-以后会增加其他后端（见“后端”一节）。
+把 **Codex Computer Use** 做成 DeepSeek Harness 的原生工具插件：用本机 Codex 通过浏览器服务器
+（`cua_repl`）操作真实的 Chrome，通过桌面服务器（`node_repl`）操作 Windows 桌面应用，不需要任何
+手工 MCP 配置。目前后端是 Codex，以后会增加其他后端（见“后端”一节）。
 
 装好之后，每个 agent preset 自动拥有：
 
-| 工具 | 作用 |
-|---|---|
-| `pc_codex_js` | 在持久的 `cua_repl` 内核里执行 JS，用 `cua` API 打开/读取/操作网页，或用 `sky` 操作桌面应用 |
-| `pc_codex_js_reset` | 重置 JS 内核（不关闭标签页和应用） |
-| `pc_codex_docs` | 读取本机 Codex 自带的 Computer Use 文档（`skill` / `guidance` / `api` / `confirmations`） |
-| `pc_status` | 报告解析结果和连接状态；其他工具失败时先看它 |
+| 工具 | 服务器 | 作用 |
+|---|---|---|
+| `pc_codex_js` | 浏览器 | 在持久的 `cua_repl` 内核里执行 JS，用 `cua` API 打开/读取/操作网页 |
+| `pc_codex_js_reset` | 浏览器 | 重置浏览器 JS 内核（不关闭标签页） |
+| `pc_codex_desktop_js` | 桌面 | 在 Codex 持久的 `node_repl` 内核里执行 JS，用 `sky` API 操作桌面应用 |
+| `pc_codex_desktop_js_reset` | 桌面 | 重置桌面 JS 内核（不关闭应用） |
+| `pc_codex_desktop_js_add_node_module_dir` | 桌面 | 把 Node 模块目录加入桌面 `node_repl` |
+| `pc_codex_docs` | 无 | 读取本机 Codex 自带的 Computer Use 文档（`skill` / `guidance` / `api` / `confirmations`） |
+| `pc_status` | 无 | 报告两个服务器的解析结果和连接状态；其他工具失败时先看它 |
 
 ## 为什么需要这个插件
 
-Codex 的 `cua_repl` 依赖三件只有 Codex 自己的客户端才会做的事，普通 MCP 客户端接不了：
+Codex 的两个 computer-use 服务器——浏览器用的 `cua_repl` 与桌面用的 `node_repl`——依赖三件只有
+Codex 自己的客户端才会做的事，普通 MCP 客户端接不了：
 
 1. 每次 `tools/call` 要带 `_meta["x-codex-turn-metadata"]`，否则服务端直接拒绝；
 2. `initialize` 要声明 `elicitation` 能力，否则浏览器/应用授权请求发不出去；
@@ -75,7 +85,9 @@ Codex 的 `cua_repl` 依赖三件只有 Codex 自己的客户端才会做的事�
 
 另外 Codex 每次重启都会改写 `codex-computer-use-<GUID>` 管道名和运行时哈希，配置写死必然失效。
 
-本插件把这几件事都内置了（`lib/mcp-bridge.js` + `lib/codex-config.js`），每次启动重读 Codex 配置。
+本插件把这几件事都内置了（`lib/mcp-bridge.js` + `lib/codex-config.js`），每次使用前重读对应服务器
+的来源。启动环境原样传入：浏览器用 `.mcp.json` 里的值，桌面用 `config.toml` 里的值，与 Codex
+应用的启动方式一致。
 
 ## 安装
 
@@ -122,13 +134,18 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `codexHome` | `''` | 空表示 `%USERPROFILE%\.codex` |
 | `logFile` | `''` | 桥接日志路径；空表示 `~/.dsh/pc-use.log` |
 | `timeoutMs` | `120000` | 单次调用超时 |
-| `tools` | 全开 | `{ js, reset, docs, status }` 逐项开关 |
+| `tools` | 全开 | `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, docs, status }` 逐项开关 |
+| `tools.desktopJs` | `true` | 注册 `pc_codex_desktop_js`：在桌面 `node_repl` 里执行 JS（需要 `computer: true`） |
+| `tools.desktopReset` | `true` | 注册 `pc_codex_desktop_js_reset`：重置桌面 JS 内核 |
+| `tools.desktopAddNodeModuleDir` | `true` | 注册 `pc_codex_desktop_js_add_node_module_dir`：把 Node 模块目录加入桌面 `node_repl` |
 | `tools.docs` | `true` | 注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档（不需要 Codex 连接） |
 
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `desktopApprovalChoices` / `language` /
 `codexHome` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载
-插件；`computer` 改变后，下一次调用会先停掉旧连接再按新值重连；`codexHome` 改变后，下一次调用会
-重新解析并连到新目录。`enabled`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。
+插件。loader 会通知 volatile 写入：关闭 `computer` 时立即停掉桌面服务器，浏览器连接不受影响；
+重新打开后，下一次桌面调用才启动桌面服务器。`codexHome` 改变后，两个服务器各自在下一次调用时重新
+解析并重连。`enabled`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。三个桌面
+工具开关默认 `true`，不在设置页上。
 
 `language` 只影响插件自己显示的文字（三选项卡片、一次性卡片的 `displayReason` 与审计 `reason` 的
 中英两套）：`auto` 先尝试读取 DSH 宿主公开的界面语言偏好，读不到时用系统语言（`zh` 开头为中文，
@@ -143,7 +160,7 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 
 - `autoApprove: false`（默认）：浏览器授权一律 decline，原因记为 `auto-approve is off`；
 - `autoApprove: true`：只有浏览器访问授权会 accept（原因 `browser access auto-approved`），其他审批一律 decline，原因记为 `not a browser-access approval`；
-- 桌面授权不适用 `autoApprove`：`computer: false` 时一律 decline（`computer use is off`）；`computer: true` 时交给 DSH 审批，结果写进日志（`approved in DSH` / `rejected in DSH` / `approval cancelled` / `approval unavailable`），没有审批服务或没有进行中的 `pc_codex_js` 调用时 decline。
+- 桌面授权不适用 `autoApprove`：`computer: false` 时一律 decline（`computer use is off`）；`computer: true` 时交给 DSH 审批，结果写进日志（`approved in DSH` / `rejected in DSH` / `approval cancelled` / `approval unavailable`），没有审批服务或没有进行中的 `pc_codex_desktop_js` 调用时 decline。
 
 如果 Codex 改掉授权文案，浏览器授权和桌面授权都会被拒绝——这是安全的失败方式。
 
@@ -156,17 +173,28 @@ DSH 设置侧栏的“插件市场”下方有“电脑操控”页（条目 id 
 - **连接与日志**：`timeoutMs`（秒，10–3600，按毫秒保存）、`codexHome`、`logFile`。
 
 开关和下拉框改完立即保存，文本框与数字在失焦或回车时保存；每项在改过后出现“恢复默认”。
-`enabled` 与 `tools.*` 不在页面上：启用插件请到“内置插件”或插件管理，工具开关改 profile。
-`codexHome` 是 volatile：改完下一次调用会重新解析并换到新的 Codex 目录，插件不重新挂载。
+`enabled` 与 `tools.*` 不在页面上：启用插件请到“内置插件”或插件管理，工具开关改 profile。三个
+桌面工具开关（`tools.desktopJs`、`tools.desktopReset`、`tools.desktopAddNodeModuleDir`）与其他
+`tools.*` 一样不在页面上。`codexHome` 是 volatile：改完下一次调用会重新解析并换到新的 Codex
+目录，插件不重新挂载。
 
 ## 桌面操控
 
-Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `CUA_REPL_ENABLED_SURFACES`
-决定启用哪些能力，`.mcp.json` 里写死为 `browser`；插件只在子进程的 env 里追加
-`computer`（得到 `browser,computer`），不修改任何 Codex 文件。桌面能力还需要 `sky`
-可信服务：`.mcp.json` 已经把 `NODE_REPL_TRUSTED_SERVICES` 写死，启动器不会按 surfaces
-重新生成，所以插件同时在该变量里加入 `"sky": "@oai/sky/service"`（已有的 `sky` 不覆盖）；
-原值不是 JSON 对象时插件拒绝启动并报错。
+Windows 桌面应用操控默认关闭。0.5.0 起浏览器与桌面是两个 Codex 服务器，按 Codex 应用的方式
+分别启动：
+
+- **浏览器服务器**是 Codex 的 `cua_repl`，来源为
+  `<codexHome>/plugins/cache/openai-bundled/unified-computer-use/<版本>/.mcp.json`；
+- **桌面服务器**是 Codex 的 `node_repl`，来源为 `<codexHome>/config.toml` 的
+  `[mcp_servers.node_repl]`。
+
+`pc_codex_js` / `pc_codex_js_reset` 走浏览器服务器；`pc_codex_desktop_js` /
+`pc_codex_desktop_js_reset` / `pc_codex_desktop_js_add_node_module_dir` 走桌面服务器。两者都是
+懒启动：桌面服务器在第一次桌面调用时才启动，`computer` 为 `false` 时永不启动；关闭 `computer`
+立即停掉桌面服务器（由 loader 的 volatile 更新事件触发），浏览器服务器继续运行。每次调用前插件
+都会重读该服务器自己的来源，所以 Codex 重启后按服务器分别更新。启动环境原样传入——浏览器用
+`.mcp.json` 里的值，桌面用 `config.toml`
+里的值——与 Codex 应用的启动方式一致；0.4.x 改写环境的做法已经删除。
 
 开启方式：在 profile 的 `cordis.patch.yml` 里设置，改完重启桌面版。实测 DSH 桌面版
 0.2.1-rc.2 的“设置 → 内置插件”页只显示插件状态，不显示配置表单。该 patch 的
@@ -180,16 +208,20 @@ Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `C
 
 首次用 `sky` 操作某个桌面应用时，Codex 会发来授权请求。插件识别两种桌面授权文案：
 `Allow Codex to use <应用名>?`（桌面版实测所用）和 `Allow Computer Use to use "<应用名>"?`。
-录音请求 `Allow Computer Use to record computer audio?` 不在识别范围内，会被拒绝。
-插件把桌面授权转成 DSH 的提示（三选项卡片，或一次性审批卡片，见下），
-交给 DSH 处理；`autoApprove` 对桌面授权不起作用。
+录音请求 `Allow Computer Use to record computer audio?` 不在识别范围内，会被拒绝。桌面授权归到
+最早开始、仍在运行的 `pc_codex_desktop_js` 或 `pc_codex_desktop_js_add_node_module_dir` 调用；
+没有这类调用时直接拒绝，日志原因写为 `no active pc_codex_desktop_js call`。一个服务器收到不属于
+它的授权类型时一律拒绝并记日志（`unexpected approval for the browser server` /
+`unexpected approval for the desktop server`）。插件把桌面授权转成 DSH 的提示（三选项卡片，
+或一次性审批卡片，见下）；`autoApprove` 对桌面授权不起作用。
 
 插件会记住你在同一个 DSH 会话内的桌面授权：同一个应用经你允许一次后，后续请求不再询问，
 日志原因写为 `approved earlier in this DSH session`。只记住“允许”，拒绝、取消或失败
-不会被记住。以下情况会重新询问：桥接重连（例如切换 `computer`、`.mcp.json` 变化或进程
+不会被记住。以下情况会重新询问：桌面桥接重连（例如切换 `computer`、`node_repl` 变化或进程
 重启）、新开一个 DSH 会话、或把 `rememberDesktopApprovals` 设为 `false`（关闭期间的下一次
-调用或授权请求会清空记录）。想立刻重新询问，最可靠的办法是新开会话或切换一次 `computer`。
-注意：之后把权限模式改严，本会话内已经记住的应用仍会放行。
+调用或授权请求会清空记录）。浏览器桥接重连不会清空记住的桌面授权。想立刻重新询问，最可靠的
+办法是新开会话或切换一次 `computer`。注意：之后把权限模式改严，本会话内已经记住的应用仍会
+放行。
 
 桌面授权默认显示 DSH 的三选项卡片：`允许这一次`（只批准这一步，不记住）、`本次会话内允许`（同一
 agent、同一应用在本次 DSH 会话内不再询问，重新连接或重启后失效）和 `拒绝`。第二项只在
@@ -199,10 +231,10 @@ agent、同一应用在本次 DSH 会话内不再询问，重新连接或重启�
 旧的一次性卡片由 DSH 客户端按界面语言显示其中英文字。
 
 每轮 DSH 轮次结束时，插件会用同一 agent 的 Codex `session_id` / `turn_id` 调用
-`turn_ended`（正常结束为 `Stop`，中途停止为 `Interrupt`，子 agent 为 `SubagentStop`）。
-这会让 Codex 收起屏幕上“正在使用你的电脑”的橙色光圈，并结束那一轮。本轮没有调用过
-`pc_codex_js` 或 `pc_codex_js_reset`、桥接未连接或插件已卸载时不会补发；桥接重连后从新的
-`turn_id` 开始。
+`turn_ended`（正常结束为 `Stop`，中途停止为 `Interrupt`，子 agent 为 `SubagentStop`），对本轮
+用过且仍然连接着的每个服务器各发一次。这会让 Codex 收起屏幕上“正在使用你的电脑”的橙色光圈，
+并结束那一轮。本轮没用过的服务器、该服务器桥接未连接或插件已卸载时不会补发；桥接重连后从新的
+`turn_id` 开始，重建前的轮次不会补给新连接。
 
 ### 先读 Codex 自带的文档：`pc_codex_docs`
 
@@ -216,7 +248,7 @@ Codex 的 computer-use 插件自带一份 skill 和三份文档。插件不复�
 `confirmations`（需要用户确认的动作）、`api`（完整 `sky` API）。这个工具不需要 Codex
 连接，`computer: false` 时也会注册。
 
-在 `pc_codex_js` 里使用（`computer: true` 且连接建立之后）：
+在 `pc_codex_desktop_js` 里使用（`computer: true` 且桌面连接建立之后）：
 
 ```js
 const { sky } = await import('@oai/sky');
@@ -234,13 +266,16 @@ DSH 不询问、直接放行；要逐次确认，请使用“仅可查看”或�
 
 目前只有 Codex 后端：`pc_codex_*` 工具通过本机 Codex 桌面应用执行。命名已为其他后端预留：
 只属于 Codex 的工具用 `pc_codex_` 前缀，以后 Claude 的 computer use 会以 `pc_claude_`
-前缀与之并列；`pc_status` 的顶层按 `backends` 分组，当前只有 `backends.codex`。配置键
-暂时保持扁平（`codexHome` 等），等第二个后端有具体设计后再决定是否分组。
+前缀与之并列；`pc_status` 的顶层按 `backends` 分组，当前只有 `backends.codex`，其内部再分别
+报告 `browser` 与 `desktop` 两个服务器。配置键暂时保持扁平（`codexHome` 等），等第二个后端有
+具体设计后再决定是否分组。
 
 ## 前置条件
 
-- Codex 桌面应用必须正在运行（插件连的是它的原生管道）；
+- Codex 桌面应用必须正在运行（两个服务器连的都是它的原生管道）；
 - Chrome 插件已连接，`pc_codex_js` 里 `await cua.listBrowsers()` 能看到 `Chrome / type=extension`；
+- 桌面操控要求 `<codexHome>/config.toml` 里有 `[mcp_servers.node_repl]` 节；缺少时只有桌面工具
+  报错，错误会写出节名；
 - 只在 Windows 上验证过（Codex 的 Computer Use 在 Windows 上走 `sky` 原生管道）。
 
 ## 验证
@@ -249,11 +284,11 @@ DSH 不询问、直接放行；要逐次确认，请使用“仅可查看”或�
 await cua.listBrowsers();
 ```
 
-或先调 `pc_status`，看 `backends.codex`。第一次 `pc_codex_js` 建立连接之前，
-`backends.codex.computer`、`services`、`servicesFrom` 都是 `null`，这是正常的（尚未连接）。
-连接后 `servicesFrom` 为 `env` 或 `launcher`：`launcher` 表示 `.mcp.json` 没写
-`NODE_REPL_TRUSTED_SERVICES`、由 Codex 启动器生成，此时 `services` 为 `null`，插件不知道
-具体内容。命令行冒烟测试：
+或先调 `pc_status`，看 `backends.codex`：它包含 `codexHome`、`autoApprove`、`computer`，以及
+`browser` 与 `desktop` 两节。每节报告 `resolved`、`reason`、`source`、`command`、`cwd`、
+`nativePipe`、`connected` 与 `services`。第一次连接之前 `connected` 为 `false`、`services` 为
+`null`，这是正常的；来源解析失败时 `resolved` 为 `false`，`reason` 写出缺失的 `.mcp.json` 或
+`config.toml` 节。旧的 `servicesFrom` 字段在 0.5.0 已删除。命令行冒烟测试：
 
 ```powershell
 npm run test:smoke
@@ -263,37 +298,38 @@ npm run test:smoke
 
 ## 实现
 
-- `index.js` — cordis 插件：`defineTool` + `parameters` DSL 声明工具、导出 Schemastery `Config`、懒连接、`ctx.effect` 清理
+- `index.js` — cordis 插件：`defineTool` + `parameters` DSL 声明工具、导出 Schemastery `Config`、两个懒启动的桥接（浏览器与桌面）、按服务器分开的授权与轮次、`ctx.effect` 清理
 - `client.js` — 浏览器半侧：“电脑操控”设置页（`settings.section`）、控件与中英文界面字典
 - `lib/text.js` — 插件自己显示的中英文字（三选项卡片、`displayReason`、审计 reason、配置说明），两套键一致
 - `lib/config-value.js` — 解包 cordis 加载器传入的 `Volatile` 配置值
 - `lib/define-tool.js` — `defineTool` 的可移植兜底：把参数 DSL 转成对象 JSON Schema，并在 `execute` 前校验参数
 - `lib/images.js` — 保存工具结果里的截图：按 mimeType 取扩展名，保存后只保留最新 50 个文件
-- `lib/codex-config.js` — 从 `.mcp.json` / `config.toml` 解析启动参数，易变值以 config.toml 为准
+- `lib/codex-config.js` — 解析两套启动配置：`resolveBrowserServer` 读最新的 `cua_repl` `.mcp.json`，`resolveDesktopServer` 读 `config.toml` 的 `[mcp_servers.node_repl]`；每次调用前重读
 - `lib/mcp-bridge.js` — 极简 MCP stdio 客户端：注入 turn metadata、声明 elicitation、按策略应答审批、超时后通知取消
 - `lib/approval.js` — 审批判定：浏览器授权按 `autoApprove`，桌面授权交给 DSH 确认，其余一律拒绝并给出原因
-- `lib/surfaces.js` — 合并 `CUA_REPL_ENABLED_SURFACES`（追加桌面能力、去重）与 `NODE_REPL_TRUSTED_SERVICES`（开启 `computer` 时加入 `sky`）
 - `locale/en.json` / `locale/zh.json` — 插件管理页的显示名与描述（`PC Use` / `电脑操控`）
 - `icon.svg` — 原创的窗口加指针图标，不引用外部资源
 - `cordis.patch.yml` — bundle 层，按包名把插件插进每个 preset
 
-进程是**懒启动**的：加载插件本身不会 spawn 任何东西，Codex 没装也不会影响 profile 启动，错误只在真正调用工具时暴露。
+进程是**懒启动**的：加载插件本身不会 spawn 任何东西，Codex 没装也不会影响 profile 启动，错误只在真正调用工具时暴露。浏览器服务器在第一次浏览器调用时启动，桌面服务器在第一次桌面调用时启动。
 
 ## 为什么 `defineTool` 要有兜底
 
 `dsh plugin add` 安装的是 `link:` 目录，插件从**工作区路径**加载。DSH 桌面版 0.2.1-rc.2 的 profile 设置了 `autoInstallPeers: false`，也没有通用的 `@deepseek-ai` 解析钩子，因此以 `link:` 安装时插件解析不到宿主包（`@deepseek-ai/dsh-tools` / `@deepseek-ai/schemastery` / `@deepseek-ai/cordis`），始终走 `lib/define-tool.js` 的兜底分支。兜底分支已与宿主原生 `defineTool` 核对一致：把参数 DSL 转成对象 JSON Schema，并在执行前校验参数。
 
-0.1.0 在这里踩过坑：拿不到 `defineTool` 时直接把参数 DSL（`{ code: { type: 'string', required: true } }`）当成 JSON Schema 注册，模型请求里出现了非法 schema（属性里带 `required`、根缺 `type: object`），DeepSeek 直接拒绝**整轮**请求。`npm test` 会在离线环境断言四个工具都发布合法的对象 JSON Schema。
+0.1.0 在这里踩过坑：拿不到 `defineTool` 时直接把参数 DSL（`{ code: { type: 'string', required: true } }`）当成 JSON Schema 注册，模型请求里出现了非法 schema（属性里带 `required`、根缺 `type: object`），DeepSeek 直接拒绝**整轮**请求。`npm test` 会在离线环境断言七个工具都发布合法的对象 JSON Schema。
 
 只有插件目录里装了 `@deepseek-ai/schemastery` 之后，设置界面才会出现这些开关——这是插件自己的 devDependency 带来的效果（本地 `npm install` 后插件目录里才会有一份）。发布和安装方式需要留意这一点。
 桌面版 0.2.1-rc.2 实测不显示配置表单，`computer` 等配置仍需改 profile 的 `cordis.patch.yml`。
+三个桌面工具开关也只能在 profile 里改。
 
 ## 已知限制
 
-- 非官方用法，Codex 更新可能改变 `.mcp.json` 结构或管道机制；失效先看 `pc_status` 和 `logFile`。
+- 非官方用法，Codex 更新可能改变 `.mcp.json` 或 `config.toml` 结构或管道机制；失效先看
+  `pc_status` 和 `logFile`。
 - 自动审批只认 `Allow Browser use to access <origin>?` 这条文案；Codex 改文案后浏览器授权会被拒绝（fail-closed），被拒绝的原文会写进日志。
 - 桌面授权只认 `Allow Computer Use to use "<名称>"?` 和 `Allow Codex to use <名称>?` 两种文案，
   改文案后会被拒绝；桌面操控默认关闭，是否弹卡片由 DSH 的权限模式决定（“完全权限”直接放行，
   “仅可查看”/“工作区内修改”逐次确认），Codex 也可能记住授权而不再询问。
-- 同一时间只维持一个 Codex 连接；插件被卸载或进程退出时子进程会一起结束。
+- 每个服务器最多维持一个连接（浏览器一个、桌面一个）；插件被卸载或进程退出时两个子进程会一起结束。
 - 兜底分支只支持 `string` / `number` / `boolean` 三种原始参数；需要嵌套对象时必须在宿主里真正拿到 `defineTool`。

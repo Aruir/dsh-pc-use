@@ -11,9 +11,9 @@ const TOPICS = ['skill', 'guidance', 'api', 'confirmations']
 const UNIFIED = '26.1013.31256'
 const EXPLANATION_LINES = [
   'In DSH this document maps to the following:',
-  '- `node_repl` JavaScript runs through the `pc_codex_js` tool.',
-  '- Reset the JavaScript session with `pc_codex_js_reset`.',
-  '- Run the code from the Initialize section inside `pc_codex_js`.',
+  '- `node_repl` JavaScript runs through the `pc_codex_desktop_js` tool.',
+  '- Reset the JavaScript session with `pc_codex_desktop_js_reset`.',
+  '- Run the code from the Initialize section inside `pc_codex_desktop_js`.',
   '- Desktop approvals appear as DSH approval cards.',
 ]
 
@@ -21,7 +21,7 @@ function tempHome() {
   return mkdtempSync(join(tmpdir(), 'dsh-pc-use-docs-'))
 }
 
-/** Write the unified-computer-use entry `resolveCodexServer` reads. O(1). */
+/** Write the unified-computer-use entry `resolveBrowserServer` reads. O(1). */
 function writeUnified(codexHome, version) {
   const dir = join(
     codexHome, 'plugins', 'cache', 'openai-bundled', 'unified-computer-use', version,

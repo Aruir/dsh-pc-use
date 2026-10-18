@@ -13,6 +13,9 @@ const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const TOOL_NAMES = [
   'pc_codex_js',
   'pc_codex_js_reset',
+  'pc_codex_desktop_js',
+  'pc_codex_desktop_js_reset',
+  'pc_codex_desktop_js_add_node_module_dir',
   'pc_codex_docs',
   'pc_status',
 ]
@@ -77,7 +80,7 @@ test('the patch insert uses the package name and loads the exported entry', () =
   assert.equal(existsSync(join(root, packageJson.exports['.'])), true)
 })
 
-test('exactly the four new tool names are registered', () => {
+test('exactly the seven tool names are registered', () => {
   const plugin = register()
   try {
     assert.deepEqual([...plugin.tools.keys()], TOOL_NAMES)
@@ -89,28 +92,48 @@ test('exactly the four new tool names are registered', () => {
   }
 })
 
-test('pc_codex_js tells the model to read pc_codex_docs first', () => {
+test('pc_codex_desktop_js takes over the pc_codex_docs first-call guidance', () => {
   const plugin = register()
   try {
-    const description = plugin.tools.get('pc_codex_js').description
+    const description = plugin.tools.get('pc_codex_desktop_js').description
     assert.equal(description.includes(PC_CODEX_JS_DOCS_SENTENCE), true)
+    assert.equal(description.includes('node_repl'), true)
+    assert.equal(description.includes('@oai/sky'), true)
   } finally {
     plugin.dispose()
   }
 })
 
-test('pc_status puts the existing fields under backends.codex', async () => {
+test('pc_codex_js points desktop work at pc_codex_desktop_js', () => {
+  const plugin = register()
+  try {
+    const description = plugin.tools.get('pc_codex_js').description
+    assert.equal(description.includes('pc_codex_desktop_js'), true)
+    assert.equal(description.includes('`sky`'), false)
+  } finally {
+    plugin.dispose()
+  }
+})
+
+test('pc_status reports separate browser and desktop backends', async () => {
   const plugin = register()
   try {
     const status = JSON.parse(await plugin.tools.get('pc_status').execute({}, {}))
     assert.deepEqual(Object.keys(status), ['backends'])
     const codex = status.backends.codex
-    assert.equal(typeof codex, 'object')
-    assert.equal(codex.connected, false)
-    assert.equal(codex.computer, null)
-    assert.equal(codex.services, null)
-    assert.equal(codex.servicesFrom, null)
+    assert.equal(typeof codex.codexHome, 'string')
+    assert.equal(codex.autoApprove, false)
+    assert.equal(codex.computer, false)
+    assert.equal(codex.servicesFrom, undefined)
     assert.equal(status.connected, undefined)
+    for (const side of ['browser', 'desktop']) {
+      const backend = codex[side]
+      assert.equal(typeof backend, 'object', side)
+      assert.equal(backend.resolved, false, side)
+      assert.equal(typeof backend.reason, 'string', side)
+      assert.equal(backend.connected, false, side)
+      assert.equal(backend.services, null, side)
+    }
   } finally {
     plugin.dispose()
   }

@@ -20,13 +20,13 @@ function approvalLines(file) {
   return readFileSync(file, 'utf8').split('\n').filter((line) => line.includes('approval "'))
 }
 
-test('a cancelled pc_codex_js call withdraws the pending desktop approval', async () => {
+test('a cancelled desktop call withdraws the pending desktop approval', async () => {
   const home = tempDir('pc-use-stale-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
   writeFileSync(serverLog, '')
   const codexHome = join(home, 'codex')
-  writeCodexHome(codexHome, [DESKTOP_SERVER, 'computer', serverLog])
+  writeCodexHome(codexHome, [DESKTOP_SERVER, 'computer', serverLog], {}, { desktop: true })
   const logFile = join(home, 'bridge.log')
   let seenSignal = null
   const approval = {
@@ -46,12 +46,12 @@ test('a cancelled pc_codex_js call withdraws the pending desktop approval', asyn
   const controller = new AbortController()
   const exec = {
     agent: { id: 'agent' },
-    name: 'pc_codex_js',
+    name: 'pc_codex_desktop_js',
     callId: 'call-stale',
     signal: controller.signal,
   }
   try {
-    const js = plugin.tools.get('pc_codex_js')
+    const js = plugin.tools.get('pc_codex_desktop_js')
     const pending = js.execute({ code: '1', title: 'stale' }, exec)
     assert.equal(await waitFor(() => seenSignal !== null), true)
     controller.abort()
@@ -75,7 +75,7 @@ test('the signal handed to DSH follows a host cancellation', async () => {
   const serverLog = join(home, 'server.log')
   writeFileSync(serverLog, '')
   const codexHome = join(home, 'codex')
-  writeCodexHome(codexHome, [DESKTOP_SERVER, 'computer', serverLog])
+  writeCodexHome(codexHome, [DESKTOP_SERVER, 'computer', serverLog], {}, { desktop: true })
   let seenSignal = null
   const approval = {
     request(parameters) {
@@ -92,12 +92,12 @@ test('the signal handed to DSH follows a host cancellation', async () => {
   const controller = new AbortController()
   const exec = {
     agent: { id: 'agent' },
-    name: 'pc_codex_js',
+    name: 'pc_codex_desktop_js',
     callId: 'call-cancel',
     signal: controller.signal,
   }
   try {
-    const js = plugin.tools.get('pc_codex_js')
+    const js = plugin.tools.get('pc_codex_desktop_js')
     const pending = js.execute({ code: '1', title: 'cancel' }, exec)
       .then((value) => value, (error) => error)
     assert.equal(await waitFor(() => seenSignal !== null), true)
