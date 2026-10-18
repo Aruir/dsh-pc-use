@@ -506,7 +506,7 @@ test('disposing the page module clears every registration and subscription', () 
 test('the rendered page shows the three groups', () => {
   const { renderer } = renderSection()
   const content = renderedText(renderer.getTree())
-  for (const group of ['桌面操控', '浏览器', '连接与日志']) {
+  for (const group of ['桌面操控', '浏览器', '通用']) {
     assert.ok(content.includes(group), `missing group ${group}`)
   }
 })
@@ -947,4 +947,87 @@ test('the read-only notice has no default paragraph margin', async () => {
   ))
   assert.ok(readonly)
   assert.equal(readonly.props.style.margin, 0)
+})
+
+/** The `pc-use-*` control id inside one row (the label id ends with `-label`). O(n). */
+function rowControlId(row) {
+  const control = row.props.children[1]
+  const found = elements(control).find((node) => (
+    typeof node.props?.id === 'string'
+    && node.props.id.startsWith('pc-use-')
+    && node.props.id.endsWith('-label') === false
+    && node.props.id.endsWith('-error') === false
+  ))
+  return found?.props.id
+}
+
+test('the first switch row is titled differently from its group', () => {
+  const { renderer, context } = renderSection()
+  const zhTree = renderer.getTree()
+  const zhLabel = findNode(zhTree, (node) => (
+    node.type === 'label' && node.props.htmlFor === 'pc-use-computer'
+  ))
+  assert.equal(renderedText(zhLabel), '启用桌面操控')
+  assert.ok(renderedText(zhTree).includes('桌面操控'))
+  context.locale.language = 'en'
+  renderer.render()
+  const enLabel = findNode(renderer.getTree(), (node) => (
+    node.type === 'label' && node.props.htmlFor === 'pc-use-computer'
+  ))
+  assert.equal(renderedText(enLabel), 'Enable desktop control')
+})
+
+test('the intro is one sentence in both languages', () => {
+  const { renderer, context } = renderSection()
+  const intro = (tree) => renderedText(findNode(tree, (node) => (
+    node.type === 'p' && node.props.key === 'intro'
+  )))
+  assert.equal(intro(renderer.getTree()), '改动会立即生效。')
+  context.locale.language = 'en'
+  renderer.render()
+  assert.equal(intro(renderer.getTree()), 'Changes apply immediately.')
+})
+
+test('the groups and their rows have the new order', () => {
+  const { renderer } = renderSection()
+  const groups = groupContainers(renderer.getTree())
+  assert.equal(groups.length, 3)
+  const headings = groups.map((group) => renderedText(
+    group.props.children.find((child) => child && child.type === 'h3'),
+  ))
+  assert.deepEqual(headings, ['桌面操控', '浏览器', '通用'])
+  const ids = groups.map((group) => rowsOfGroup(group).map(rowControlId))
+  assert.deepEqual(ids, [
+    ['pc-use-computer', 'pc-use-desktopApprovalChoices', 'pc-use-rememberDesktopApprovals'],
+    ['pc-use-autoApprove'],
+    ['pc-use-language', 'pc-use-timeoutMs', 'pc-use-codexHome', 'pc-use-logFile'],
+  ])
+})
+
+test('the new last rows are the ones without a divider', () => {
+  const { renderer } = renderSection()
+  const groups = groupContainers(renderer.getTree())
+  const findRow = (group, id) => rowsOfGroup(group).find((row) => rowControlId(row) === id)
+  const border = (group, id) => findRow(group, id).props.style.borderBottom
+  assert.equal(border(groups[0], 'pc-use-computer'),
+    '0.5px solid var(--dsw-alias-border-l2)')
+  assert.equal(border(groups[0], 'pc-use-rememberDesktopApprovals'), 'none')
+  assert.equal(border(groups[2], 'pc-use-language'),
+    '0.5px solid var(--dsw-alias-border-l2)')
+  assert.equal(border(groups[2], 'pc-use-logFile'), 'none')
+})
+
+test('the footer keeps only the first sentence', () => {
+  const { renderer, context } = renderSection()
+  const footer = (tree) => renderedText(findNode(tree, (node) => (
+    node.type === 'p' && node.props.key === 'footer'
+  )))
+  const zh = footer(renderer.getTree())
+  assert.equal(zh, '启用插件请到“内置插件”或插件管理中操作。')
+  assert.equal(zh.includes('cordis.patch.yml'), false)
+  context.locale.language = 'en'
+  renderer.render()
+  const en = footer(renderer.getTree())
+  assert.equal(en, 'Enable the plugin in "Built-in plugins" or the plugin manager.')
+  assert.equal(en.includes('cordis.patch.yml'), false)
 })

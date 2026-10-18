@@ -22,11 +22,11 @@ window.__ModuleLoader__.load({
     const zh = {
       nav: '电脑操控',
       title: '电脑操控',
-      intro: '调整 PC Use 的桌面操控、浏览器授权、连接与日志设置；改动会立即生效。',
+      intro: '改动会立即生效。',
       groupDesktop: '桌面操控',
       groupBrowser: '浏览器',
-      groupConnection: '连接与日志',
-      computer: '桌面操控',
+      groupGeneral: '通用',
+      computer: '启用桌面操控',
       computerDescription: '开启 Windows 桌面应用操控（Codex Computer Use）；桌面授权交给 DSH 的'
         + '审批策略，“完全权限”下直接放行。',
       desktopApprovalChoices: '三选项授权卡片',
@@ -58,19 +58,18 @@ window.__ModuleLoader__.load({
       conflict: '设置已被其他地方修改，已载入最新值',
       readFailed: '读取失败',
       writeRejected: '写入被拒绝：该配置项可能被 profile 的其它层覆盖。',
-      footer: '启用插件请到“内置插件”或插件管理中操作；工具开关在 profile 的 cordis.patch.yml 中修改。',
+      footer: '启用插件请到“内置插件”或插件管理中操作。',
       loading: '正在读取设置…',
     }
 
     const en = {
       nav: 'PC Use',
       title: 'PC Use',
-      intro: 'Desktop control, browser approval, connection and logging settings for PC Use; '
-        + 'changes apply immediately.',
+      intro: 'Changes apply immediately.',
       groupDesktop: 'Desktop control',
       groupBrowser: 'Browser',
-      groupConnection: 'Connection and logs',
-      computer: 'Desktop control',
+      groupGeneral: 'General',
+      computer: 'Enable desktop control',
       computerDescription: 'Enable Windows desktop app control (Codex Computer Use); desktop '
         + 'approvals follow DSH\'s approval policy (allowed directly under "full access").',
       desktopApprovalChoices: 'Three-option approval card',
@@ -104,8 +103,7 @@ window.__ModuleLoader__.load({
       conflict: 'These settings were changed elsewhere; the latest values were loaded',
       readFailed: 'Failed to read settings',
       writeRejected: 'Write refused: another profile layer probably overrides this field.',
-      footer: 'Enable the plugin in "Built-in plugins" or the plugin manager; tool switches '
-        + 'live in the profile cordis.patch.yml.',
+      footer: 'Enable the plugin in "Built-in plugins" or the plugin manager.',
       loading: 'Reading settings…',
     }
 
@@ -546,7 +544,6 @@ window.__ModuleLoader__.load({
         resetLabel: t('reset'),
         showReset: changed('language'),
         onReset: reset('language'),
-        last: true,
       }, h('select', {
         id: 'pc-use-language',
         'aria-label': t('language'),
@@ -606,11 +603,11 @@ window.__ModuleLoader__.load({
         group('desktop', 'groupDesktop', [
           booleanRow('computer'),
           booleanRow('desktopApprovalChoices'),
-          booleanRow('rememberDesktopApprovals'),
-          languageRow,
+          booleanRow('rememberDesktopApprovals', true),
         ]),
         group('browser', 'groupBrowser', [booleanRow('autoApprove', true)]),
-        group('connection', 'groupConnection', [
+        group('general', 'groupGeneral', [
+          languageRow,
           timeoutRow,
           textRow('codexHome', 'codexHomePlaceholder'),
           textRow('logFile', 'logFilePlaceholder', true),
