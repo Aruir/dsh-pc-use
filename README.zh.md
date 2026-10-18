@@ -18,8 +18,11 @@
 0.4.0 新增：改名为 `dsh-pc-use`；新增 `pc_codex_docs` 读取 Codex 自带文档；按包名加载并补上
 显示名与图标；`pc_status` 改为按后端分组（`backends`）。
 
-0.5.6 把“界面文字”的原生下拉框换成 DSH 官方的 primitives Menu（圆角按钮、向下箭头与 hover
-样式，style 只注入一次）；拿不到 primitives/Menu 时退回原生 select。
+0.6.0 把“界面文字”的原生下拉框换成 DSH 官方的 primitives Menu（圆角按钮、向下箭头与 hover
+样式，style 只注入一次）；拿不到 primitives/Menu 时退回原生 select。同时删去
+`desktopApprovalChoices` 开关——这是公共配置 API 的不兼容修改——桌面授权固定用三选项卡片，
+只保留拿不到提问服务与策略不是 `ask` 的两种降级。仍带旧字段的 profile 照常加载：DSH 的非
+strict schema 会保留这个未知键，插件不再读取它，可以留待以后清理。
 
 0.5.5 精简设置页文字：第一行改为“启用桌面操控”，页说明与页脚各留一句；“界面文字”移到最后的
 “通用”组。
@@ -47,8 +50,8 @@
 调用即重新解析并换到新目录，插件不重新挂载。
 
 0.4.2：修复三处实测问题——`turn_ended` 的 `_meta` 用了下一轮 turn id、等待授权的时间计入
-调用超时、Codex 重启后仍连着旧桌面助手管道；桌面授权改为三选项卡片（`desktopApprovalChoices`，
-默认开启；关闭或授权策略为“完全权限”时沿用原一次性卡片）；加入英文支持（`language` 控制插件
+调用超时、Codex 重启后仍连着旧桌面助手管道；桌面授权改为三选项卡片（授权策略为“完全权限”时
+沿用原一次性卡片）；加入英文支持（`language` 控制插件
 自己显示的文字，默认 `auto` 跟随 DSH 界面语言）。
 
 0.4.1 修正：删除 `pc_codex_js_add_node_module_dir` 工具、`tools.addNodeModuleDir` 与
@@ -147,7 +150,6 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `autoApprove` | `false` | 只自动接受浏览器访问授权；其他 elicitation 审批一律 decline（fail-closed） |
 | `computer` | `false` | 开启 Windows 桌面应用操控（Codex Computer Use）；是否弹卡片由 DSH 的权限模式决定 |
 | `rememberDesktopApprovals` | `true` | 同一个 DSH 会话里，某个应用经你允许一次后不再询问；拒绝不会被记住 |
-| `desktopApprovalChoices` | `true` | 桌面授权用三选项卡片（允许这一次 / 本次会话内允许 / 拒绝）；关闭后沿用一次性授权卡片 |
 | `language` | `'auto'` | 插件界面文字的语言：`auto` 跟随 DSH 界面语言，或强制 `zh` / `en` |
 | `codexHome` | `''` | 空表示 `%USERPROFILE%\.codex` |
 | `logFile` | `''` | 桥接日志路径；空表示 `~/.dsh/pc-use.log` |
@@ -158,7 +160,7 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `tools.desktopAddNodeModuleDir` | `true` | 注册 `pc_codex_desktop_js_add_node_module_dir`：把 Node 模块目录加入桌面 `node_repl` |
 | `tools.docs` | `true` | 注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档（不需要 Codex 连接） |
 
-`autoApprove` / `computer` / `rememberDesktopApprovals` / `desktopApprovalChoices` / `language` /
+`autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /
 `codexHome` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载
 插件。loader 会通知 volatile 写入：关闭 `computer` 时立即停掉桌面服务器，浏览器连接不受影响；
 重新打开后，下一次桌面调用才启动桌面服务器。`codexHome` 改变后，两个服务器各自在下一次调用时重新
@@ -186,9 +188,9 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 
 DSH 设置侧栏的“插件市场”下方有“电脑操控”页（条目 id `pc-use`，只在 Host 提供该条目时显示）。可以改：
 
-- **桌面操控**：`computer`、`desktopApprovalChoices`、`rememberDesktopApprovals`、`language`；
+- **桌面操控**：`computer`、`rememberDesktopApprovals`；
 - **浏览器**：`autoApprove`；
-- **连接与日志**：`timeoutMs`（秒，10–3600，按毫秒保存）、`codexHome`、`logFile`。
+- **通用**：`language`、`timeoutMs`（秒，10–3600，按毫秒保存）、`codexHome`、`logFile`。
 
 开关和下拉框改完立即保存，文本框与数字在失焦或回车时保存；每项在改过后出现“恢复默认”。
 `enabled` 与 `tools.*` 不在页面上：启用插件请到“内置插件”或插件管理，工具开关改 profile。三个
@@ -244,7 +246,7 @@ Windows 桌面应用操控默认关闭。0.5.0 起浏览器与桌面是两个 Co
 桌面授权默认显示 DSH 的三选项卡片：`允许这一次`（只批准这一步，不记住）、`本次会话内允许`（同一
 agent、同一应用在本次 DSH 会话内不再询问，重新连接或重启后失效）和 `拒绝`。第二项只在
 `rememberDesktopApprovals` 开启且请求的 `_meta.persist` 含 `session` 时出现；授权策略为 `never`
-（“完全权限”）、拿不到提问服务或 `desktopApprovalChoices: false` 时，沿用一次性的 DSH 授权卡片。
+（“完全权限”）或拿不到提问服务时，沿用一次性的 DSH 授权卡片。
 用户填写自定义文字、没有选择、选择未知文字或提问出错都按拒绝处理。卡片文字跟随 `language`；
 旧的一次性卡片由 DSH 客户端按界面语言显示其中英文字。
 

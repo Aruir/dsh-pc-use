@@ -38,9 +38,6 @@ window.__ModuleLoader__.load({
       computer: '启用桌面操控',
       computerDescription: '开启 Windows 桌面应用操控（Codex Computer Use）；桌面授权交给 DSH 的'
         + '审批策略，“完全权限”下直接放行。',
-      desktopApprovalChoices: '三选项授权卡片',
-      desktopApprovalChoicesDescription: '桌面授权使用三选项卡片（允许这一次 / 本次会话内允许 / 拒绝）；'
-        + '关闭后沿用一次性授权卡片。',
       rememberDesktopApprovals: '记住桌面授权',
       rememberDesktopApprovalsDescription: '同一个 DSH 会话里，某个应用经你允许一次后不再询问；'
         + '拒绝不会被记住。桥接重连或关闭此项后重新询问。',
@@ -81,9 +78,6 @@ window.__ModuleLoader__.load({
       computer: 'Enable desktop control',
       computerDescription: 'Enable Windows desktop app control (Codex Computer Use); desktop '
         + 'approvals follow DSH\'s approval policy (allowed directly under "full access").',
-      desktopApprovalChoices: 'Three-option approval card',
-      desktopApprovalChoicesDescription: 'Show the three-option card for desktop approvals '
-        + '(allow this time / allow for this session / deny); when off, use the one-shot card.',
       rememberDesktopApprovals: 'Remember desktop approvals',
       rememberDesktopApprovalsDescription: 'Within one DSH session, an app you allowed once '
         + 'is not asked about again; denials are not remembered. A bridge reconnect or turning '
@@ -118,7 +112,7 @@ window.__ModuleLoader__.load({
 
     /** Fields shown on the page, in render order within their groups. O(1). */
     const FIELDS = [
-      'computer', 'desktopApprovalChoices', 'rememberDesktopApprovals', 'language',
+      'computer', 'rememberDesktopApprovals', 'language',
       'autoApprove', 'timeoutMs', 'codexHome', 'logFile',
     ]
 
@@ -689,7 +683,6 @@ window.__ModuleLoader__.load({
       const groups = [
         group('desktop', 'groupDesktop', [
           booleanRow('computer'),
-          booleanRow('desktopApprovalChoices'),
           booleanRow('rememberDesktopApprovals', true),
         ]),
         group('browser', 'groupBrowser', [booleanRow('autoApprove', true)]),

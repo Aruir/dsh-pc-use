@@ -56,7 +56,7 @@ try {
 
 /**
  * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean,
- *   rememberDesktopApprovals: boolean, desktopApprovalChoices: boolean, language: string,
+ *   rememberDesktopApprovals: boolean, language: string,
  *   codexHome: string, logFile: string, timeoutMs: number,
  *   tools: {js: boolean, reset: boolean, desktopJs: boolean, desktopReset: boolean,
  *     desktopAddNodeModuleDir: boolean, docs: boolean, status: boolean}}} Config
@@ -64,7 +64,7 @@ try {
 
 /**
  * The plugin's configuration schema. `autoApprove`, `computer`,
- * `rememberDesktopApprovals`, `desktopApprovalChoices`, `language`, `codexHome`, `logFile`
+ * `rememberDesktopApprovals`, `language`, `codexHome`, `logFile`
  * and `timeoutMs` are `.volatile()`: the loader writes new values into the running plugin
  * and every use re-reads them, so they never remount it (the settings page edits them live).
  * `enabled` and `tools.*` are deliberately not volatile: changing one remounts the plugin,
@@ -86,10 +86,6 @@ function buildConfig(schema) {
       rememberDesktopApprovals: schema.boolean().default(true)
         .description('同一个 DSH 会话里，某个应用经你允许一次后不再询问；拒绝不会被记住。'
           + '桥接重连或关闭此项后重新询问。')
-        .volatile(),
-      desktopApprovalChoices: schema.boolean().default(true)
-        .description('桌面授权使用三选项卡片（允许这一次 / 本次会话内允许 / 拒绝）；'
-          + '关闭后沿用一次性授权卡片。')
         .volatile(),
       language: schema.union(['auto', 'zh', 'en']).default('auto')
         .description('插件界面文字的语言：auto 跟随 DSH 界面语言，或强制 zh / en。')
@@ -131,7 +127,6 @@ const DEFAULTS = {
   autoApprove: false,
   computer: false,
   rememberDesktopApprovals: true,
-  desktopApprovalChoices: true,
   language: 'auto',
   codexHome: '',
   logFile: '',
@@ -244,7 +239,7 @@ const COMPUTER_OFF = 'dsh-pc-use: computer use is off; '
 
 /**
  * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean,
- *   rememberDesktopApprovals?: boolean, desktopApprovalChoices?: boolean,
+ *   rememberDesktopApprovals?: boolean,
  *   language?: string, codexHome?: string, logFile?: string, timeoutMs?: number,
  *   tools?: Record<string, boolean>}} raw
  */
@@ -270,9 +265,6 @@ export function apply(ctx, raw = {}) {
   const autoApproveEnabled = () => unwrapConfigValue(source.autoApprove) === true
   const computerEnabled = () => unwrapConfigValue(source.computer) === true
   const rememberEnabled = () => unwrapConfigValue(source.rememberDesktopApprovals) !== false
-  const desktopApprovalChoicesEnabled = () => (
-    unwrapConfigValue(source.desktopApprovalChoices) !== false
-  )
   const configuredLanguage = () => {
     const value = unwrapConfigValue(source.language)
     return value === 'zh' || value === 'en' ? value : 'auto'
@@ -416,7 +408,6 @@ export function apply(ctx, raw = {}) {
   /** True when the three-option question card may be used. O(1). */
   const canUseDesktopChoices = (approval, questions, agent) => {
     if (questions === undefined || questions === null) return false
-    if (desktopApprovalChoicesEnabled() !== true) return false
     try {
       return approval.effectivePolicy(agent.session) === 'ask'
     } catch {

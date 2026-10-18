@@ -73,13 +73,15 @@ test('old config keys addNodeModuleDir and stateFile are tolerated', (t) => {
   }
 })
 
-test('desktopApprovalChoices and language default through the real config path', (t) => {
+test('a legacy desktopApprovalChoices field validates and is ignored', (t) => {
   if (!canResolve) return t.skip(SKIP)
-  assert.equal(unwrapConfigValue(validate({}).desktopApprovalChoices), true)
-  assert.equal(
-    unwrapConfigValue(validate({ desktopApprovalChoices: false }).desktopApprovalChoices),
-    false,
-  )
+  // The field is gone from the schema, so settings pages and `Config.dict` no longer show it.
+  assert.equal(Config.dict.desktopApprovalChoices, undefined)
+  // Schemastery objects are non-strict: the unknown key is preserved by validation, not rejected.
+  for (const value of [true, false]) {
+    const config = validate({ desktopApprovalChoices: value })
+    assert.equal(config.desktopApprovalChoices, value)
+  }
   assert.equal(unwrapConfigValue(validate({}).language), 'auto')
   assert.equal(unwrapConfigValue(validate({ language: 'en' }).language), 'en')
 })
@@ -113,7 +115,6 @@ test('only the hot-updatable fields come back as Volatile', (t) => {
   assert.equal(isVolatile(value.autoApprove), true)
   assert.equal(isVolatile(value.logFile), true)
   assert.equal(isVolatile(value.timeoutMs), true)
-  assert.equal(isVolatile(value.desktopApprovalChoices), true)
   assert.equal(isVolatile(value.language), true)
   assert.equal(isVolatile(value.codexHome), true)
   assert.equal(isVolatile(value.enabled), false)

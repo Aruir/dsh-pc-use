@@ -96,8 +96,11 @@ function setup(options = {}) {
     codexHome,
     computer: true,
     rememberDesktopApprovals: options.remember,
-    desktopApprovalChoices: options.choices,
     language: options.language ?? 'zh',
+    // A legacy profile may still carry this removed field; it must be ignored.
+    ...(options.legacyChoices === undefined ? {} : {
+      desktopApprovalChoices: options.legacyChoices,
+    }),
     logFile,
   }, { services: options.services ?? {} })
   return { home, restore, serverLog, logFile, plugin }
@@ -330,14 +333,19 @@ test('without the questions service the one-shot approval card is used', async (
   }
 })
 
-test('desktopApprovalChoices:false keeps the one-shot approval card', async () => {
-  const { approval, questions, services } = choiceServices({})
-  const context = setup({ choices: false, services })
+test('a legacy desktopApprovalChoices:false config still uses the three-option card', async () => {
+  const { approval, questions, services } = choiceServices({ answer: picked(ONCE) })
+  const context = setup({ legacyChoices: false, services })
   try {
     const result = await runJs(context)
     assert.match(result, /decision accept/)
-    assert.equal(questions.requests.length, 0)
-    assert.equal(approval.requests.length, 1)
+    assert.equal(approval.requests.length, 0)
+    assert.equal(questions.requests.length, 1)
+    assert.equal(questions.requests[0].questions[0].header, HEADER)
+    assert.deepEqual(
+      questions.requests[0].questions[0].options.map((option) => option.label),
+      [ONCE, SESSION, DENY],
+    )
   } finally {
     finish(context)
   }

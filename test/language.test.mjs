@@ -110,7 +110,6 @@ function setup(options = {}) {
     codexHome,
     computer: true,
     rememberDesktopApprovals: true,
-    desktopApprovalChoices: options.choices,
     language: options.language,
     logFile,
   }, { services: options.services ?? {} })
@@ -295,7 +294,7 @@ test('every configuration field has zh and en descriptions', () => {
   descriptionOf(Config, 'the schema root')
   const fields = [
     'enabled', 'autoApprove', 'computer', 'rememberDesktopApprovals',
-    'desktopApprovalChoices', 'language', 'codexHome', 'logFile', 'timeoutMs', 'tools',
+    'language', 'codexHome', 'logFile', 'timeoutMs', 'tools',
   ]
   for (const field of fields) {
     descriptionOf(Config.dict[field], field)
@@ -322,28 +321,22 @@ test('the three desktop tool switches describe their tools in zh and en', () => 
   }
 })
 
-test('desktopApprovalChoices and language are re-read for the next approval', async () => {
-  const choices = createVolatile(true)
+test('language is re-read for the next approval', async () => {
   const language = createVolatile('zh')
   const questions = questionsService([picked(ZH_CARD.once.label), picked(EN_CARD.once.label)])
   const approval = approvalService()
   const services = { approval: approval.service, userQuestions: questions.service }
-  const context = setup({ choices, language, services })
+  const context = setup({ language, services })
   try {
     const first = await runJs(context, execFor('call-1'))
     assert.match(first, /decision accept/)
     assert.equal(questions.requests[0].questions[0].header, ZH_CARD.header)
-    // Turning the card off is picked up by the next approval without a remount.
-    choices[WRITE](false)
-    await runJs(context, execFor('call-2'))
-    assert.equal(questions.requests.length, 1)
-    assert.equal(approval.requests.length, 1)
-    // Turning it back on and switching to English is picked up too.
-    choices[WRITE](true)
+    // Switching to English is picked up by the next approval without a remount.
     language[WRITE]('en')
-    await runJs(context, execFor('call-3'))
+    await runJs(context, execFor('call-2'))
     assert.equal(questions.requests.length, 2)
     assert.equal(questions.requests[1].questions[0].header, EN_CARD.header)
+    assert.equal(approval.requests.length, 0)
   } finally {
     finish(context)
   }

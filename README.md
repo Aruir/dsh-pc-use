@@ -19,9 +19,14 @@ English | [中文](README.zh.md)
 0.4.0 added: the rename to `dsh-pc-use`; `pc_codex_docs` for Codex's own docs; loading by package
 name with display name and icon; `pc_status` now groups by backend (`backends`).
 
-0.5.6 replaced the language row's native select with DSH's official primitives Menu (rounded
+0.6.0 replaced the language row's native select with DSH's official primitives Menu (rounded
 button, chevron and hover style, injected once through a style element), falling back to the native
-select when the primitives module or Menu is unavailable.
+select when the primitives module or Menu is unavailable. It also removed the
+`desktopApprovalChoices` switch — an incompatible change to the public config API — so desktop
+approvals always use the three-option card; only the missing question service and non-`ask` policy
+fallbacks remain. A profile that still carries the old field keeps loading: DSH's non-strict schema
+passes the unknown key through and the plugin ignores it, so the field can be left for later
+cleanup.
 
 0.5.5 shortened the settings page text: the first switch row is "Enable desktop control", the
 intro and footer keep one sentence each, and the interface-language row moved into a new "General"
@@ -55,8 +60,8 @@ reconnects to the new Codex directory without remounting the plugin.
 
 0.4.2: fixed three issues found in live testing — `turn_ended` `_meta` used the next turn's turn id,
 waiting for an approval counted against the call timeout, and the plugin kept the old desktop helper
-pipe after Codex restarted; desktop approvals now use a three-option card (`desktopApprovalChoices`,
-on by default; when off or the approval policy is "full access" the original one-shot card is used);
+pipe after Codex restarted; desktop approvals now use a three-option card (the approval policy
+"full access" keeps the original one-shot card);
 English support was added (`language` controls the text the plugin shows, `auto` by default
 following the DSH interface language).
 
@@ -173,7 +178,6 @@ All fields are optional and go in the `config:` block of `cordis.patch.yml`.
 | `autoApprove` | `false` | Only browser-access approvals are accepted automatically; other elicitations are declined (fail-closed) |
 | `computer` | `false` | Enable Windows desktop app control (Codex Computer Use); whether a card appears is decided by DSH's permission mode |
 | `rememberDesktopApprovals` | `true` | Within one DSH session an app you allowed once is not asked about again; denials are not remembered |
-| `desktopApprovalChoices` | `true` | Desktop approvals use the three-option card (allow this time / allow for this session / deny); when off, the one-shot approval card is used |
 | `language` | `'auto'` | Language of the plugin interface text: `auto` follows the DSH interface language, or force `zh` / `en` |
 | `codexHome` | `''` | Empty means `%USERPROFILE%\.codex` |
 | `logFile` | `''` | Bridge log path; empty means `~/.dsh/pc-use.log` |
@@ -184,7 +188,7 @@ All fields are optional and go in the `config:` block of `cordis.patch.yml`.
 | `tools.desktopAddNodeModuleDir` | `true` | Register `pc_codex_desktop_js_add_node_module_dir`: add a Node module directory to the desktop `node_repl` |
 | `tools.docs` | `true` | Register `pc_codex_docs`: read Codex's bundled Computer Use docs (no Codex connection needed) |
 
-`autoApprove` / `computer` / `rememberDesktopApprovals` / `desktopApprovalChoices` / `language` /
+`autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /
 `codexHome` / `logFile` / `timeoutMs` are hot-updatable (volatile): a change applies to later calls
 without remounting the plugin. The loader announces volatile writes, so turning `computer` off
 stops the desktop server immediately and leaves the browser connection alone; turning it on starts
@@ -223,9 +227,9 @@ failure mode.
 The DSH settings sidebar shows a "PC Use" page right below "Plugin market" (entry id `pc-use`; it
 only appears while the Host serves that entry). It can change:
 
-- **Desktop control**: `computer`, `desktopApprovalChoices`, `rememberDesktopApprovals`, `language`;
+- **Desktop control**: `computer`, `rememberDesktopApprovals`;
 - **Browser**: `autoApprove`;
-- **Connection and logs**: `timeoutMs` (seconds, 10–3600, stored in milliseconds), `codexHome`,
+- **General**: `language`, `timeoutMs` (seconds, 10–3600, stored in milliseconds), `codexHome`,
   `logFile`.
 
 Switches and the language select save immediately; text and number fields save on blur or Enter.
@@ -293,8 +297,8 @@ Desktop approvals show the DSH three-option card by default: `允许这一次` (
 remembered), `本次会话内允许` (don't ask again for the same agent and app in this DSH session; it
 ends on reconnect or restart) and `拒绝` (deny). The second option appears only when
 `rememberDesktopApprovals` is on and the request's `_meta.persist` contains `session`; when the
-approval policy is `never` ("full access"), no question service is available, or
-`desktopApprovalChoices: false`, the one-shot DSH approval card is used instead. A custom-typed
+approval policy is `never` ("full access") or no question service is available, the one-shot
+DSH approval card is used instead. A custom-typed
 answer, an empty selection, unknown wording or a failing question service all count as denial. The
 card text follows `language`; the DSH client shows the Chinese or English text of the old one-shot
 card according to its interface language.

@@ -258,7 +258,6 @@ class FakeForm {
       status: 'ready',
       value: {
         computer: false,
-        desktopApprovalChoices: true,
         rememberDesktopApprovals: true,
         language: 'auto',
         autoApprove: false,
@@ -468,24 +467,23 @@ test('controls write the right keys, units and read revision', async () => {
     ops: [{ op: 'set', path: ['computer'], value: true }],
     revision: 7,
   })
-  await page.setToggle('desktopApprovalChoices', false)
   await page.setToggle('rememberDesktopApprovals', false)
   await page.setToggle('autoApprove', true)
   await page.setLanguage('en')
-  assert.deepEqual(form.mutations[4].ops, [{ op: 'set', path: ['language'], value: 'en' }])
+  assert.deepEqual(form.mutations[3].ops, [{ op: 'set', path: ['language'], value: 'en' }])
   page.editText('timeoutMs', '60')
   await page.commitText('timeoutMs')
-  assert.deepEqual(form.mutations[5].ops, [{ op: 'set', path: ['timeoutMs'], value: 60000 }])
-  assert.equal(form.mutations[5].revision, 7)
+  assert.deepEqual(form.mutations[4].ops, [{ op: 'set', path: ['timeoutMs'], value: 60000 }])
+  assert.equal(form.mutations[4].revision, 7)
   await page.resetField('computer')
-  assert.deepEqual(form.mutations[6].ops, [{ op: 'unset', path: ['computer'] }])
-  assert.equal(form.mutations[6].revision, 7)
+  assert.deepEqual(form.mutations[5].ops, [{ op: 'unset', path: ['computer'] }])
+  assert.equal(form.mutations[5].revision, 7)
   page.editText('codexHome', '  C:\\codex  ')
   await page.commitText('codexHome')
-  assert.deepEqual(form.mutations[7].ops, [{ op: 'set', path: ['codexHome'], value: 'C:\\codex' }])
+  assert.deepEqual(form.mutations[6].ops, [{ op: 'set', path: ['codexHome'], value: 'C:\\codex' }])
   page.editText('logFile', 'C:\\log.txt')
   await page.commitText('logFile')
-  assert.deepEqual(form.mutations[8].ops, [{ op: 'set', path: ['logFile'], value: 'C:\\log.txt' }])
+  assert.deepEqual(form.mutations[7].ops, [{ op: 'set', path: ['logFile'], value: 'C:\\log.txt' }])
 })
 
 test('a timeout outside 10-3600 seconds is not saved', async () => {
@@ -651,7 +649,6 @@ test('client.js only uses verified DSH theme variables', () => {
 test('open and closed switches use different colors and thumb positions', () => {
   const BASE_VALUES = {
     computer: false,
-    desktopApprovalChoices: true,
     rememberDesktopApprovals: true,
     language: 'auto',
     autoApprove: false,
@@ -792,7 +789,6 @@ test('"Restore default" sits before the control', () => {
 /** The page form's default values, used when a test replaces `value`. O(1). */
 const PAGE_VALUES = {
   computer: false,
-  desktopApprovalChoices: true,
   rememberDesktopApprovals: true,
   language: 'auto',
   autoApprove: false,
@@ -812,14 +808,12 @@ function controlOf(tree, id) {
 test('switch rows have no "Restore default"', () => {
   const user = {
     computer: true,
-    desktopApprovalChoices: false,
     rememberDesktopApprovals: false,
     autoApprove: true,
   }
   const { renderer } = renderSection({ user })
   const tree = renderer.getTree()
-  for (const field of ['computer', 'desktopApprovalChoices', 'rememberDesktopApprovals',
-    'autoApprove']) {
+  for (const field of ['computer', 'rememberDesktopApprovals', 'autoApprove']) {
     const control = controlOf(tree, `pc-use-${field}`)
     assert.ok(control, field)
     const reset = elements(control).find((node) => (
@@ -1072,7 +1066,7 @@ test('the groups and their rows have the new order', () => {
   assert.deepEqual(headings, ['桌面操控', '浏览器', '通用'])
   const ids = groups.map((group) => rowsOfGroup(group).map(rowControlId))
   assert.deepEqual(ids, [
-    ['pc-use-computer', 'pc-use-desktopApprovalChoices', 'pc-use-rememberDesktopApprovals'],
+    ['pc-use-computer', 'pc-use-rememberDesktopApprovals'],
     ['pc-use-autoApprove'],
     ['pc-use-language', 'pc-use-timeoutMs', 'pc-use-codexHome', 'pc-use-logFile'],
   ])
@@ -1217,4 +1211,21 @@ test('the whitelist includes the official menu variables', () => {
     assert.equal(VERIFIED_THEME_VARIABLES.has(variable), true)
     assert.equal(source.includes(variable), true, variable)
   }
+})
+
+test('the desktop group has no three-option card row', () => {
+  const { renderer } = renderSection({
+    value: { ...PAGE_VALUES, desktopApprovalChoices: true },
+  })
+  const tree = renderer.getTree()
+  const groups = groupContainers(tree)
+  assert.equal(groups.length, 3)
+  const ids = rowsOfGroup(groups[0]).map(rowControlId)
+  assert.deepEqual(ids, ['pc-use-computer', 'pc-use-rememberDesktopApprovals'])
+  const removed = elements(tree).find((node) => (
+    node.props?.id === 'pc-use-desktopApprovalChoices'
+  ))
+  assert.equal(removed, undefined)
+  const last = rowsOfGroup(groups[0]).at(-1)
+  assert.equal(last.props.style.borderBottom, 'none')
 })
