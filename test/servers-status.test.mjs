@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { waitFor } from './helpers.mjs'
-import { isRunning, startServers, stopServers } from './fixtures/server-harness.mjs'
+import {
+  DESKTOP_ENV, DUAL_SERVER, isRunning, startServers, stopServers, writeDesktopSource,
+} from './fixtures/server-harness.mjs'
 
 const WRITE = Symbol.for('cosmokit.volatile.write')
 
@@ -81,6 +83,31 @@ test('a browser source that does not resolve leaves the desktop side intact', as
     assert.equal(status.backends.codex.desktop.resolved, true)
     assert.equal(status.backends.codex.desktop.connected, true)
     assert.deepEqual(status.backends.codex.desktop.services, ['sky'])
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+
+test('pc_status re-reads config and flags a pending reconnect', async () => {
+  const context = startServers({ config: { computer: true } })
+  try {
+    await runBrowser(context)
+    await runDesktop(context)
+    writeDesktopSource(
+      context.codexHome,
+      [DUAL_SERVER, 'desktop', 'ok', context.logs.desktop],
+      { ...DESKTOP_ENV, SKY_CUA_NATIVE_PIPE_DIRECTORY: 'pipe-desktop-new' },
+    )
+    let status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
+    assert.equal(status.backends.codex.desktop.nativePipe, 'pipe-desktop-new')
+    assert.equal(status.backends.codex.desktop.connectedPipe, null)
+    assert.equal(status.backends.codex.desktop.reconnectPending, true)
+    await runDesktop(context)
+    status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
+    assert.equal(status.backends.codex.desktop.nativePipe, 'pipe-desktop-new')
+    assert.equal(status.backends.codex.desktop.connectedPipe, 'pipe-desktop-new')
+    assert.equal(status.backends.codex.desktop.reconnectPending, false)
   } finally {
     assert.equal(await stopServers(context), true)
   }

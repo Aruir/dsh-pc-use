@@ -1,12 +1,11 @@
 // D5/D6/D9/D10: manifest, display assets, tool names and the pc_status shape.
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { registerPlugin } from './helpers.mjs'
+import { registerPlugin, tempDir } from './helpers.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -23,9 +22,10 @@ const PC_CODEX_JS_DOCS_SENTENCE = 'Before controlling Windows apps, call `pc_cod
   + '`skill`, `guidance` and `confirmations`; call it for `api` when you need method signatures.'
 
 function register() {
+  const directory = tempDir('pc-use-manifest-')
   return registerPlugin({
-    codexHome: join(tmpdir(), 'dsh-pc-use-manifest-codex'),
-    logFile: join(tmpdir(), 'dsh-pc-use-manifest.log'),
+    codexHome: join(directory, 'codex'),
+    logFile: join(directory, 'manifest.log'),
   })
 }
 

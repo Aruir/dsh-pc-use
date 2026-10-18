@@ -10,6 +10,8 @@
 //   flow-meta-plain        same, but the meta object is under params.meta
 //   flow-meta-nosession    same, but meta.persist is ["always"] (no "session")
 //   flow-meta-nometa       same, but the request carries no meta at all
+//   flow-meta-reject-error same, but a user decline returns isError with Codex's wording
+//   flow-meta-reject-error-slow same, but that isError arrives 300 ms later
 //   turn-ended             answer tools/call; record `turn_ended` arguments
 //   turn-ended-error       same, but answer `turn_ended` with a JSON-RPC error
 import { appendFileSync } from 'node:fs'
@@ -117,14 +119,28 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const callId = waiting.get(message.id)
     if (callId !== undefined) {
       waiting.delete(message.id)
-      const reply = {
-        jsonrpc: '2.0',
-        id: callId,
-        result: { content: [{ type: 'text', text: `decision ${action}` }] },
-      }
+      const rejected = (mode === 'flow-meta-reject-error'
+        || mode === 'flow-meta-reject-error-slow')
+        && typeof action === 'string' && action.startsWith('decline')
+      const reply = rejected
+        ? {
+          jsonrpc: '2.0',
+          id: callId,
+          result: {
+            isError: true,
+            content: [{ type: 'text', text: 'Computer Use was not approved to use 记事本' }],
+          },
+        }
+        : {
+          jsonrpc: '2.0',
+          id: callId,
+          result: { content: [{ type: 'text', text: `decision ${action}` }] },
+        }
       // The remaining-time test needs the result 400 ms after the approval answer.
       if (mode === 'slow-ask-answer') {
         setTimeout(() => send(reply), 400)
+      } else if (mode === 'flow-meta-reject-error-slow' && rejected) {
+        setTimeout(() => send(reply), 300)
       } else {
         send(reply)
       }

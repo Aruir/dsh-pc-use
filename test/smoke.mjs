@@ -1,12 +1,15 @@
 // Standalone smoke test: apply the plugin against a fake cordis context and drive
 // Codex Computer Use through the registered tools. Run: node test/smoke.mjs
-import { mkdtempSync } from 'node:fs'
+import { rmSync } from 'node:fs'
+
+import { tempDir } from './helpers.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { apply } from '../index.js'
 
-const stateDir = mkdtempSync(join(tmpdir(), 'dsh-pc-use-'))
+const stateDir = tempDir('dsh-pc-use-smoke-')
+process.on('exit', () => rmSync(stateDir, { recursive: true, force: true }))
 const logFile = join(stateDir, 'bridge.log')
 const tools = new Map()
 const disposers = []

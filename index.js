@@ -25,12 +25,13 @@ import {
 } from './lib/codex-config.js'
 import { unwrapConfigValue } from './lib/config-value.js'
 import { saveImage } from './lib/images.js'
-import { appendLogLine } from './lib/log-file.js'
+import { appendLogLine, checkLogWritable } from './lib/log-file.js'
+import { endTurn } from './lib/native-pipe.js'
 import { McpBridge } from './lib/mcp-bridge.js'
 import { definePortableTool } from './lib/define-tool.js'
 import {
-  CONFIG_I18N, auditReason, choiceDecision, desktopApprovalQuestion, legacyDisplayReason,
-  resolveLanguage, systemLocale,
+  CONFIG_I18N, auditReason, choiceDecision, closeAppsNote, declineNote,
+  desktopApprovalQuestion, illegalReturnNote, legacyDisplayReason, resolveLanguage, systemLocale,
 } from './lib/text.js'
 
 export const name = 'pc-use'
@@ -231,6 +232,7 @@ const DOCS_EXPLANATION = [
   '- Reset the JavaScript session with `pc_codex_desktop_js_reset`.',
   '- Run the code from the Initialize section inside `pc_codex_desktop_js`.',
   '- Desktop approvals appear as DSH approval cards.',
+  `- ${closeAppsNote('en')}`,
 ].join('\n')
 
 /** What a desktop call reports when `computer` is off. O(1). */
@@ -293,18 +295,33 @@ export function apply(ctx, raw = {}) {
     return value
   }
 
+  // Last log write failure, kept for `pc_status.log`; a later successful write marks it
+  // recovered instead of dropping the record (feature G chose "keep, mark recovered").
+  let lastLogError = null
   const log = (message) => {
     const line = `${new Date().toISOString()} ${message}\n`
     try {
       appendLogLine(configuredLogFile(), line)
+      if (lastLogError !== null && lastLogError.recovered !== true) {
+        lastLogError = {
+          ...lastLogError,
+          recovered: true,
+          recoveredAt: new Date().toISOString(),
+        }
+      }
     } catch (error) {
+      lastLogError = {
+        at: new Date().toISOString(),
+        kind: typeof error?.code === 'string' ? error.code : (error?.name ?? 'Error'),
+      }
       console.warn(`dsh-pc-use: ${message} (log write failed: ${error.message})`)
     }
   }
 
   // An elicitation request carries no tool-call id, so a desktop approval is attributed
   // to the earliest-started desktop call that is still running; with none it is declined.
-  // Only desktop tools register here. Only the exec fields the host needs are passed on.
+  // Only desktop tools register here. Each registration also owns the app of a user-caused
+  // denial for THIS call, so concurrent calls cannot steal each other's note (feature B).
   const activeCalls = []
   const readApprovalService = () => {
     if (typeof ctx.get !== 'function') return undefined
@@ -341,6 +358,20 @@ export function apply(ctx, raw = {}) {
       rememberedApps.set(agent, apps)
     }
     apps.add(appKey)
+  }
+
+  /** Remember a user-caused denial's app on the call registration it belongs to. O(1). */
+  const rememberDecision = (decision, appName) => {
+    const registration = activeCalls[0]
+    // A call that is already ending may surface as "no valid choice"; that is not a user
+    // decision, so it must not get the no-retry note.
+    const callEnded = registration?.exec?.signal?.aborted === true
+    if (callEnded !== true
+      && decision.action === DECLINE
+      && (decision.reason === 'rejected in DSH' || decision.reason === 'no valid choice')) {
+      if (registration !== undefined) registration.declinedApp = appName
+    }
+    return decision
   }
 
   /**
@@ -398,11 +429,11 @@ export function apply(ctx, raw = {}) {
         remember,
         appKey,
       })
-      if (decision !== DELEGATED) return decision
+      if (decision !== DELEGATED) return rememberDecision(decision, appName)
     }
-    return requestLegacyDesktopApproval({
+    return rememberDecision(await requestLegacyDesktopApproval({
       approval, exec, appName, language, signal, ended, callSignal, remember, appKey, meta,
-    })
+    }), appName)
   }
 
   /** True when the three-option question card may be used. O(1). */
@@ -551,6 +582,25 @@ export function apply(ctx, raw = {}) {
       (error) => log(`turn_ended failed: ${error.message}`),
     )
   }
+  /**
+   * End the desktop turn over Codex's native pipe so the cursor overlay closes. The node_repl
+   * `turn_ended` above does not reach the overlay (sky registers no turn-ended handler), so this
+   * is the only way to make it disappear. One best-effort attempt; failures are logged only. O(1).
+   */
+  const closeDesktopTurn = (identity) => {
+    const server = servers.desktop
+    if (server.bridge === null || server.bridge.alive !== true) return
+    const pipeDirectory = server.lastSpec?.pipeDirectory
+    if (typeof pipeDirectory !== 'string' || pipeDirectory === '') return
+    endTurn(pipeDirectory, identity).then(
+      (result) => {
+        log(result.ok === true
+          ? 'desktop turn closed (end_turn)'
+          : `end_turn failed: ${result.reason}`)
+      },
+      () => log('end_turn failed: connect failed'),
+    )
+  }
   /** Codex hook name for a finished DSH turn. O(1). */
   const turnEndedHookName = (event, subagent) => {
     if (subagent === true) return 'SubagentStop'
@@ -576,6 +626,11 @@ export function apply(ctx, raw = {}) {
       // A bridge rebuilt since this turn's call must not receive that turn.
       if (state.generations[kind] !== servers[kind].generation) continue
       reportTurnEnded(kind, hookEventName, identity)
+    }
+    // Same generation rule as above: only close the turn that this call actually used.
+    if (state.used.desktop === true
+      && state.generations.desktop === servers.desktop.generation) {
+      closeDesktopTurn(identity)
     }
     state.turnId = randomUUID()
     state.used = { browser: false, desktop: false }
@@ -709,6 +764,37 @@ export function apply(ctx, raw = {}) {
     return renderResult(await active.call(method, args, timeoutMs, turn))
   }
 
+  /** Append language-aware hints to a successful tool result. O(1). */
+  const withToolNotes = (text, registration = null) => {
+    const language = effectiveLanguage()
+    let result = text
+    // Only a user-caused denial sets this on the call's own registration; call-end
+    // declines and automatic approvals leave it null.
+    if (registration?.declinedApp !== undefined && registration?.declinedApp !== null) {
+      result += `\n\n${declineNote(language, registration.declinedApp)}`
+      registration.declinedApp = null
+    }
+    if (text.includes('Illegal return statement')) {
+      result += `\n\n${illegalReturnNote(language)}`
+    }
+    return result
+  }
+
+  /** Append the same hints when Codex returned isError (the real rejection path). O(1). */
+  const withToolErrorNotes = (error, registration = null) => {
+    const message = error instanceof Error ? error.message : String(error)
+    const language = effectiveLanguage()
+    let result = message
+    if (registration?.declinedApp !== undefined && registration?.declinedApp !== null) {
+      result += `\n\n${declineNote(language, registration.declinedApp)}`
+      registration.declinedApp = null
+    }
+    if (message.includes('Illegal return statement')) {
+      result += `\n\n${illegalReturnNote(language)}`
+    }
+    return result === message ? error : new Error(result)
+  }
+
   /** Timeout for a `js` call, honouring an explicit `timeout_ms`. O(1). */
   const jsTimeoutMs = (requested) => {
     const timeoutMs = configuredTimeoutMs()
@@ -735,11 +821,16 @@ export function apply(ctx, raw = {}) {
       output,
       async execute(args, exec) {
         syncComputerSwitch()
-        return callOn('browser', 'js', {
-          code: args.code,
-          title: args.title,
-          ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
-        }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null)
+        try {
+          const text = await callOn('browser', 'js', {
+            code: args.code,
+            title: args.title,
+            ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
+          }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null)
+          return withToolNotes(text)
+        } catch (error) {
+          throw withToolErrorNotes(error)
+        }
       },
     }),
     reset: () => tool({
@@ -766,7 +857,8 @@ export function apply(ctx, raw = {}) {
         'expression is returned, or use `console.log`. Use it to control Windows ' +
         'applications; for browser pages use `pc_codex_js`. Before controlling ' +
         'Windows apps, call `pc_codex_docs` for `skill`, `guidance` and ' +
-        '`confirmations`; call it for `api` when you need method signatures.',
+        '`confirmations`; call it for `api` when you need method signatures. ' +
+        closeAppsNote('en'),
       parameters: {
         code: {
           type: 'string',
@@ -789,14 +881,17 @@ export function apply(ctx, raw = {}) {
         requireComputer()
         // Desktop approvals are attributed to the earliest-started desktop call still
         // running, so every desktop call is registered for its whole lifetime.
-        const registration = { exec, controller: new AbortController() }
+        const registration = { exec, controller: new AbortController(), declinedApp: null }
         activeCalls.push(registration)
         try {
-          return await callOn('desktop', 'js', {
+          const text = await callOn('desktop', 'js', {
             code: args.code,
             title: args.title,
             ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
           }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null)
+          return withToolNotes(text, registration)
+        } catch (error) {
+          throw withToolErrorNotes(error, registration)
         } finally {
           const position = activeCalls.indexOf(registration)
           if (position >= 0) activeCalls.splice(position, 1)
@@ -834,11 +929,14 @@ export function apply(ctx, raw = {}) {
         syncComputerSwitch()
         requireComputer()
         // It uses the same agent identity as pc_codex_desktop_js and counts as desktop use.
-        const registration = { exec, controller: new AbortController() }
+        const registration = { exec, controller: new AbortController(), declinedApp: null }
         activeCalls.push(registration)
         try {
-          return await callOn('desktop', 'js_add_node_module_dir', { path: args.path },
+          const text = await callOn('desktop', 'js_add_node_module_dir', { path: args.path },
             configuredTimeoutMs(), exec?.agent ?? null)
+          return withToolNotes(text, registration)
+        } catch (error) {
+          throw withToolErrorNotes(error, registration)
         } finally {
           const position = activeCalls.indexOf(registration)
           if (position >= 0) activeCalls.splice(position, 1)
@@ -852,9 +950,10 @@ export function apply(ctx, raw = {}) {
         'Read Codex\'s own Computer Use documentation from the local Codex installation. Topics: ' +
         '`skill` (entry point: initialization and which document to read), `guidance` (runtime ' +
         'rules, target windows, screenshots, recovery), `api` (the full `sky` API), and ' +
-        '`confirmations` (actions that need user confirmation). Read `skill`, `guidance` and ' +
-        '`confirmations` before controlling Windows apps; read `api` when you need method ' +
-        'signatures.',
+        '`confirmations` (actions that need user confirmation). These topics document the ' +
+        'desktop `node_repl` only; the browser-side guide is returned by the first ' +
+        '`pc_codex_js` call. Read `skill`, `guidance` and `confirmations` before controlling ' +
+        'Windows apps; read `api` when you need method signatures.',
       parameters: {
         topic: {
           type: 'string',
@@ -911,9 +1010,16 @@ export function apply(ctx, raw = {}) {
         /** One server's status section. O(file size). */
         const sectionFor = (kind) => {
           const server = servers[kind]
-          const spec = statusSpec(kind)
+          let spec
+          try {
+            spec = RESOLVERS[kind]({ codexHome: codexHome() })
+          } catch (error) {
+            spec = { ok: false, reason: error.message }
+          }
           const resolved = spec.ok === true
           const connected = server.bridge !== null && server.bridge.alive
+          const changed = connected && resolved && server.lastSpec !== null
+            ? changedSpecFields(server.lastSpec, spec) : []
           return {
             resolved,
             reason: resolved ? null : spec.reason,
@@ -923,6 +1029,10 @@ export function apply(ctx, raw = {}) {
             nativePipe: resolved ? spec.pipeDirectory : null,
             connected,
             services: connected ? server.services : null,
+            // The pipe of the live connection, next to the freshly resolved one.
+            connectedPipe: connected && server.lastSpec !== null
+              ? server.lastSpec.pipeDirectory : null,
+            reconnectPending: connected && (resolved !== true || changed.length > 0),
           }
         }
         return JSON.stringify({
@@ -933,6 +1043,11 @@ export function apply(ctx, raw = {}) {
               computer: computerEnabled(),
               browser: sectionFor('browser'),
               desktop: sectionFor('desktop'),
+              log: {
+                path: configuredLogFile(),
+                writable: checkLogWritable(configuredLogFile()),
+                lastError: lastLogError,
+              },
             },
           },
         }, null, 2)

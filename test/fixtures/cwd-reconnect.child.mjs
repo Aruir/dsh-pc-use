@@ -5,7 +5,7 @@
 // The mock must cover every named export index.js imports (the desktop resolver is never
 // reached here because only pc_codex_js is called).
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -125,6 +125,16 @@ test('a changed resolved cwd starts a second server process', async () => {
     plugin.dispose()
     const stopped = await waitFor(() => readPids(pidFile).every((pid) => !isRunning(pid)), 2000)
     killAll(readPids(pidFile))
+    for (const directory of [home, cwdA, cwdB]) {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        try {
+          rmSync(directory, { recursive: true, force: true })
+          break
+        } catch {
+          await new Promise((done) => setTimeout(done, 50))
+        }
+      }
+    }
     assert.equal(stopped, true, 'every mocked server must exit after dispose')
   }
 })

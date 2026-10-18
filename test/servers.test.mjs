@@ -224,7 +224,7 @@ test('pc_status reports null services on both sides while disconnected', async (
     assert.deepEqual(Object.keys(status), ['backends'])
     assert.deepEqual(
       Object.keys(status.backends.codex),
-      ['codexHome', 'autoApprove', 'computer', 'browser', 'desktop'],
+      ['codexHome', 'autoApprove', 'computer', 'browser', 'desktop', 'log'],
     )
     const codex = status.backends.codex
     assert.equal(codex.codexHome, context.codexHome)
@@ -234,6 +234,7 @@ test('pc_status reports null services on both sides while disconnected', async (
       const backend = codex[side]
       assert.deepEqual(Object.keys(backend), [
         'resolved', 'reason', 'source', 'command', 'cwd', 'nativePipe', 'connected', 'services',
+        'connectedPipe', 'reconnectPending',
       ], side)
       assert.equal(backend.resolved, true, side)
       assert.equal(backend.connected, false, side)
@@ -249,6 +250,11 @@ test('pc_status reports null services on both sides while disconnected', async (
     ))
     assert.equal(codex.desktop.source, join(context.codexHome, 'config.toml'))
     assert.equal(codex.servicesFrom, undefined)
+    assert.equal(codex.browser.reconnectPending, false)
+    assert.equal(codex.desktop.reconnectPending, false)
+    assert.equal(codex.log.path.endsWith('bridge.log'), true)
+    assert.equal(codex.log.writable, true)
+    assert.equal(codex.log.lastError, null)
   } finally {
     assert.equal(await stopServers(context), true)
   }

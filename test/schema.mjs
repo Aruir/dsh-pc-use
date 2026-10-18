@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
+import { tempDir } from './helpers.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 // Point the platform home at an empty temp directory so nothing here can read or start
 // the user's real Codex installation.
-const home = mkdtempSync(join(tmpdir(), 'dsh-pc-use-schema-'))
+const home = tempDir('dsh-pc-use-schema-')
 process.env.HOME = home
 process.env.USERPROFILE = home
 

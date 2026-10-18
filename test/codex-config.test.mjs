@@ -2,17 +2,29 @@
 // child environment. Self-contained on purpose (no helpers.mjs), so a broken index.js cannot
 // mask a parsing failure and vice versa.
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 
 import { resolveBrowserServer, resolveDesktopServer } from '../lib/codex-config.js'
 
 const UNIFIED_ROOT = ['plugins', 'cache', 'openai-bundled', 'unified-computer-use']
 
+const tempHomes = new Set()
+after(() => {
+  for (const directory of tempHomes) {
+    try {
+      rmSync(directory, { recursive: true, force: true })
+    } catch {}
+  }
+  tempHomes.clear()
+})
+
 function tempHome() {
-  return mkdtempSync(join(tmpdir(), 'pc-use-codex-config-'))
+  const directory = mkdtempSync(join(tmpdir(), 'pc-use-codex-config-'))
+  tempHomes.add(directory)
+  return directory
 }
 
 function unifiedDir(codexHome, version) {

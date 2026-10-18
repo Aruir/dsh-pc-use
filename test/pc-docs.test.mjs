@@ -1,11 +1,11 @@
 // D1/D2: pc_codex_docs reads Codex's own computer-use docs from a fake Codex home.
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { registerPlugin } from './helpers.mjs'
+import { registerPlugin, tempDir } from './helpers.mjs'
 
 const TOPICS = ['skill', 'guidance', 'api', 'confirmations']
 const UNIFIED = '26.1013.31256'
@@ -18,7 +18,7 @@ const EXPLANATION_LINES = [
 ]
 
 function tempHome() {
-  return mkdtempSync(join(tmpdir(), 'dsh-pc-use-docs-'))
+  return tempDir('dsh-pc-use-docs-')
 }
 
 /** Write the unified-computer-use entry `resolveBrowserServer` reads. O(1). */

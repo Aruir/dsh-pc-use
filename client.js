@@ -1,9 +1,10 @@
 // dsh-pc-use — browser half: the "PC Use" settings section under the plugin market.
 //
 // Registered through `settings.section` (order 41 sorts right after dshmarket's 40) and
-// only while the Host serves the `pc-use` settings entry. Every visible string comes from
-// the client locale dictionary; the controls use host theme tokens, React from the browser module
-// table, and the optional DSH primitives menu (with a native <select> fallback).
+// only while the Host serves the `pc-use` settings entry. Every visible string comes from the
+// client locale dictionary, or from the page dictionary picked by the plugin's `language`
+// setting; the controls use host theme tokens, React from the browser module table, and the
+// optional DSH primitives menu (with a native <select> fallback).
 window.__ModuleLoader__.load({
   id: 'dsh-pc-use',
   factory(require) {
@@ -41,7 +42,7 @@ window.__ModuleLoader__.load({
         + '拒绝不会被记住。桥接重连或关闭此项后重新询问。',
       language: '界面文字',
       languageDescription: '插件自己显示的文字语言：跟随 DSH 界面语言，或固定为中文 / English。',
-      languageAuto: '跟随系统',
+      languageAuto: '跟随 DSH 界面语言',
       languageZh: '中文',
       languageEn: 'English',
       autoApprove: '自动接受浏览器授权',
@@ -81,7 +82,7 @@ window.__ModuleLoader__.load({
       language: 'Interface text',
       languageDescription: 'Language of the text this plugin shows: follow the DSH interface '
         + 'language, or force Chinese / English.',
-      languageAuto: 'Follow system',
+      languageAuto: 'Follow DSH interface language',
       languageZh: '中文',
       languageEn: 'English',
       autoApprove: 'Auto-accept browser approvals',
@@ -104,6 +105,17 @@ window.__ModuleLoader__.load({
       writeRejected: 'Write refused: another profile layer probably overrides this field.',
       footer: 'Enable the plugin in "Built-in plugins" or the plugin manager.',
       loading: 'Reading settings…',
+    }
+
+    /**
+     * Translator for the page text. The plugin's `language` setting picks the dictionary;
+     * `auto` (or an unknown value) keeps the DSH interface language through `fallback`.
+     * Saving `language` updates `state.values`, so the next render switches dictionaries. O(1).
+     */
+    function translateFor(language, fallback) {
+      const dictionary = language === 'zh' ? zh : language === 'en' ? en : null
+      if (dictionary === null) return fallback
+      return (key) => dictionary[key] ?? fallback(key)
     }
 
     /** Fields shown on the page, in render order within their groups. O(1). */
@@ -278,11 +290,13 @@ window.__ModuleLoader__.load({
           emit()
         },
 
-        /** Save one text or number field; invalid timeouts stay unsaved. O(1) + the write. */
+        /**
+         * Save one text or number field; invalid timeouts stay unsaved, and a text field
+         * emptied down to whitespace clears its override instead of storing "". O(1) + the write.
+         */
         async commitText(field) {
           const draft = state.drafts[field]
           if (draft === undefined) return false
-          let value
           if (field === 'timeoutMs') {
             const seconds = Number(draft.trim())
             const valid = Number.isInteger(seconds)
@@ -292,10 +306,11 @@ window.__ModuleLoader__.load({
               emit()
               return false
             }
-            value = seconds * 1000
-          } else {
-            value = draft.trim()
+            return write(field, { op: 'set', path: [field], value: seconds * 1000 })
           }
+          const value = draft.trim()
+          // Clearing a path field means "use the default", like the Restore default button.
+          if (value === '') return write(field, { op: 'unset', path: [field] })
           return write(field, { op: 'set', path: [field], value })
         },
 
@@ -557,8 +572,12 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** The settings page component. O(1) hooks plus the rendered rows. */
-    function SettingsPage({ form, t }) {
+    /**
+     * The settings page component. `localeT` follows the DSH interface language; the page
+     * picks the zh/en dictionary from the `language` setting (`auto` keeps `localeT`).
+     * O(1) hooks plus the rendered rows.
+     */
+    function SettingsPage({ form, t: localeT }) {
       const page = React.useMemo(() => createPage(form), [form])
       const state = React.useSyncExternalStore(
         page.subscribe,
@@ -569,6 +588,7 @@ window.__ModuleLoader__.load({
         page.mount()
         return () => page.dispose()
       }, [page])
+      const t = translateFor(state.values.language, localeT)
       if (state.status === 'failed') {
         return h('div', { style: pageStyle }, [
           h('p', { key: 'failed', style: noticeStyle }, t('readFailed')),
@@ -581,7 +601,10 @@ window.__ModuleLoader__.load({
       }
       const disabled = state.writable !== true
       const isReadOnly = (field) => disabled || state.readOnly[field] !== undefined
-      const changed = (field) => (state.user[field] !== undefined && state.user[field] !== null)
+      // The host writes the base value into the profile when it handles `unset`, so compare
+      // with the base: an override equal to the default must not offer "Restore default".
+      const changed = (field) => state.user[field] !== undefined
+        && state.user[field] !== state.base[field]
       const reset = (field) => () => page.resetField(field)
       const booleanRow = (field, last) => h(Row, {
         key: field,

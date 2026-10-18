@@ -580,14 +580,28 @@ test('the rendered page shows the three groups', () => {
   }
 })
 
-test('"Restore default" only appears for fields with a user override', () => {
+test('"Restore default" only appears when the user value differs from the base', () => {
   const untouched = renderSection()
   assert.deepEqual(rowsWithReset(untouched.renderer.getTree()), [])
-  const changed = renderSection({ user: { language: 'zh', timeoutMs: 60000 } })
-  assert.deepEqual(rowsWithReset(changed.renderer.getTree()).sort(), [
+  // The host writes the base value back into the profile on `unset`, so an equal user value
+  // must not offer "Restore default" again.
+  const atBase = renderSection({
+    base: { language: 'zh', timeoutMs: 60000 },
+    user: { language: 'zh', timeoutMs: 60000 },
+  })
+  assert.deepEqual(rowsWithReset(atBase.renderer.getTree()), [])
+  const differs = renderSection({
+    base: { language: 'auto', timeoutMs: 120000, codexHome: '' },
+    user: { language: 'zh', timeoutMs: 60000, codexHome: 'C:\\codex' },
+  })
+  assert.deepEqual(rowsWithReset(differs.renderer.getTree()).sort(), [
+    'pc-use-codexHome',
     'pc-use-language',
     'pc-use-timeoutMs',
   ])
+  // The base may not contain the field at all; a user override still differs from it.
+  const missingBase = renderSection({ base: {}, user: { logFile: 'C:\\log.txt' } })
+  assert.deepEqual(rowsWithReset(missingBase.renderer.getTree()), ['pc-use-logFile'])
 })
 
 test('a failed read renders readFailed and no controls', () => {
@@ -1247,4 +1261,121 @@ test('the desktop group has no three-option card row', () => {
   assert.equal(removed, undefined)
   const last = rowsOfGroup(groups[0]).at(-1)
   assert.equal(last.props.style.borderBottom, 'none')
+})
+
+/** The rendered text of one row label, e.g. 'pc-use-computer'. O(n). */
+function rowLabel(tree, id) {
+  const label = findNode(tree, (node) => (
+    node.type === 'label' && node.props.htmlFor === id
+  ))
+  return label === undefined ? undefined : renderedText(label)
+}
+
+/** The rendered label of a native language `<option>`. O(n). */
+function optionLabel(tree, value) {
+  const option = findNode(tree, (node) => (
+    node.type === 'option' && node.props.value === value
+  ))
+  return option === undefined ? undefined : renderedText(option)
+}
+
+test('the page follows the language setting over the DSH interface language', () => {
+  const cases = [
+    { setting: 'en', dsh: 'zh', expected: 'Enable desktop control' },
+    { setting: 'zh', dsh: 'en', expected: '启用桌面操控' },
+  ]
+  for (const { setting, dsh, expected } of cases) {
+    const { renderer, context } = renderSection({
+      value: { ...PAGE_VALUES, language: setting },
+    })
+    context.locale.language = dsh
+    renderer.render()
+    assert.equal(rowLabel(renderer.getTree(), 'pc-use-computer'), expected, setting)
+  }
+})
+
+test('"auto" follows the DSH interface language', () => {
+  const { renderer, context } = renderSection()
+  context.locale.language = 'zh'
+  renderer.render()
+  assert.equal(rowLabel(renderer.getTree(), 'pc-use-computer'), '启用桌面操控')
+  context.locale.language = 'en'
+  renderer.render()
+  assert.equal(rowLabel(renderer.getTree(), 'pc-use-computer'), 'Enable desktop control')
+})
+
+test('changing the language on an open page switches the text immediately', async () => {
+  const { renderer, context } = renderSection()
+  context.locale.language = 'zh'
+  renderer.render()
+  const select = findNode(renderer.getTree(), (node) => (
+    node.type === 'select' && node.props.id === 'pc-use-language'
+  ))
+  assert.ok(select)
+  select.props.onChange({ target: { value: 'en' } })
+  await new Promise((done) => setTimeout(done, 0))
+  renderer.render()
+  assert.equal(rowLabel(renderer.getTree(), 'pc-use-computer'), 'Enable desktop control')
+  assert.ok(renderedText(renderer.getTree()).includes('General'))
+  assert.equal(context.locale.language, 'zh', 'the DSH locale must not change')
+  const changed = findNode(renderer.getTree(), (node) => (
+    node.type === 'select' && node.props.id === 'pc-use-language'
+  ))
+  changed.props.onChange({ target: { value: 'zh' } })
+  await new Promise((done) => setTimeout(done, 0))
+  renderer.render()
+  assert.equal(rowLabel(renderer.getTree(), 'pc-use-computer'), '启用桌面操控')
+  // The production path uses the official menu; selecting there must switch the text too.
+  const menu = menuSection()
+  menu.context.locale.language = 'zh'
+  menu.renderer.render()
+  languageButton(menu.renderer.getTree()).props.onClick()
+  menu.renderer.render()
+  menu.primitives.calls.at(-1).onSelect('en')
+  await new Promise((done) => setTimeout(done, 0))
+  menu.renderer.render()
+  assert.equal(rowLabel(menu.renderer.getTree(), 'pc-use-computer'), 'Enable desktop control')
+})
+
+test('the "auto" option names the DSH interface language in both dictionaries', () => {
+  assert.equal(client.copy.zh.languageAuto, '跟随 DSH 界面语言')
+  assert.equal(client.copy.en.languageAuto, 'Follow DSH interface language')
+  assert.ok(client.copy.zh.languageDescription.includes('DSH 界面语言'))
+  assert.ok(client.copy.en.languageDescription.includes('DSH interface language'))
+  const zhPage = renderSection()
+  assert.equal(optionLabel(zhPage.renderer.getTree(), 'auto'), '跟随 DSH 界面语言')
+  const enPage = renderSection({ value: { ...PAGE_VALUES, language: 'en' } })
+  assert.equal(optionLabel(enPage.renderer.getTree(), 'auto'), 'Follow DSH interface language')
+})
+
+test('clearing a text field submits unset instead of an empty string', async () => {
+  const form = readyForm()
+  const page = pageFor(form)
+  page.editText('codexHome', '   ')
+  await page.commitText('codexHome')
+  assert.deepEqual(form.mutations.at(-1).ops, [{ op: 'unset', path: ['codexHome'] }])
+  page.editText('logFile', '')
+  await page.commitText('logFile')
+  assert.deepEqual(form.mutations.at(-1).ops, [{ op: 'unset', path: ['logFile'] }])
+  page.editText('codexHome', 'C:\\codex')
+  await page.commitText('codexHome')
+  assert.deepEqual(form.mutations.at(-1).ops, [
+    { op: 'set', path: ['codexHome'], value: 'C:\\codex' },
+  ])
+})
+
+test('blurring an emptied text input writes unset through the page', async () => {
+  const { renderer, context } = renderSection()
+  const input = findNode(renderer.getTree(), (node) => (
+    node.type === 'input' && node.props.id === 'pc-use-logFile'
+  ))
+  input.props.onChange({ target: { value: '   ' } })
+  renderer.render()
+  const draft = findNode(renderer.getTree(), (node) => (
+    node.type === 'input' && node.props.id === 'pc-use-logFile'
+  ))
+  draft.props.onBlur()
+  await new Promise((done) => setTimeout(done, 0))
+  const form = context.configForms.get('pc-use')
+  assert.deepEqual(form.mutations.at(-1).ops, [{ op: 'unset', path: ['logFile'] }])
 })

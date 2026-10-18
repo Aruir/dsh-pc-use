@@ -1,7 +1,8 @@
 // Shared fixtures: temp directories, a fake Codex home, a plugin harness and polling
 // helpers. The fake MCP server lives in test/fixtures so the test suite is self-contained.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { after } from 'node:test'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -10,8 +11,32 @@ import { apply } from '../index.js'
 export const FAKE_SERVER = process.env.CODEX_CU_FAKE_SERVER
   ?? fileURLToPath(new URL('./fixtures/fake-server.mjs', import.meta.url))
 
+const createdTempDirs = new Set()
+
+// Each test file that imports this module gets one `after` hook: every tempDir it created
+// is removed when that file's tests finish, including on failure.
+try {
+  after(async () => {
+    for (const directory of createdTempDirs) {
+      // Windows may keep a child process's cwd busy for a few milliseconds after dispose.
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        try {
+          rmSync(directory, { recursive: true, force: true })
+          break
+        } catch {
+          await new Promise((done) => setTimeout(done, 50))
+        }
+      }
+    }
+    createdTempDirs.clear()
+  })
+} catch {}
+
+/** Create a temp dir owned by the current test file; removed by the module-level hook. */
 export function tempDir(prefix = 'pc-use-test-') {
-  return mkdtempSync(join(tmpdir(), prefix))
+  const directory = mkdtempSync(join(tmpdir(), prefix))
+  createdTempDirs.add(directory)
+  return directory
 }
 
 /** Point `os.homedir()` at `home`; returns a restore function. */

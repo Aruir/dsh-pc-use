@@ -27,7 +27,12 @@ approvals always use the three-option card; only the missing question service an
 fallbacks remain. A profile that still carries the old field keeps loading: DSH's non-strict schema
 passes the unknown key through and the plugin ignores it, so the field can be left for later
 cleanup. The page top now follows the official "General" page: no page title or intro, the saved
-status is only exposed to screen readers, and conflict notices stay visible.
+status is only exposed to screen readers, and conflict notices stay visible. It also fixes the
+live-testing issues: closes the desktop turn over Codex's native pipe so the cursor overlay
+disappears, adds no-retry / top-level-return / close-apps guidance, re-reads server config in
+`pc_status` (`reconnectPending`), records log write failures, follows the language setting on the
+settings page, shows "Restore default" only when the value differs, submits `unset` for emptied
+text fields, and removes test temp directories.
 
 0.5.5 shortened the settings page text: the first switch row is "Enable desktop control", the
 intro and footer keep one sentence each, and the interface-language row moved into a new "General"
