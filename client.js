@@ -123,6 +123,7 @@ window.__ModuleLoader__.load({
         writable: false,
         revision: undefined,
         values: {},
+        base: {},
         user: {},
         drafts: {},
         readOnly: {},
@@ -176,6 +177,8 @@ window.__ModuleLoader__.load({
           writable: snapshot.writable === true,
           revision: snapshot.revision,
           values,
+          base: snapshot.base !== null && typeof snapshot.base === 'object'
+            && !Array.isArray(snapshot.base) ? snapshot.base : {},
           user: snapshot.user ?? {},
           drafts: { ...state.drafts },
           readOnly: { ...state.readOnly },
@@ -186,7 +189,7 @@ window.__ModuleLoader__.load({
         emit()
       }
 
-      const write = async (field, op) => {
+      const write = async (field, op, displayValue) => {
         if (state.status !== 'ready' || state.writable !== true) return false
         if (state.readOnly[field] !== undefined) return false
         const revision = state.revision
@@ -201,6 +204,7 @@ window.__ModuleLoader__.load({
         if (accepted === true) {
           const values = { ...state.values }
           if (op.op === 'set') values[field] = op.value
+          if (displayValue !== undefined) values[field] = displayValue
           const drafts = { ...state.drafts }
           delete drafts[field]
           const errors = { ...state.errors }
@@ -260,7 +264,11 @@ window.__ModuleLoader__.load({
 
         /** Immediate write for switches and the language select. O(1) + the write. */
         setToggle(field, value) {
-          return write(field, { op: 'set', path: [field], value })
+          const base = state.base[field]
+          const atBase = typeof base === 'boolean' && base === value
+          return write(field, atBase
+            ? { op: 'unset', path: [field] }
+            : { op: 'set', path: [field], value }, value)
         },
 
         setLanguage(value) {
@@ -485,9 +493,6 @@ window.__ModuleLoader__.load({
         id: `pc-use-${field}`,
         label: t(field),
         description: t(`${field}Description`),
-        resetLabel: t('reset'),
-        showReset: changed(field),
-        onReset: reset(field),
       }, h(Switch, {
         id: `pc-use-${field}`,
         label: t(field),

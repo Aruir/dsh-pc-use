@@ -514,10 +514,10 @@ test('the rendered page shows the three groups', () => {
 test('"Restore default" only appears for fields with a user override', () => {
   const untouched = renderSection()
   assert.deepEqual(rowsWithReset(untouched.renderer.getTree()), [])
-  const changed = renderSection({ user: { computer: true, autoApprove: false } })
+  const changed = renderSection({ user: { language: 'zh', timeoutMs: 60000 } })
   assert.deepEqual(rowsWithReset(changed.renderer.getTree()).sort(), [
-    'pc-use-autoApprove',
-    'pc-use-computer',
+    'pc-use-language',
+    'pc-use-timeoutMs',
   ])
 })
 
@@ -606,7 +606,7 @@ test('open and closed switches use different colors and thumb positions', () => 
 })
 
 test('the switch and its control keep their width', () => {
-  const { renderer } = renderSection({ user: { computer: true } })
+  const { renderer } = renderSection()
   const tree = renderer.getTree()
   const switchButton = elements(tree).find((node) => (
     node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
@@ -620,11 +620,6 @@ test('the switch and its control keep their width', () => {
       && child.props.id === 'pc-use-computer')
   ))
   assert.equal(controlColumn.props.style.flexShrink, 0)
-
-  const restore = elements(tree).find((node) => (
-    node.type === 'button' && renderedText(node).includes('恢复默认')
-  ))
-  assert.equal(restore.props.style.whiteSpace, 'nowrap')
 })
 
 /** The page root of a ready settings page (the only root with maxWidth 760). O(n). */
@@ -701,12 +696,12 @@ test('saving changes only the status text', async () => {
 })
 
 test('"Restore default" sits before the control', () => {
-  const { renderer } = renderSection({ user: { computer: true } })
+  const { renderer } = renderSection({ user: { codexHome: 'C:\\codex' } })
   const tree = renderer.getTree()
   const control = elements(tree).find((node) => (
     node.type === 'div' && Array.isArray(node.props.children)
-    && node.props.children.some((child) => child && child.type === 'button'
-      && child.props.id === 'pc-use-computer')
+    && node.props.children.some((child) => child && child.type === 'input'
+      && child.props.id === 'pc-use-codexHome')
   ))
   assert.ok(control)
   assert.equal(control.props.style.justifyContent, 'flex-end')
@@ -714,5 +709,124 @@ test('"Restore default" sits before the control', () => {
   assert.equal(children.length, 2)
   assert.equal(children[0].type, 'button')
   assert.equal(renderedText(children[0]).includes('恢复默认'), true)
-  assert.equal(children[1].props.id, 'pc-use-computer')
+  assert.equal(children[0].props.style.whiteSpace, 'nowrap')
+  assert.equal(children[1].props.id, 'pc-use-codexHome')
+})
+
+/** The page form's default values, used when a test replaces `value`. O(1). */
+const PAGE_VALUES = {
+  computer: false,
+  desktopApprovalChoices: true,
+  rememberDesktopApprovals: true,
+  language: 'auto',
+  autoApprove: false,
+  timeoutMs: 120000,
+  codexHome: '',
+  logFile: '',
+}
+
+/** The rendered control column that directly contains the element with `id`. O(n). */
+function controlOf(tree, id) {
+  return elements(tree).find((node) => (
+    node.type === 'div' && Array.isArray(node.props.children)
+    && node.props.children.some((child) => child && child.props.id === id)
+  ))
+}
+
+test('switch rows have no "Restore default"', () => {
+  const user = {
+    computer: true,
+    desktopApprovalChoices: false,
+    rememberDesktopApprovals: false,
+    autoApprove: true,
+  }
+  const { renderer } = renderSection({ user })
+  const tree = renderer.getTree()
+  for (const field of ['computer', 'desktopApprovalChoices', 'rememberDesktopApprovals',
+    'autoApprove']) {
+    const control = controlOf(tree, `pc-use-${field}`)
+    assert.ok(control, field)
+    const reset = elements(control).find((node) => (
+      node.type === 'button' && renderedText(node).includes('恢复默认')
+    ))
+    assert.equal(reset, undefined, field)
+    assert.equal(control.props.children.filter(Boolean).length, 1, field)
+  }
+})
+
+test('select and text rows keep "Restore default" and send unset', async () => {
+  const user = { language: 'zh', timeoutMs: 60000, codexHome: 'C:\\codex' }
+  const { renderer, context } = renderSection({ user })
+  const form = context.configForms.get('pc-use')
+  const cases = [
+    ['pc-use-language', 'language'],
+    ['pc-use-timeoutMs', 'timeoutMs'],
+    ['pc-use-codexHome', 'codexHome'],
+  ]
+  for (const [id, field] of cases) {
+    const control = controlOf(renderer.getTree(), id)
+    assert.ok(control, id)
+    const reset = elements(control).find((node) => (
+      node.type === 'button' && renderedText(node).includes('恢复默认')
+    ))
+    assert.ok(reset, id)
+    reset.props.onClick()
+    await new Promise((done) => setTimeout(done, 0))
+    renderer.render()
+    assert.deepEqual(form.mutations.at(-1).ops, [{ op: 'unset', path: [field] }], field)
+  }
+})
+
+test('toggling back to the base writes unset and shows the new value', async () => {
+  const { renderer, context } = renderSection({
+    base: { computer: false },
+    value: { ...PAGE_VALUES, computer: true },
+    user: { computer: true },
+  })
+  const form = context.configForms.get('pc-use')
+  let switchNode = findNode(renderer.getTree(), (node) => (
+    node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
+  ))
+  assert.equal(switchNode.props['aria-checked'], true)
+  switchNode.props.onClick()
+  await new Promise((done) => setTimeout(done, 0))
+  renderer.render()
+  assert.deepEqual(form.mutations[0].ops, [{ op: 'unset', path: ['computer'] }])
+  switchNode = findNode(renderer.getTree(), (node) => (
+    node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
+  ))
+  assert.equal(switchNode.props['aria-checked'], false)
+  assert.ok(renderedText(renderer.getTree()).includes('已保存'))
+})
+
+test('toggling to a non-base value still writes set', async () => {
+  const { renderer, context } = renderSection({
+    base: { computer: false },
+    value: { ...PAGE_VALUES, computer: false },
+  })
+  const form = context.configForms.get('pc-use')
+  const switchNode = findNode(renderer.getTree(), (node) => (
+    node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
+  ))
+  switchNode.props.onClick()
+  await new Promise((done) => setTimeout(done, 0))
+  assert.deepEqual(form.mutations[0].ops, [{ op: 'set', path: ['computer'], value: true }])
+})
+
+test('without a usable base, toggling always writes set', async () => {
+  for (const base of [undefined, null, 'nonsense', {}]) {
+    const { renderer, context } = renderSection({ base, value: { ...PAGE_VALUES } })
+    const form = context.configForms.get('pc-use')
+    const switchNode = findNode(renderer.getTree(), (node) => (
+      node.type === 'button' && node.props.role === 'switch'
+      && node.props.id === 'pc-use-computer'
+    ))
+    switchNode.props.onClick()
+    await new Promise((done) => setTimeout(done, 0))
+    assert.deepEqual(
+      form.mutations[0].ops,
+      [{ op: 'set', path: ['computer'], value: true }],
+      String(base),
+    )
+  }
 })
