@@ -626,3 +626,93 @@ test('the switch and its control keep their width', () => {
   ))
   assert.equal(restore.props.style.whiteSpace, 'nowrap')
 })
+
+/** The page root of a ready settings page (the only root with maxWidth 760). O(n). */
+function pageRoot(tree) {
+  return elements(tree).find((node) => (
+    node.type === 'div' && node.props.style && node.props.style.maxWidth === 760
+  ))
+}
+
+/** Every `p[role="status"]` in a rendered tree. O(n). */
+function statusLines(tree) {
+  return elements(tree).filter((node) => node.type === 'p' && node.props.role === 'status')
+}
+
+/** The direct parent element of the first child matching `predicate`. O(n). */
+function parentOf(tree, predicate) {
+  let found = null
+  const walk = (node) => {
+    if (found !== null) return
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child)
+      return
+    }
+    if (node === null || typeof node !== 'object') return
+    const children = node.props?.children ?? []
+    if (children.some((child) => child && typeof child === 'object' && predicate(child))) {
+      found = node
+      return
+    }
+    for (const child of children) walk(child)
+  }
+  walk(tree)
+  return found
+}
+
+test('the status line sits on the title row', () => {
+  const { renderer } = renderSection()
+  const tree = renderer.getTree()
+  const lines = statusLines(tree)
+  assert.equal(lines.length, 1)
+  assert.equal(renderedText(lines[0]), '')
+  const title = findNode(tree, (node) => (
+    node.type === 'h2' && renderedText(node).includes('电脑操控')
+  ))
+  assert.ok(title)
+  const header = parentOf(tree, (node) => node === lines[0])
+  assert.ok(header)
+  assert.equal(header.props.children.some((child) => child === title), true)
+  assert.equal(header.props.children.length, 2)
+  assert.equal(header.props.style.display, 'flex')
+  assert.equal(header.props.style.justifyContent, 'space-between')
+  assert.equal(header.props.style.alignItems, 'baseline')
+})
+
+test('saving changes only the status text', async () => {
+  const { renderer } = renderSection()
+  const beforeTree = renderer.getTree()
+  assert.equal(statusLines(beforeTree).length, 1)
+  const beforeCount = pageRoot(beforeTree).props.children.length
+  const switchNode = findNode(beforeTree, (node) => (
+    node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
+  ))
+  switchNode.props.onClick()
+  await new Promise((done) => setTimeout(done, 0))
+  renderer.render()
+  const tree = renderer.getTree()
+  const lines = statusLines(tree)
+  assert.equal(lines.length, 1)
+  assert.equal(renderedText(lines[0]), '已保存')
+  assert.equal(pageRoot(tree).props.children.length, beforeCount)
+  const header = parentOf(tree, (node) => node === lines[0])
+  assert.ok(header)
+  assert.equal(header.props.children.length, 2)
+})
+
+test('"Restore default" sits before the control', () => {
+  const { renderer } = renderSection({ user: { computer: true } })
+  const tree = renderer.getTree()
+  const control = elements(tree).find((node) => (
+    node.type === 'div' && Array.isArray(node.props.children)
+    && node.props.children.some((child) => child && child.type === 'button'
+      && child.props.id === 'pc-use-computer')
+  ))
+  assert.ok(control)
+  assert.equal(control.props.style.justifyContent, 'flex-end')
+  const children = control.props.children.filter(Boolean)
+  assert.equal(children.length, 2)
+  assert.equal(children[0].type, 'button')
+  assert.equal(renderedText(children[0]).includes('恢复默认'), true)
+  assert.equal(children[1].props.id, 'pc-use-computer')
+})

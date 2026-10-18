@@ -357,9 +357,14 @@ window.__ModuleLoader__.load({
           'div',
           {
             key: 'control',
-            style: { display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 },
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 12,
+              flexShrink: 0,
+            },
           },
-          children,
           showReset === true
             ? h('button', {
               key: 'reset',
@@ -368,6 +373,7 @@ window.__ModuleLoader__.load({
               onClick: onReset,
             }, resetLabel)
             : null,
+          children,
         ),
       ])
     }
@@ -559,18 +565,30 @@ window.__ModuleLoader__.load({
       }))
       rows.push(textRow('codexHome', 'codexHomePlaceholder'))
       rows.push(textRow('logFile', 'logFilePlaceholder'))
-      const notice = state.notice === null ? null : h('p', {
+      // Keep the live region in the DOM so screen readers announce later updates; the text
+      // changes in place and the title row never changes height.
+      const notice = h('p', {
         key: 'notice',
         role: 'status',
-        style: noticeStyle,
-      }, t(state.notice))
+        style: { ...noticeStyle, margin: 0, whiteSpace: 'nowrap' },
+      }, state.notice === null ? '' : t(state.notice))
       const readOnlyNotice = Object.keys(state.readOnly).length > 0
         ? h('p', { key: 'readonly', style: noticeStyle }, t('writeRejected'))
         : null
       return h('div', { style: pageStyle }, [
-        h('h2', { key: 'title', style: { margin: 0, fontSize: 18 } }, t('title')),
+        h('div', {
+          key: 'header',
+          style: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            gap: 12,
+          },
+        }, [
+          h('h2', { key: 'title', style: { margin: 0, fontSize: 18 } }, t('title')),
+          notice,
+        ]),
         h('p', { key: 'intro', style: descriptionStyle }, t('intro')),
-        notice,
         readOnlyNotice,
         h('div', { key: 'rows', style: groupStyle }, rows),
         h('p', { key: 'footer', style: { ...descriptionStyle, marginTop: 20 } }, t('footer')),

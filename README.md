@@ -19,6 +19,9 @@ English | [中文](README.zh.md)
 0.4.0 added: the rename to `dsh-pc-use`; `pc_codex_docs` for Codex's own docs; loading by package
 name with display name and icon; `pc_status` now groups by backend (`backends`).
 
+0.5.2 moved "Saved" to the settings title row and "Restore default" to the left of each
+control, so the status text no longer shifts the options and each row's control stays aligned.
+
 0.5.1 fixed the settings page switches: the thumb now uses a real DSH theme token, so on and off
 are visible, and the switch is no longer squeezed by "Restore default".
 
