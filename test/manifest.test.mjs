@@ -15,6 +15,8 @@ const TOOL_NAMES = [
   'pc_codex_desktop_js',
   'pc_codex_desktop_js_reset',
   'pc_codex_desktop_js_add_node_module_dir',
+  'pc_codex_observe',
+  'pc_codex_run_plan',
   'pc_codex_docs',
   'pc_status',
 ]
@@ -80,7 +82,7 @@ test('the patch insert uses the package name and loads the exported entry', () =
   assert.equal(existsSync(join(root, packageJson.exports['.'])), true)
 })
 
-test('exactly the seven tool names are registered', () => {
+test('exactly the nine tool names are registered', () => {
   const plugin = register()
   try {
     assert.deepEqual([...plugin.tools.keys()], TOOL_NAMES)

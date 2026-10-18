@@ -300,7 +300,8 @@ test('every configuration field has zh and en descriptions', () => {
     descriptionOf(Config.dict[field], field)
   }
   for (const tool of [
-    'js', 'reset', 'desktopJs', 'desktopReset', 'desktopAddNodeModuleDir', 'docs', 'status',
+    'js', 'reset', 'desktopJs', 'desktopReset', 'desktopAddNodeModuleDir',
+    'observe', 'runPlan', 'docs', 'status',
   ]) {
     descriptionOf(Config.dict.tools.dict[tool], `tools.${tool}`)
   }

@@ -78,7 +78,7 @@ test('the settings service receives configure({ auto: false })', () => {
     assert.equal(configured.length, 1)
     assert.deepEqual(configured[0].policy, { auto: false })
     assert.equal(configured[0].fiber, plugin.fiber, 'configure must own the plugin fiber')
-    assert.equal(plugin.tools.size, 7)
+    assert.equal(plugin.tools.size, 9)
   } finally {
     plugin.dispose()
     restore()
@@ -91,7 +91,7 @@ test('the plugin loads and registers its tools without a settings service', () =
   const server = setupServer(home, 'codex')
   const plugin = registerPlugin({ codexHome: server.codexHome, logFile: join(home, 'bridge.log') })
   try {
-    assert.equal(plugin.tools.size, 7)
+    assert.equal(plugin.tools.size, 9)
   } finally {
     plugin.dispose()
     restore()

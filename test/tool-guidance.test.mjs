@@ -70,6 +70,40 @@ test('the English top-level return hint tells the model how to print output', as
   }
 })
 
+test('js descriptions prefer one checked program and accessibility values', () => {
+  const plugin = registerPlugin({})
+  try {
+    for (const name of ['pc_codex_js', 'pc_codex_desktop_js']) {
+      const description = plugin.tools.get(name).description
+      assert.match(description, /Preferred:/)
+      assert.match(description, /one program/)
+      assert.match(description, /if\/loops\/assertions/)
+      assert.match(description, /accessibility-tree values/)
+      assert.match(description, /print only (the fields|needed fields)/)
+      assert.ok(description.indexOf('Preferred:') < description.indexOf('pc_codex_run_plan'))
+      assert.match(description, /pc_codex_observe/)
+    }
+  } finally {
+    plugin.dispose()
+  }
+})
+
+test('run_plan is a fallback and observe prints the whole accessibility tree', () => {
+  const plugin = registerPlugin({})
+  try {
+    const runPlan = plugin.tools.get('pc_codex_run_plan').description
+    assert.match(runPlan, /^Fallback/)
+    assert.match(runPlan, /step-by-step status/)
+    assert.match(runPlan, /conditions and assertions/)
+    const observe = plugin.tools.get('pc_codex_observe').description
+    assert.match(observe, /complete accessibility tree/)
+    assert.match(observe, /Routine conditional checks/)
+    assert.match(observe, /screenshot defaults to false/)
+  } finally {
+    plugin.dispose()
+  }
+})
+
 test('a normal js result gets no top-level return hint', async () => {
   const context = setup()
   try {

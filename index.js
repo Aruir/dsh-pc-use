@@ -60,7 +60,8 @@ try {
  *   rememberDesktopApprovals: boolean, language: string,
  *   codexHome: string, logFile: string, timeoutMs: number,
  *   tools: {js: boolean, reset: boolean, desktopJs: boolean, desktopReset: boolean,
- *     desktopAddNodeModuleDir: boolean, docs: boolean, status: boolean}}} Config
+ *     desktopAddNodeModuleDir: boolean, observe: boolean, runPlan: boolean,
+ *     docs: boolean, status: boolean}}} Config
  */
 
 /**
@@ -112,6 +113,11 @@ function buildConfig(schema) {
         docs: schema.boolean().default(true)
           .description('注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档。'),
         status: schema.boolean().default(true).description('注册 `pc_status`：报告解析结果与连接状态。'),
+        observe: schema.boolean().default(true)
+          .description('注册 `pc_codex_observe`：输出完整无障碍树/文本供了解全貌；'
+            + '例行判断应在 js 代码里读取具体值、只打印需要的部分。'),
+        runPlan: schema.boolean().default(true)
+          .description('注册 `pc_codex_run_plan`：备选；需要逐步状态或失败后自动观察时使用。'),
       }).description('要注册哪些工具。'),
     }).description('dsh-pc-use 的功能开关与默认值。')
       .i18n(CONFIG_I18N)
@@ -140,6 +146,8 @@ const DEFAULTS = {
     desktopAddNodeModuleDir: true,
     docs: true,
     status: true,
+    observe: true,
+    runPlan: true,
   },
 }
 
@@ -238,6 +246,9 @@ const DOCS_EXPLANATION = [
 /** What a desktop call reports when `computer` is off. O(1). */
 const COMPUTER_OFF = 'dsh-pc-use: computer use is off; '
   + 'set computer: true in the dsh-pc-use configuration'
+const OBSERVE_TARGETS = ['browser', 'desktop']
+const SUBJECT_PATTERN = /^[A-Za-z_$][\w$]*$/
+const CHECK_FAILED_MARKER = 'pc_codex_run_plan check failed'
 
 /**
  * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean,
@@ -801,6 +812,193 @@ export function apply(ctx, raw = {}) {
     return Number.isFinite(requested) ? Math.max(requested + 30_000, timeoutMs) : timeoutMs
   }
 
+  /** Validate one observe target or throw before any code is sent. O(1). */
+  const parseTarget = (target) => {
+    if (!OBSERVE_TARGETS.includes(target)) {
+      throw new Error('target must be "browser" or "desktop"')
+    }
+    return target
+  }
+
+  /** Validate a REPL global variable name before interpolating it into code. O(1). */
+  const parseSubject = (subject) => {
+    if (typeof subject !== 'string' || !SUBJECT_PATTERN.test(subject)) {
+      throw new Error('subject must be a JavaScript identifier')
+    }
+    return subject
+  }
+
+  /** Read an optional boolean argument with a default. O(1). */
+  const parseBoolean = (value, name, fallback) => {
+    if (value === undefined) return fallback
+    if (typeof value !== 'boolean') throw new Error(`${name} must be a boolean`)
+    return value
+  }
+
+  /** Validate one optional observe descriptor. O(1). */
+  const parseObserve = (value) => {
+    if (value === undefined || value === null) return null
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('observe must be an object')
+    }
+    return {
+      subject: parseSubject(value.subject),
+      screenshot: parseBoolean(value.screenshot, 'observe.screenshot', false),
+    }
+  }
+
+  /** Validate ordered plan steps before executing any of them. O(steps). */
+  const parseSteps = (steps) => {
+    if (!Array.isArray(steps) || steps.length < 1 || steps.length > 20) {
+      throw new Error('steps must contain 1 to 20 items')
+    }
+    return steps.map((step, index) => {
+      if (typeof step !== 'object' || step === null || Array.isArray(step)) {
+        throw new Error(`steps[${index}] must be an object`)
+      }
+      if (typeof step.title !== 'string' || step.title.trim() === '') {
+        throw new Error(`steps[${index}].title must be a non-empty string`)
+      }
+      if (typeof step.code !== 'string' || step.code.trim() === '') {
+        throw new Error(`steps[${index}].code must be a non-empty string`)
+      }
+      if (step.check !== undefined && typeof step.check !== 'string') {
+        throw new Error(`steps[${index}].check must be a string`)
+      }
+      return { title: step.title, code: step.code, check: step.check }
+    })
+  }
+
+  /** Fixed observation code for one target; the methods print their own output. O(1). */
+  const observeCode = (target, subject, screenshot, full, textMode) => {
+    if (target === 'browser') {
+      const method = screenshot ? 'getAXStateAndScreenshot' : 'getAXState'
+      return `await ${subject}.${method}({ disableDiffing: ${full} });`
+    }
+    return `{
+  const { sky } = await import("@oai/sky");
+  globalThis.state = await sky.get_window_state({ window: ${subject}, ` +
+    `include_screenshot: ${screenshot}, include_text: ${textMode} });
+  globalThis.${subject} = state.window;
+  nodeRepl.write(String(state.accessibility?.tree || state.accessibility?.document_text || ''));
+}`
+  }
+
+  /** Run one observation through the normal js path. O(1) plus the wait. */
+  const runObserve = async (target, subject, screenshot, full, textMode, exec,
+    registration) => {
+    try {
+      const text = await callOn(target, 'js', {
+        code: observeCode(target, subject, screenshot, full, textMode),
+        title: `observe ${target}`,
+      }, configuredTimeoutMs(), exec?.agent ?? null)
+      return withToolNotes(text, registration)
+    } catch (error) {
+      throw withToolErrorNotes(error, registration)
+    }
+  }
+
+  /** Run one descriptor through the normal js path, keeping the desktop registration. O(1). */
+  const runTargetCode = async (target, code, title, exec, registration) => {
+    try {
+      const text = await callOn(target, 'js', { code, title },
+        configuredTimeoutMs(), exec?.agent ?? null)
+      // Capture the plugin's own decline record before withToolNotes clears it.
+      // Browsers have no per-call decline record; an isError is their only signal.
+      const declined = registration?.declinedApp !== undefined
+        && registration?.declinedApp !== null
+      return { text: withToolNotes(text, registration), declined }
+    } catch (error) {
+      throw withToolErrorNotes(error, registration)
+    }
+  }
+
+  /** Keep a desktop registration for the whole observe/plan call. O(1). */
+  const withDesktopRegistration = async (exec, task) => {
+    const registration = { exec, controller: new AbortController(), declinedApp: null }
+    activeCalls.push(registration)
+    try {
+      return await task(registration)
+    } finally {
+      const position = activeCalls.indexOf(registration)
+      if (position >= 0) activeCalls.splice(position, 1)
+      registration.controller.abort()
+    }
+  }
+
+  /** Build and run a plan; returns the text plus whether any step failed. O(steps). */
+  const executePlan = async (target, steps, observe, exec, registration) => {
+    const results = []
+    let stopStatus = null
+    let stopIndex = null
+    for (let index = 0; index < steps.length; index += 1) {
+      if (exec?.signal?.aborted === true) {
+        stopStatus = 'not_run'
+        stopIndex = index + 1
+        break
+      }
+      const step = steps[index]
+      let status = 'ok'
+      let output = ''
+      try {
+        const stepResult = await runTargetCode(
+          target, step.code, step.title, exec, registration)
+        output = stepResult.text
+        if (stepResult.declined) {
+          status = 'error'
+        }
+        if (status === 'ok' && step.check !== undefined && exec?.signal?.aborted !== true) {
+          const checkCode = `{ const ok = Boolean(await (async () => (\n${step.check}\n))()); `
+            + `if (!ok) throw new Error('${CHECK_FAILED_MARKER}'); }`
+          try {
+            const checkResult = await runTargetCode(
+              target, checkCode, `check ${step.title}`, exec, registration)
+            output += `\ncheck: ${checkResult.text}`
+            if (checkResult.declined) status = 'check_error'
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            status = message.includes(CHECK_FAILED_MARKER) ? 'check_failed' : 'check_error'
+            output += `\n${message}`
+          }
+        }
+      } catch (error) {
+        status = 'error'
+        output = error instanceof Error ? error.message : String(error)
+      }
+      results.push({ index: index + 1, title: step.title, status, output })
+      if (status !== 'ok') {
+        stopStatus = status
+        stopIndex = index + 1
+        break
+      }
+    }
+    while (results.length < steps.length) {
+      const step = steps[results.length]
+      results.push({ index: results.length + 1, title: step.title, status: 'not_run', output: '' })
+    }
+    let observation = ''
+    if (observe !== null && exec?.signal?.aborted !== true) {
+      try {
+        const text = await runObserve(target, observe.subject, observe.screenshot,
+          false, true, exec, registration)
+        observation = `observation:\n${text}`
+      } catch (error) {
+        observation = `observation error: ${error instanceof Error ? error.message : error}`
+      }
+    }
+    const okCount = results.filter((item) => item.status === 'ok').length
+    const progress = `run_plan: ${okCount}/${steps.length} steps ok`
+    const summary = stopStatus === null
+      ? progress
+      : `${progress}; stopped at step ${stopIndex} (${stopStatus})`
+    const body = results.map((item) => {
+      const head = `${item.index}. ${item.title}: ${item.status}`
+      return item.output === '' ? head : `${head}\n${item.output}`
+    })
+    const text = [summary, ...body, ...(observation === '' ? [] : [observation])].join('\n')
+    return { text, failed: stopStatus !== null }
+  }
+
   const definitions = {
     js: () => tool({
       name: 'pc_codex_js',
@@ -812,8 +1010,16 @@ export function apply(ctx, raw = {}) {
         'session run exactly one API call, then read the returned documentation and UI state. ' +
         'The code runs as one persistent REPL unit: top-level `await` is allowed, a top-level ' +
         '`return` is not; print results with `nodeRepl.write(...)` or `console.log(...)`; ' +
-        'observer methods output themselves. To operate Windows desktop apps, use ' +
-        '`pc_codex_desktop_js`.',
+        'observer methods output themselves. Preferred: put known consecutive steps in one ' +
+        'program; use if/loops/assertions for intermediate results and throw with an ' +
+        'explanation when a check fails; at the end print only what the next decision ' +
+        'needs with nodeRepl.write(...) or console.log(...). Judge UI state by reading ' +
+        'accessibility-tree values in code (button enabled, input value, selected item), ' +
+        'not screenshots; filter and print only the fields you need. After a UI-changing ' +
+        'step, the next program reads state first; do not reuse old indexes or coordinates. ' +
+        'Fallback: use `pc_codex_run_plan` when you need step-by-step status or automatic ' +
+        'observation after a failure. Use `pc_codex_observe` to see the whole interface. ' +
+        'To operate Windows desktop apps, use `pc_codex_desktop_js`.',
       parameters: {
         code: { type: 'string', required: true, description: 'JavaScript to run in the persistent cua_repl kernel.' },
         title: { type: 'string', required: true, description: 'Short user-facing description of what the code does.' },
@@ -856,7 +1062,17 @@ export function apply(ctx, raw = {}) {
         'the first-call notes. The code runs as one persistent REPL unit: top-level ' +
         '`await` is allowed, a top-level `return` is not; print results with ' +
         '`nodeRepl.write(...)` or `console.log(...)`; observer methods output ' +
-        'themselves. Use it to control Windows ' +
+        'themselves. Preferred: put known consecutive steps in one program; use ' +
+        'if/loops/assertions for intermediate results and throw with an explanation when ' +
+        'a check fails; at the end print only what the next decision needs with ' +
+        'nodeRepl.write(...) or console.log(...). Judge UI state by reading ' +
+        'accessibility-tree values in code (button enabled, input value, selected item), ' +
+        'not screenshots; desktop: sky.get_window_state accessibility; browser: ' +
+        'tab.getAXState; filter and print only needed fields. After a UI-changing step, ' +
+        'the next program reads state first; do not reuse old indexes or coordinates. ' +
+        'Fallback: use `pc_codex_run_plan` when you need step-by-step status or automatic ' +
+        'observation after a failure. Use `pc_codex_observe` for the whole interface. ' +
+        'Use it to control Windows ' +
         'applications; for browser pages use `pc_codex_js`. Before controlling ' +
         'Windows apps, call `pc_codex_docs` for `skill`, `guidance` and ' +
         '`confirmations`; call it for `api` when you need method signatures. ' +
@@ -944,6 +1160,99 @@ export function apply(ctx, raw = {}) {
           if (position >= 0) activeCalls.splice(position, 1)
           registration.controller.abort()
         }
+      },
+    }),
+    observe: () => tool({
+      name: 'pc_codex_observe',
+      description:
+        'Read-only observation of the browser or desktop target through the corresponding js ' +
+        'kernel. Prints the complete accessibility tree (or text) for understanding the ' +
+        'whole interface. Routine conditional checks should read specific accessibility ' +
+        'values inside js code and print only what they need. screenshot defaults to false; ' +
+        'enable it only when visual information is needed.',
+      parameters: {
+        target: {
+          type: 'string',
+          required: true,
+          description: 'browser or desktop.',
+        },
+        subject: {
+          type: 'string',
+          required: true,
+          description: 'REPL global variable for the tab/app or desktop sky Window.',
+        },
+        screenshot: {
+          type: 'boolean',
+          description: 'Capture a screenshot too (default false).',
+        },
+        full: {
+          type: 'boolean',
+          description: 'Browser only: capture a full, non-diff state (default false).',
+        },
+        text: {
+          type: 'boolean',
+          description: 'Desktop only: include accessibility text (default true).',
+        },
+      },
+      output,
+      async execute(args, exec) {
+        const target = parseTarget(args.target)
+        const subject = parseSubject(args.subject)
+        const screenshot = parseBoolean(args.screenshot, 'screenshot', false)
+        const full = parseBoolean(args.full, 'full', false)
+        const textMode = parseBoolean(args.text, 'text', true)
+        syncComputerSwitch()
+        if (target === 'desktop') requireComputer()
+        if (target === 'browser') {
+          return runObserve(target, subject, screenshot, full, textMode, exec, null)
+        }
+        return withDesktopRegistration(exec, (registration) => (
+          runObserve(target, subject, screenshot, full, textMode, exec, registration)
+        ))
+      },
+    }),
+    runPlan: () => tool({
+      name: 'pc_codex_run_plan',
+      description:
+        'Fallback plan runner: use when you need step-by-step status reporting or automatic ' +
+        'observation after a failure. Runs 1 to 20 ordered steps through the browser or ' +
+        'desktop js kernel, reusing the persistent REPL. Each step code may itself contain ' +
+        'conditions and assertions. Only include steps whose inputs are already known or ' +
+        'whose check verifies the plan; a check failure means the UI and plan differ, so ' +
+        'observe with `pc_codex_observe` before deciding again. Stops at the first failing ' +
+        'step and reports it as an error; each step and each check is bounded by the ' +
+        'single-call timeout.',
+      parameters: {
+        target: {
+          type: 'string',
+          required: true,
+          description: 'browser or desktop.',
+        },
+        steps: {
+          type: 'array',
+          required: true,
+          description: '1 to 20 objects: { title, code, check? }.',
+        },
+        observe: {
+          type: 'object',
+          additionalProperties: true,
+          description: 'Optional { subject, screenshot? } observation after the plan.',
+        },
+      },
+      output,
+      async execute(args, exec) {
+        const target = parseTarget(args.target)
+        const steps = parseSteps(args.steps)
+        const observe = parseObserve(args.observe)
+        syncComputerSwitch()
+        if (target === 'desktop') requireComputer()
+        const run = async (registration) => {
+          const result = await executePlan(target, steps, observe, exec, registration)
+          if (result.failed) throw new Error(result.text)
+          return result.text
+        }
+        if (target === 'browser') return run(null)
+        return withDesktopRegistration(exec, run)
       },
     }),
     docs: () => tool({

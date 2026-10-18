@@ -113,13 +113,31 @@ Once installed, every agent preset automatically has:
 
 | Tool | Server | Purpose |
 |---|---|---|
-| `pc_codex_js` | browser | Run JS in the persistent `cua_repl` kernel, using the `cua` API to open/read/drive pages |
+| `pc_codex_js` | browser | Preferred: one checked program in the persistent `cua_repl` kernel, using accessibility values and the `cua` API |
 | `pc_codex_js_reset` | browser | Reset the browser JS kernel (tabs stay open) |
-| `pc_codex_desktop_js` | desktop | Run JS in Codex's persistent `node_repl` kernel, using the `sky` API to control desktop apps |
+| `pc_codex_desktop_js` | desktop | Preferred: one checked program in the persistent `node_repl` kernel, using accessibility values and the `sky` API |
 | `pc_codex_desktop_js_reset` | desktop | Reset the desktop JS kernel (apps stay open) |
 | `pc_codex_desktop_js_add_node_module_dir` | desktop | Add a Node module directory to the desktop `node_repl` |
+| `pc_codex_observe` | browser / desktop | Read-only full accessibility tree/text for seeing the whole interface; screenshot is opt-in |
+| `pc_codex_run_plan` | browser / desktop | Fallback: 1–20 steps when step-by-step status or automatic observation after failure is needed |
 | `pc_codex_docs` | none | Read the Computer Use docs bundled with the local Codex installation (`skill` / `guidance` / `api` / `confirmations`) |
 | `pc_status` | none | Report the resolved configuration and connection state of both servers; check it first when another tool fails |
+
+### Choosing a tool
+
+1. **Preferred:** put the known consecutive steps in one program in `pc_codex_js` or
+   `pc_codex_desktop_js`; use `if`, loops and assertions, `throw` with an explanation when a
+   check fails, and print only what the next decision needs with `nodeRepl.write(...)` or
+   `console.log(...)`.
+2. Read accessibility-tree values in code (button enabled, input value, selected item) instead
+   of relying on screenshots; browser: `tab.getAXState`, desktop: `sky.get_window_state`
+   accessibility data. Filter and print only the needed fields.
+3. After a UI-changing step, the next program reads state first; do not reuse old element
+   indexes or coordinates.
+4. `pc_codex_run_plan` is the fallback when you need step-by-step status or automatic
+   observation after a failure; each step's code can also contain conditions and assertions.
+   Each step and each check is bounded by the single-call timeout.
+5. Use `pc_codex_observe` when you need to see the whole interface.
 
 ## Why this plugin is needed
 
@@ -188,10 +206,12 @@ All fields are optional and go in the `config:` block of `cordis.patch.yml`.
 | `codexHome` | `''` | Empty means `%USERPROFILE%\.codex` |
 | `logFile` | `''` | Bridge log path; empty means `~/.dsh/pc-use.log` |
 | `timeoutMs` | `120000` | Timeout for one tool call |
-| `tools` | all on | Per-tool switches: `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, docs, status }` |
+| `tools` | all on | Per-tool switches: `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` |
 | `tools.desktopJs` | `true` | Register `pc_codex_desktop_js`: run JS in the desktop `node_repl` (needs `computer: true`) |
 | `tools.desktopReset` | `true` | Register `pc_codex_desktop_js_reset`: reset the desktop JS kernel |
 | `tools.desktopAddNodeModuleDir` | `true` | Register `pc_codex_desktop_js_add_node_module_dir`: add a Node module directory to the desktop `node_repl` |
+| `tools.observe` | `true` | Register `pc_codex_observe`: output the complete accessibility tree; routine checks read values in code |
+| `tools.runPlan` | `true` | Register `pc_codex_run_plan`: fallback for step-by-step status or automatic observation after a failure |
 | `tools.docs` | `true` | Register `pc_codex_docs`: read Codex's bundled Computer Use docs (no Codex connection needed) |
 
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /

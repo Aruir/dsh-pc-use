@@ -90,13 +90,28 @@ Codex `turn_ended`，收起“正在使用你的电脑”的橙色光圈。
 
 | 工具 | 服务器 | 作用 |
 |---|---|---|
-| `pc_codex_js` | 浏览器 | 在持久的 `cua_repl` 内核里执行 JS，用 `cua` API 打开/读取/操作网页 |
+| `pc_codex_js` | 浏览器 | 首选：在持久 `cua_repl` 内核里执行一段带检查的程序，读无障碍值并用 `cua` API 操作网页 |
 | `pc_codex_js_reset` | 浏览器 | 重置浏览器 JS 内核（不关闭标签页） |
-| `pc_codex_desktop_js` | 桌面 | 在 Codex 持久的 `node_repl` 内核里执行 JS，用 `sky` API 操作桌面应用 |
+| `pc_codex_desktop_js` | 桌面 | 首选：在持久 `node_repl` 内核里执行一段带检查的程序，读无障碍值并用 `sky` API 操作桌面应用 |
 | `pc_codex_desktop_js_reset` | 桌面 | 重置桌面 JS 内核（不关闭应用） |
 | `pc_codex_desktop_js_add_node_module_dir` | 桌面 | 把 Node 模块目录加入桌面 `node_repl` |
+| `pc_codex_observe` | 浏览器 / 桌面 | 只读输出完整无障碍树/文本，用于了解全貌；截图默认关闭 |
+| `pc_codex_run_plan` | 浏览器 / 桌面 | 备选：需要逐步状态或失败后自动观察时执行 1–20 步 |
 | `pc_codex_docs` | 无 | 读取本机 Codex 自带的 Computer Use 文档（`skill` / `guidance` / `api` / `confirmations`） |
 | `pc_status` | 无 | 报告两个服务器的解析结果和连接状态；其他工具失败时先看它 |
+
+### 选择工具
+
+1. **首选**：把已知的连续步骤写进 `pc_codex_js` 或 `pc_codex_desktop_js` 的同一段程序；
+   用 `if`、循环和断言检查中间结果，检查不成立就 `throw` 并说明原因；结束时只用
+   `nodeRepl.write(...)` 或 `console.log(...)` 打印下一步决策需要的信息。
+2. 在代码里读无障碍树的值（按钮是否可用、输入框的值、当前选中项等）做判断，不要依赖
+   截图；浏览器用 `tab.getAXState`，桌面用 `sky.get_window_state` 返回的 accessibility
+   数据。在代码里过滤，只打印需要的字段。
+3. 改变界面的步骤之后，下一段代码先重新读取状态，不沿用旧的元素索引或坐标。
+4. `pc_codex_run_plan` 是备选：需要逐步状态报告、或失败后仍自动观察时使用；每步的
+   code 本身也可以包含条件和断言。每一步、每个 check 分别受单次调用超时限制。
+5. 需要看完整界面时用 `pc_codex_observe`。
 
 ## 为什么需要这个插件
 
@@ -158,10 +173,12 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `codexHome` | `''` | 空表示 `%USERPROFILE%\.codex` |
 | `logFile` | `''` | 桥接日志路径；空表示 `~/.dsh/pc-use.log` |
 | `timeoutMs` | `120000` | 单次调用超时 |
-| `tools` | 全开 | `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, docs, status }` 逐项开关 |
+| `tools` | 全开 | `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` 逐项开关 |
 | `tools.desktopJs` | `true` | 注册 `pc_codex_desktop_js`：在桌面 `node_repl` 里执行 JS（需要 `computer: true`） |
 | `tools.desktopReset` | `true` | 注册 `pc_codex_desktop_js_reset`：重置桌面 JS 内核 |
 | `tools.desktopAddNodeModuleDir` | `true` | 注册 `pc_codex_desktop_js_add_node_module_dir`：把 Node 模块目录加入桌面 `node_repl` |
+| `tools.observe` | `true` | 注册 `pc_codex_observe`：输出完整无障碍树，例行判断在代码里取值 |
+| `tools.runPlan` | `true` | 注册 `pc_codex_run_plan`：备选；需要逐步状态或失败后自动观察时使用 |
 | `tools.docs` | `true` | 注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档（不需要 Codex 连接） |
 
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /

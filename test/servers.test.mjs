@@ -1,4 +1,4 @@
-// 0.5.0 S1/S2/S5: two MCP servers from their own Codex sources, seven tools, lazy
+// 0.5.0 S1/S2/S5: two MCP servers from their own Codex sources, nine tools, lazy
 // desktop start, the `computer` gate, js_add_node_module_dir and the pc_status shape.
 import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
@@ -95,7 +95,7 @@ test('desktop tools are registered by default and independent of computer', () =
     const all = [
       'pc_codex_js', 'pc_codex_js_reset', 'pc_codex_desktop_js',
       'pc_codex_desktop_js_reset', 'pc_codex_desktop_js_add_node_module_dir',
-      'pc_codex_docs', 'pc_status',
+      'pc_codex_observe', 'pc_codex_run_plan', 'pc_codex_docs', 'pc_status',
     ]
     assert.deepEqual([...defaults.plugin.tools.keys()], all)
     assert.deepEqual([...off.plugin.tools.keys()], all)

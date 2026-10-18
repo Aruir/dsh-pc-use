@@ -23,6 +23,8 @@ const REGISTERED = [
   'pc_codex_desktop_js',
   'pc_codex_desktop_js_reset',
   'pc_codex_desktop_js_add_node_module_dir',
+  'pc_codex_observe',
+  'pc_codex_run_plan',
   'pc_codex_docs',
   'pc_status',
 ]
@@ -88,6 +90,16 @@ test('every registered tool publishes an object JSON Schema', () => {
   assert.equal(tools.has('pc_codex_js_add_node_module_dir'), false)
   assert.deepEqual(tools.get('pc_codex_docs').parameters.required, ['topic'])
   assert.deepEqual(tools.get('pc_codex_docs').parameters.properties.topic.type, 'string')
+  const observe = tools.get('pc_codex_observe').parameters
+  assert.deepEqual(observe.required, ['target', 'subject'])
+  assert.equal(observe.properties.target.type, 'string')
+  assert.equal(observe.properties.screenshot.type, 'boolean')
+  assert.equal(observe.properties.full.type, 'boolean')
+  assert.equal(observe.properties.text.type, 'boolean')
+  const plan = tools.get('pc_codex_run_plan').parameters
+  assert.deepEqual(plan.required, ['target', 'steps'])
+  assert.equal(plan.properties.steps.type, 'array')
+  assert.equal(plan.properties.observe.type, 'object')
 })
 
 test('bad arguments are rejected with a TypeError before any bridge starts', async () => {
@@ -126,7 +138,7 @@ test('the fallback validates before dispatch', async () => {
   assert.equal(calls, 1)
   assert.throws(() => definePortableTool({
     ...fixtureSpec(),
-    parameters: { nested: { type: 'object' } },
+    parameters: { nested: { type: 'function' } },
   }), TypeError)
 })
 
@@ -151,10 +163,12 @@ test('plugin and individual tool switches still work', () => {
   assert.equal(register({ enabled: false }).size, 0)
   assert.deepEqual([...register({ tools: { js: false } }).keys()], [
     'pc_codex_js_reset', 'pc_codex_desktop_js', 'pc_codex_desktop_js_reset',
-    'pc_codex_desktop_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
+    'pc_codex_desktop_js_add_node_module_dir', 'pc_codex_observe',
+    'pc_codex_run_plan', 'pc_codex_docs', 'pc_status',
   ])
   assert.deepEqual([...register({ tools: { desktopJs: false } }).keys()], [
     'pc_codex_js', 'pc_codex_js_reset', 'pc_codex_desktop_js_reset',
-    'pc_codex_desktop_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
+    'pc_codex_desktop_js_add_node_module_dir', 'pc_codex_observe',
+    'pc_codex_run_plan', 'pc_codex_docs', 'pc_status',
   ])
 })

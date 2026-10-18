@@ -41,5 +41,7 @@
           desktopJs: true
           desktopReset: true
           desktopAddNodeModuleDir: true
+          observe: true
+          runPlan: true
           docs: true
           status: true

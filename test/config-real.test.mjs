@@ -20,6 +20,8 @@ const TOOL_NAMES = [
   'pc_codex_desktop_js',
   'pc_codex_desktop_js_reset',
   'pc_codex_desktop_js_add_node_module_dir',
+  'pc_codex_observe',
+  'pc_codex_run_plan',
   'pc_codex_docs',
   'pc_status',
 ]
@@ -49,7 +51,7 @@ function bundlePatch(codexHome = '') {
   }
 }
 
-test('the bundle patch config registers all seven tools', (t) => {
+test('the bundle patch config registers all nine tools', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate(bundlePatch()))
   try {
@@ -96,13 +98,14 @@ test('enabled:false registers nothing through the real config path', (t) => {
   }
 })
 
-test('tools.js:false registers the other six tools through the real config path', (t) => {
+test('tools.js:false registers the other eight tools through the real config path', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate({ tools: { js: false } }))
   try {
     assert.deepEqual([...plugin.tools.keys()], [
       'pc_codex_js_reset', 'pc_codex_desktop_js', 'pc_codex_desktop_js_reset',
-      'pc_codex_desktop_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
+      'pc_codex_desktop_js_add_node_module_dir', 'pc_codex_observe',
+      'pc_codex_run_plan', 'pc_codex_docs', 'pc_status',
     ])
   } finally {
     plugin.dispose()
@@ -141,7 +144,7 @@ test('autoApprove defaults to false (fail-closed)', (t) => {
   assert.equal(unwrapConfigValue(value.autoApprove), false)
   const plugin = registerPlugin(value)
   try {
-    assert.equal(plugin.tools.size, 7)
+    assert.equal(plugin.tools.size, 9)
   } finally {
     plugin.dispose()
   }
