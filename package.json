@@ -1,13 +1,15 @@
 {
-  "name": "dsh-codex-cu",
-  "version": "0.3.2",
-  "description": "Codex Computer Use (cua_repl) as native DSH tools: drive the user's real Chrome through Codex's browser backend, with turn metadata, elicitation approvals and config auto-detection handled for you.",
+  "name": "dsh-pc-use",
+  "version": "0.4.0",
+  "description": "PC Use for DeepSeek Harness: drive the user's real Chrome and Windows desktop apps through Codex Computer Use (cua_repl), with Codex's own docs, approvals and turn metadata handled for you.",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./package.json": "./package.json",
-    "./cordis.patch.yml": "./cordis.patch.yml"
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
   },
   "engines": {
     "dsh": ">=0.2.0-0 <0.3.0",
@@ -47,6 +49,8 @@
     "index.js",
     "lib",
     "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
     "README.md"
   ],
   "scripts": {

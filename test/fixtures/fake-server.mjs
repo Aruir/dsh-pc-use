@@ -1,4 +1,4 @@
-// Fake MCP server for dsh-codex-cu bridge tests and repros.
+// Fake MCP server for dsh-pc-use bridge tests and repros.
 // Usage: node fake-server.mjs <mode> <log-file>
 // Modes:
 //   ok                answer initialize and every tools/call
@@ -8,8 +8,9 @@
 //   elicit-other      same, but with a non-browser approval message
 //   elicit-then-exit  ask an approval, then exit before the client can answer
 //   slow              never answer tools/call (client timeout and cancellation)
+//   image             answer tools/call with one image content item
 // Every method received is appended to <log-file>, one per line; answers to approvals
-// are logged as "answer <action>".
+// are logged as "answer <action>", and initialize's clientInfo as "initialize-params ...".
 import { appendFileSync } from 'node:fs'
 import readline from 'node:readline'
 
@@ -58,6 +59,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   record(message.method)
 
   if (message.method === 'initialize') {
+    record(`initialize-params ${JSON.stringify(message.params?.clientInfo ?? null)}`)
     if (mode === 'init-hang') {
       return
     }
@@ -98,6 +100,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   if (mode === 'elicit-then-exit') {
     askApproval(message.id, 'Allow Browser use to access https://example.com?')
     process.exit(0)
+  }
+  if (mode === 'image') {
+    send({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: { content: [{ type: 'image', data: 'aGk=', mimeType: 'image/png' }] },
+    })
+    return
   }
   send({
     jsonrpc: '2.0',

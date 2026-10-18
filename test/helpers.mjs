@@ -10,7 +10,7 @@ import { apply } from '../index.js'
 export const FAKE_SERVER = process.env.CODEX_CU_FAKE_SERVER
   ?? fileURLToPath(new URL('./fixtures/fake-server.mjs', import.meta.url))
 
-export function tempDir(prefix = 'codex-cu-test-') {
+export function tempDir(prefix = 'pc-use-test-') {
   return mkdtempSync(join(tmpdir(), prefix))
 }
 

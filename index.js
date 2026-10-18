@@ -1,4 +1,4 @@
-// dsh-codex-cu — Codex computer-use (cua_repl) as native DeepSeek Harness tools.
+// dsh-pc-use — Codex computer-use (cua_repl) as native DeepSeek Harness tools.
 //
 // Written against the official plugin docs:
 //   docs/user/develop/basic/index.zh.md   (apply / inject / ctx.effect)
@@ -17,7 +17,7 @@
 //
 // Everything is lazy: importing or applying the plugin never spawns a process.
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -25,7 +25,10 @@ import { dirname, join } from 'node:path'
 import {
   APPROVE, DECLINE, decisionFromHostOutcome, desktopAppKey, wantsSessionApproval,
 } from './lib/approval.js'
-import { defaultCodexHome, resolveCodexServer } from './lib/codex-config.js'
+import {
+  COMPUTER_USE_DOC_TOPICS, defaultCodexHome, resolveCodexServer, resolveComputerUseDocs,
+  versionFromSource,
+} from './lib/codex-config.js'
 import { unwrapConfigValue } from './lib/config-value.js'
 import { saveImage } from './lib/images.js'
 import { appendLogLine } from './lib/log-file.js'
@@ -33,7 +36,7 @@ import { McpBridge } from './lib/mcp-bridge.js'
 import { enableComputerSurface, mergeTrustedServices } from './lib/surfaces.js'
 import { definePortableTool } from './lib/define-tool.js'
 
-export const name = 'codex-cu'
+export const name = 'pc-use'
 export const inject = ['tools']
 
 // Both platform packages are supplied by the running harness. A soft import keeps
@@ -44,21 +47,21 @@ try {
   const mod = await import('@deepseek-ai/schemastery')
   Schema = mod?.default?.object !== undefined ? mod.default : (mod?.object !== undefined ? mod : null)
 } catch (error) {
-  console.warn('dsh-codex-cu: @deepseek-ai/schemastery unavailable — config defaults are applied by hand', error)
+  console.warn('dsh-pc-use: @deepseek-ai/schemastery unavailable — config defaults are applied by hand', error)
 }
 
 let defineTool = null
 try {
   defineTool = (await import('@deepseek-ai/dsh-tools')).defineTool ?? null
 } catch (error) {
-  console.warn('dsh-codex-cu: @deepseek-ai/dsh-tools unavailable — using the JSON Schema adapter')
+  console.warn('dsh-pc-use: @deepseek-ai/dsh-tools unavailable — using the JSON Schema adapter')
 }
 
 /**
  * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean,
  *   rememberDesktopApprovals: boolean, codexHome: string, stateFile: string, logFile: string,
  *   timeoutMs: number, tools: {js: boolean, reset: boolean, addNodeModuleDir: boolean,
- *   status: boolean}}} Config
+ *   docs: boolean, status: boolean}}} Config
  */
 
 /**
@@ -90,23 +93,25 @@ function buildConfig(schema) {
       codexHome: schema.string().default('')
         .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。'),
       stateFile: schema.string().default('')
-        .description('会话状态文件路径；留空则写入 ~/.dsh/codex-cu-state.json。'),
+        .description('会话状态文件路径；留空则写入 ~/.dsh/pc-use-state.json。'),
       logFile: schema.string().default('')
-        .description('桥接日志路径；留空则写入 ~/.dsh/codex-cu.log。')
+        .description('桥接日志路径；留空则写入 ~/.dsh/pc-use.log。')
         .volatile(),
       timeoutMs: schema.number().default(120000)
         .description('单次工具调用超时（毫秒）。')
         .volatile(),
       tools: schema.object({
-        js: schema.boolean().default(true).description('注册 `codex_js`：在持久的 cua_repl 内核中执行 JS。'),
-        reset: schema.boolean().default(true).description('注册 `codex_js_reset`：重置 JS 内核。'),
+        js: schema.boolean().default(true).description('注册 `pc_codex_js`：在持久的 cua_repl 内核中执行 JS。'),
+        reset: schema.boolean().default(true).description('注册 `pc_codex_js_reset`：重置 JS 内核。'),
         addNodeModuleDir: schema.boolean().default(true)
-          .description('注册 `codex_js_add_node_module_dir`：增加模块解析目录。'),
-        status: schema.boolean().default(true).description('注册 `codex_status`：报告解析结果与连接状态。'),
+          .description('注册 `pc_codex_js_add_node_module_dir`：增加模块解析目录。'),
+        docs: schema.boolean().default(true)
+          .description('注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档。'),
+        status: schema.boolean().default(true).description('注册 `pc_status`：报告解析结果与连接状态。'),
       }).description('要注册哪些工具。'),
-    }).description('dsh-codex-cu 的功能开关与默认值。')
+    }).description('dsh-pc-use 的功能开关与默认值。')
   } catch (error) {
-    console.warn('dsh-codex-cu: building the Config schema failed — running on built-in defaults', error)
+    console.warn('dsh-pc-use: building the Config schema failed — running on built-in defaults', error)
     return undefined
   }
 }
@@ -121,22 +126,27 @@ const DEFAULTS = {
   codexHome: '',
   logFile: '',
   timeoutMs: 120000,
-  tools: { js: true, reset: true, addNodeModuleDir: true, status: true },
+  tools: { js: true, reset: true, addNodeModuleDir: true, docs: true, status: true },
 }
 
-// Marker for "the approving codex_js call ended while DSH was still asking".
-const CALL_ENDED = Symbol('codex_js call ended')
+// Marker for "the approving pc_codex_js call ended while DSH was still asking".
+const CALL_ENDED = Symbol('pc_codex_js call ended')
 
 function stateFilePath() {
+  return join(homedir(), '.dsh', 'pc-use-state.json')
+}
+
+// Old default state file; read once only to migrate its session id (D9).
+function legacyStateFilePath() {
   return join(homedir(), '.dsh', 'codex-cu-state.json')
 }
 
 function defaultLogFile() {
-  return join(homedir(), '.dsh', 'codex-cu.log')
+  return join(homedir(), '.dsh', 'pc-use.log')
 }
 
 function imagesDirectory() {
-  return join(homedir(), '.dsh', 'codex-cu-images')
+  return join(homedir(), '.dsh', 'pc-use-images')
 }
 
 function readState(file) {
@@ -147,16 +157,25 @@ function readState(file) {
   }
 }
 
-/** A session id that survives restarts, so Codex keeps the approvals it already granted. */
-function stableSessionId(file) {
-  const state = readState(file)
-  if (state?.session_id) return state.session_id
-  const created = { session_id: `dsh-codex-${randomUUID()}`, created_at: new Date().toISOString() }
+function writeState(file, state) {
   try {
     mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, `${JSON.stringify(created, null, 2)}\n`)
+    writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`)
   } catch {}
-  return created.session_id
+}
+
+/**
+ * A session id for calls without an agent: it survives restarts and the old default
+ * state file is migrated once. Calls with an agent use their own random session id
+ * (turnStateFor). O(1): two small JSON reads.
+ */
+function stableSessionId(file, legacyFile = null) {
+  const state = readState(file)
+  if (state?.session_id) return state.session_id
+  const legacy = legacyFile === null ? null : readState(legacyFile)
+  const sessionId = legacy?.session_id ?? `dsh-pc-${randomUUID()}`
+  writeState(file, { session_id: sessionId, created_at: new Date().toISOString() })
+  return sessionId
 }
 
 /** Flatten an MCP tool result into the canonical string value DSH renders for the model. */
@@ -193,6 +212,15 @@ const output = {
   render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
 }
 
+const MAX_DOC_BYTES = 512 * 1024
+const DOCS_EXPLANATION = [
+  'In DSH this document maps to the following:',
+  '- `node_repl` JavaScript runs through the `pc_codex_js` tool.',
+  '- Reset the JavaScript session with `pc_codex_js_reset`.',
+  '- Run the code from the Initialize section inside `pc_codex_js`.',
+  '- Desktop approvals appear as DSH approval cards.',
+].join('\n')
+
 /**
  * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean, codexHome?: string,
  *   stateFile?: string, logFile?: string, timeoutMs?: number, tools?: Record<string, boolean>}} raw
@@ -220,6 +248,10 @@ export function apply(ctx, raw = {}) {
     const value = unwrapConfigValue(source.stateFile)
     return typeof value === 'string' && value !== '' ? value : stateFilePath()
   }
+  const explicitStateFile = () => {
+    const value = unwrapConfigValue(source.stateFile)
+    return typeof value === 'string' && value !== ''
+  }
   const configuredLogFile = () => {
     const value = unwrapConfigValue(source.logFile)
     return typeof value === 'string' && value !== '' ? value : defaultLogFile()
@@ -237,12 +269,12 @@ export function apply(ctx, raw = {}) {
     try {
       appendLogLine(configuredLogFile(), line)
     } catch (error) {
-      console.warn(`dsh-codex-cu: ${message} (log write failed: ${error.message})`)
+      console.warn(`dsh-pc-use: ${message} (log write failed: ${error.message})`)
     }
   }
 
   // An elicitation request carries no tool-call id, so a desktop approval is attributed
-  // to the earliest-started `codex_js` call that is still running; with none it is
+  // to the earliest-started `pc_codex_js` call that is still running; with none it is
   // declined. Only the exec fields the host needs are passed on, never logged.
   const activeCalls = []
   const readApprovalService = () => {
@@ -277,7 +309,7 @@ export function apply(ctx, raw = {}) {
   const requestDesktopApproval = async ({ appName, meta }) => {
     const active = activeCalls[0]
     if (active === undefined || active.exec === undefined || active.exec === null) {
-      return { action: DECLINE, reason: 'no active codex_js call' }
+      return { action: DECLINE, reason: 'no active pc_codex_js call' }
     }
     const exec = active.exec
     if (exec.agent === undefined || exec.agent === null) {
@@ -324,7 +356,7 @@ export function apply(ctx, raw = {}) {
       // A call that already ended must never approve a stale card, even when the
       // user answered at the same moment.
       if (callSignal.aborted || outcome === CALL_ENDED) {
-        return { action: DECLINE, reason: 'codex_js call ended' }
+        return { action: DECLINE, reason: 'pc_codex_js call ended' }
       }
       const decision = decisionFromHostOutcome(outcome)
       if (
@@ -340,7 +372,7 @@ export function apply(ctx, raw = {}) {
       // A request that failed because the call ended is a call-end decline, not a
       // host failure; keep the log reason accurate.
       if (callSignal.aborted) {
-        return { action: DECLINE, reason: 'codex_js call ended' }
+        return { action: DECLINE, reason: 'pc_codex_js call ended' }
       }
       return { action: DECLINE, reason: 'approval request failed' }
     }
@@ -448,7 +480,7 @@ export function apply(ctx, raw = {}) {
       activeServicesFrom = null
     }
     const spec = resolveCodexServer({ codexHome })
-    if (!spec.ok) throw new Error(`dsh-codex-cu: ${spec.reason}`)
+    if (!spec.ok) throw new Error(`dsh-pc-use: ${spec.reason}`)
     const env = { ...spec.env }
     const surfaces = computer
       ? enableComputerSurface(env.CUA_REPL_ENABLED_SURFACES)
@@ -469,7 +501,9 @@ export function apply(ctx, raw = {}) {
       args: spec.args,
       env,
       cwd: spec.cwd,
-      sessionId: stableSessionId(configuredStateFile()),
+      sessionId: stableSessionId(
+        configuredStateFile(), explicitStateFile() ? null : legacyStateFilePath(),
+      ),
       shouldApprove: autoApproveEnabled,
       isComputerEnabled: computerEnabled,
       requestDesktopApproval,
@@ -507,7 +541,7 @@ export function apply(ctx, raw = {}) {
 
   const definitions = {
     js: () => tool({
-      name: 'codex_js',
+      name: 'pc_codex_js',
       description:
         'Drive the user\'s real Chrome through Codex Computer Use (cua_repl). Runs JavaScript with the ' +
         '`cua` API: `cua.listBrowsers()`, `cua.createBrowserTab("chrome", url)`, `cua.getTab(...)`, ' +
@@ -519,7 +553,8 @@ export function apply(ctx, raw = {}) {
         'With `computer` enabled, control Windows apps via `const { sky } = await ' +
         'import("@oai/sky")`, e.g. `sky.list_windows()` or ' +
         '`sky.get_window_state({ window: { app, id } })`; the rest of the API is in the ' +
-        'first-call notes.',
+        'first-call notes. Before controlling Windows apps, call `pc_codex_docs` for `skill`, ' +
+        '`guidance` and `confirmations`; call it for `api` when you need method signatures.',
       parameters: {
         code: { type: 'string', required: true, description: 'JavaScript to run in the persistent cua_repl kernel.' },
         title: { type: 'string', required: true, description: 'Short user-facing description of what the code does.' },
@@ -552,7 +587,7 @@ export function apply(ctx, raw = {}) {
       },
     }),
     reset: () => tool({
-      name: 'codex_js_reset',
+      name: 'pc_codex_js_reset',
       description: 'Reset the persistent cua_repl JavaScript kernel. Bindings are discarded; browser tabs and apps are not closed.',
       parameters: {},
       output,
@@ -561,7 +596,7 @@ export function apply(ctx, raw = {}) {
       },
     }),
     addNodeModuleDir: () => tool({
-      name: 'codex_js_add_node_module_dir',
+      name: 'pc_codex_js_add_node_module_dir',
       description: 'Add an absolute node_modules directory to the cua_repl package resolution. Survives js_reset.',
       parameters: {
         path: { type: 'string', required: true, description: 'Absolute path to a node_modules directory.' },
@@ -571,29 +606,83 @@ export function apply(ctx, raw = {}) {
         return call('js_add_node_module_dir', { path: args.path })
       },
     }),
+    docs: () => tool({
+      name: 'pc_codex_docs',
+      description:
+        'Read Codex\'s own Computer Use documentation from the local Codex installation. Topics: ' +
+        '`skill` (entry point: initialization and which document to read), `guidance` (runtime ' +
+        'rules, target windows, screenshots, recovery), `api` (the full `sky` API), and ' +
+        '`confirmations` (actions that need user confirmation). Read `skill`, `guidance` and ' +
+        '`confirmations` before controlling Windows apps; read `api` when you need method ' +
+        'signatures.',
+      parameters: {
+        topic: {
+          type: 'string',
+          required: true,
+          description: 'One of skill, guidance, api, confirmations.',
+        },
+      },
+      output,
+      async execute(args) {
+        const topic = args.topic
+        if (!COMPUTER_USE_DOC_TOPICS.includes(topic)) {
+          throw new Error(
+            `pc_codex_docs topic must be one of: ${COMPUTER_USE_DOC_TOPICS.join(', ')}`,
+          )
+        }
+        const spec = lastSpec ?? resolveCodexServer({ codexHome })
+        const preferVersion = spec.ok === true ? versionFromSource(spec.source) : null
+        const resolved = resolveComputerUseDocs({ codexHome, preferVersion })
+        const file = resolved.files[topic]
+        let size
+        try {
+          size = statSync(file).size
+        } catch {
+          throw new Error(`Codex computer-use doc not found: ${file}`)
+        }
+        if (size > MAX_DOC_BYTES) {
+          throw new Error(
+            `Codex computer-use doc is too large: ${file} (${size} bytes; limit 512 KB)`,
+          )
+        }
+        let content
+        try {
+          // No cache: read the current file on every call, O(file size).
+          content = readFileSync(file, 'utf8')
+        } catch {
+          throw new Error(`cannot read Codex computer-use doc: ${file}`)
+        }
+        const sourceLine = `Source: ${file} (Codex computer-use ${resolved.version})`
+        return `${sourceLine}\n\n${DOCS_EXPLANATION}\n\n${content}`
+      },
+    }),
     status: () => tool({
-      name: 'codex_status',
+      name: 'pc_status',
       description:
         'Report how this plugin resolved Codex Computer Use: config source, launch command, native pipe, ' +
-        'connection state. Use it first when a codex_ tool fails.',
+        'connection state. Use it first when a pc_ tool fails.',
       parameters: {},
       output,
       async execute() {
         const spec = lastSpec ?? resolveCodexServer({ codexHome })
         const connected = bridge !== null && bridge.alive
         return JSON.stringify({
-          resolved: spec.ok === true,
-          reason: spec.ok === true ? undefined : spec.reason,
-          source: spec.ok === true ? spec.source : undefined,
-          command: spec.ok === true ? spec.command : undefined,
-          cwd: spec.ok === true ? spec.cwd : undefined,
-          nativePipe: spec.ok === true ? spec.pipeDirectory : undefined,
-          connected,
-          autoApprove: autoApproveEnabled(),
-          computer: connected ? activeSurfaces : null,
-          services: connected ? activeServices : null,
-          servicesFrom: connected ? activeServicesFrom : null,
-          codexHome,
+          backends: {
+            codex: {
+              resolved: spec.ok === true,
+              reason: spec.ok === true ? undefined : spec.reason,
+              source: spec.ok === true ? spec.source : undefined,
+              command: spec.ok === true ? spec.command : undefined,
+              cwd: spec.ok === true ? spec.cwd : undefined,
+              nativePipe: spec.ok === true ? spec.pipeDirectory : undefined,
+              connected,
+              autoApprove: autoApproveEnabled(),
+              computer: connected ? activeSurfaces : null,
+              services: connected ? activeServices : null,
+              servicesFrom: connected ? activeServicesFrom : null,
+              codexHome,
+            },
+          },
         }, null, 2)
       },
     }),
@@ -605,7 +694,7 @@ export function apply(ctx, raw = {}) {
     try {
       ctx.tools.register(factory())
     } catch (error) {
-      console.error(`dsh-codex-cu: registering the ${key} tool failed`, error)
+      console.error(`dsh-pc-use: registering the ${key} tool failed`, error)
     }
   }
 
@@ -620,5 +709,5 @@ export function apply(ctx, raw = {}) {
   ctx.effect(() => () => {
     resetRemembered()
     if (bridge !== null) bridge.stop()
-  }, 'dsh-codex-cu: computer-use bridge')
+  }, 'dsh-pc-use: computer-use bridge')
 }

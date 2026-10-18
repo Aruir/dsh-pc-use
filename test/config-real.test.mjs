@@ -25,16 +25,17 @@ function bundlePatch(codexHome = '') {
     codexHome,
     logFile: '',
     timeoutMs: 120000,
-    tools: { js: true, reset: true, addNodeModuleDir: true, status: true },
+    tools: { js: true, reset: true, addNodeModuleDir: true, docs: true, status: true },
   }
 }
 
-test('the bundle patch config registers all four tools', (t) => {
+test('the bundle patch config registers all five tools', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate(bundlePatch()))
   try {
     assert.deepEqual([...plugin.tools.keys()], [
-      'codex_js', 'codex_js_reset', 'codex_js_add_node_module_dir', 'codex_status',
+      'pc_codex_js', 'pc_codex_js_reset', 'pc_codex_js_add_node_module_dir', 'pc_codex_docs',
+      'pc_status',
     ])
   } finally {
     plugin.dispose()
@@ -51,12 +52,12 @@ test('enabled:false registers nothing through the real config path', (t) => {
   }
 })
 
-test('tools.js:false registers the other three tools through the real config path', (t) => {
+test('tools.js:false registers the other four tools through the real config path', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate({ tools: { js: false } }))
   try {
     assert.deepEqual([...plugin.tools.keys()], [
-      'codex_js_reset', 'codex_js_add_node_module_dir', 'codex_status',
+      'pc_codex_js_reset', 'pc_codex_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
     ])
   } finally {
     plugin.dispose()
@@ -82,13 +83,13 @@ test('autoApprove defaults to false (fail-closed)', (t) => {
   assert.equal(unwrapConfigValue(value.autoApprove), false)
   const plugin = registerPlugin(value)
   try {
-    assert.equal(plugin.tools.size, 4)
+    assert.equal(plugin.tools.size, 5)
   } finally {
     plugin.dispose()
   }
 })
 
-test('codex_status reports the configured codexHome as a string', async (t) => {
+test('pc_status reports the configured codexHome as a string', async (t) => {
   if (!canResolve) return t.skip(SKIP)
   const home = tempDir()
   const restore = useHome(home)
@@ -96,10 +97,10 @@ test('codex_status reports the configured codexHome as a string', async (t) => {
   writeCodexHome(codexHome, [FAKE_SERVER, 'ok', join(home, 'server.log')])
   const plugin = registerPlugin(validate(bundlePatch(codexHome)))
   try {
-    const status = plugin.tools.get('codex_status')
+    const status = plugin.tools.get('pc_status')
     const report = JSON.parse(await status.execute({}, {}))
-    assert.equal(typeof report.codexHome, 'string')
-    assert.equal(report.codexHome, codexHome)
+    assert.equal(typeof report.backends.codex.codexHome, 'string')
+    assert.equal(report.backends.codex.codexHome, codexHome)
   } finally {
     plugin.dispose()
     restore()
@@ -113,8 +114,8 @@ test('the real config path reads volatile values when they are used', async (t) 
   const codexHome = join(home, 'codex')
   const plugin = registerPlugin(validate({ ...bundlePatch(codexHome), autoApprove: true }))
   try {
-    const report = JSON.parse(await plugin.tools.get('codex_status').execute({}, {}))
-    assert.equal(report.autoApprove, true)
+    const report = JSON.parse(await plugin.tools.get('pc_status').execute({}, {}))
+    assert.equal(report.backends.codex.autoApprove, true)
   } finally {
     plugin.dispose()
     restore()

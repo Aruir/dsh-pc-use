@@ -43,13 +43,13 @@ function setup({ mode, autoApprove, customLogFile = true }) {
     home,
     restore,
     serverLog,
-    expectedLogFile: customLogFile ? logFile : join(home, '.dsh', 'codex-cu.log'),
+    expectedLogFile: customLogFile ? logFile : join(home, '.dsh', 'pc-use.log'),
     plugin,
   }
 }
 
 async function exercise(context) {
-  const js = context.plugin.tools.get('codex_js')
+  const js = context.plugin.tools.get('pc_codex_js')
   return js.execute({ code: '1', title: 'approval test' }, {})
 }
 
@@ -129,7 +129,7 @@ test('autoApprove is fail-closed by default', async () => {
   }
 })
 
-test('an empty logFile falls back to ~/.dsh/codex-cu.log', async () => {
+test('an empty logFile falls back to ~/.dsh/pc-use.log', async () => {
   const context = setup({ mode: 'elicit', autoApprove: true, customLogFile: false })
   try {
     await exercise(context)

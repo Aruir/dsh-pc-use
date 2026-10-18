@@ -26,7 +26,7 @@ function createVolatile(value) {
 function approach(agent, callId) {
   return {
     agent,
-    name: 'codex_js',
+    name: 'pc_codex_js',
     callId,
     signal: new AbortController().signal,
   }
@@ -47,7 +47,7 @@ function approvalService(queue, requests) {
 }
 
 function setup(options = {}) {
-  const home = tempDir('codex-cu-remember-')
+  const home = tempDir('pc-use-remember-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
   writeFileSync(serverLog, '')
@@ -79,7 +79,7 @@ function finish(context) {
 }
 
 function runJs(context, code, exec) {
-  return context.plugin.tools.get('codex_js').execute({ code, title: code }, exec)
+  return context.plugin.tools.get('pc_codex_js').execute({ code, title: code }, exec)
 }
 
 test('same agent and app: the second request is remembered', async () => {
@@ -275,7 +275,7 @@ test('hot switching computer asks again after the bridge is rebuilt', async () =
   }
 })
 
-test('a remembered app still needs a running codex_js call', async () => {
+test('a remembered app still needs a running pc_codex_js call', async () => {
   const agent = { id: 'agent-twelve' }
   const requests = []
   const context = setup({
@@ -284,7 +284,7 @@ test('a remembered app still needs a running codex_js call', async () => {
   try {
     await runJs(context, APP, execFor(agent, 'call-1'))
     assert.equal(requests.length, 1)
-    const js = context.plugin.tools.get('codex_js')
+    const js = context.plugin.tools.get('pc_codex_js')
     const result = await js.execute(
       { code: `${APP}|spontaneous`, title: 'after' },
       execFor(agent, 'call-2'),
@@ -296,7 +296,7 @@ test('a remembered app still needs a running codex_js call', async () => {
     assert.equal(declined, true)
     assert.equal(requests.length, 1)
     const lines = approvalLines(context.logFile)
-    assert.match(lines[1], /-> decline \(no active codex_js call\)/)
+    assert.match(lines[1], /-> decline \(no active pc_codex_js call\)/)
   } finally {
     finish(context)
   }

@@ -37,14 +37,14 @@ function pendingApprovalService() {
 function execFixture(callId = 'call-42') {
   return {
     agent: { id: 'agent-test' },
-    name: 'codex_js',
+    name: 'pc_codex_js',
     callId,
     signal: new AbortController().signal,
   }
 }
 
 function setup(options = {}) {
-  const home = tempDir('codex-cu-desktop-')
+  const home = tempDir('pc-use-desktop-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
   writeFileSync(serverLog, '')
@@ -73,7 +73,7 @@ function approvalLines(logFile) {
 }
 
 async function runDesktopCall(context) {
-  const js = context.plugin.tools.get('codex_js')
+  const js = context.plugin.tools.get('pc_codex_js')
   return js.execute({ code: '1', title: 'desktop approval' }, context.exec)
 }
 
@@ -117,7 +117,7 @@ test('computer:true asks DSH and accepts allowed-once', async () => {
     assert.equal(requests.length, 1)
     const request = requests[0]
     assert.equal(request.agent, exec.agent)
-    assert.equal(request.toolName, 'codex_js')
+    assert.equal(request.toolName, 'pc_codex_js')
     assert.equal(request.callId, 'call-42')
     // The signal handed to DSH is derived from exec.signal and the call lifetime, so it
     // is already aborted once the call has returned.
@@ -193,7 +193,7 @@ test('autoApprove:true does not auto-accept a desktop approval', async () => {
   }
 })
 
-test('a desktop approval without an active codex_js call is declined', async () => {
+test('a desktop approval without an active pc_codex_js call is declined', async () => {
   const requests = []
   const context = setup({
     mode: 'spontaneous',
@@ -201,8 +201,8 @@ test('a desktop approval without an active codex_js call is declined', async () 
     services: { approval: approvalService('allowed-once', requests) },
   })
   try {
-    const reset = context.plugin.tools.get('codex_js_reset')
-    await reset.execute({}, { name: 'codex_js_reset' })
+    const reset = context.plugin.tools.get('pc_codex_js_reset')
+    await reset.execute({}, { name: 'pc_codex_js_reset' })
     const declined = await waitFor(
       () => readFileSync(context.serverLog, 'utf8').includes('answer decline'),
     )
@@ -210,7 +210,7 @@ test('a desktop approval without an active codex_js call is declined', async () 
     assert.equal(requests.length, 0)
     const lines = approvalLines(context.logFile)
     assert.equal(lines.length, 1)
-    assert.match(lines[0], /-> decline \(no active codex_js call\)/)
+    assert.match(lines[0], /-> decline \(no active pc_codex_js call\)/)
   } finally {
     finish(context)
   }
@@ -233,7 +233,7 @@ test('the Allow Codex to use form asks DSH with the app name', async () => {
   }
 })
 
-test('a desktop approval goes to the earliest running codex_js call', async () => {
+test('a desktop approval goes to the earliest running pc_codex_js call', async () => {
   const { service, requests } = pendingApprovalService()
   const context = setup({
     mode: 'computer',
@@ -241,7 +241,7 @@ test('a desktop approval goes to the earliest running codex_js call', async () =
     services: { approval: service },
   })
   try {
-    const js = context.plugin.tools.get('codex_js')
+    const js = context.plugin.tools.get('pc_codex_js')
     const first = js.execute({ code: '1', title: 'first' }, execFixture('call-first'))
     assert.equal(await waitFor(() => requests.length >= 1), true)
     const second = js.execute({ code: '2', title: 'second' }, execFixture('call-second'))
@@ -256,7 +256,7 @@ test('a desktop approval goes to the earliest running codex_js call', async () =
   }
 })
 
-test('a desktop approval after the last codex_js call ended is declined without DSH', async () => {
+test('a desktop approval after the last pc_codex_js call ended is declined without DSH', async () => {
   const requests = []
   const context = setup({
     mode: 'spontaneous-after-call',
@@ -264,7 +264,7 @@ test('a desktop approval after the last codex_js call ended is declined without 
     services: { approval: approvalService('allowed-once', requests) },
   })
   try {
-    const js = context.plugin.tools.get('codex_js')
+    const js = context.plugin.tools.get('pc_codex_js')
     const result = await js.execute({ code: '1', title: 'finish' }, execFixture('call-done'))
     assert.equal(result, 'ran js')
     const declined = await waitFor(
@@ -274,7 +274,7 @@ test('a desktop approval after the last codex_js call ended is declined without 
     assert.equal(requests.length, 0)
     const lines = approvalLines(context.logFile)
     assert.equal(lines.length, 1)
-    assert.match(lines[0], /-> decline \(no active codex_js call\)/)
+    assert.match(lines[0], /-> decline \(no active pc_codex_js call\)/)
   } finally {
     finish(context)
   }
@@ -288,9 +288,9 @@ test('a call without an agent is declined without asking DSH', async () => {
     services: { approval: approvalService('allowed-once', requests) },
   })
   try {
-    const js = context.plugin.tools.get('codex_js')
+    const js = context.plugin.tools.get('pc_codex_js')
     const exec = {
-      name: 'codex_js',
+      name: 'pc_codex_js',
       callId: 'call-no-agent',
       signal: new AbortController().signal,
     }

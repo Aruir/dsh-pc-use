@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 import { apply } from '../index.js'
 
-const stateDir = mkdtempSync(join(tmpdir(), 'dsh-codex-cu-'))
+const stateDir = mkdtempSync(join(tmpdir(), 'dsh-pc-use-'))
 const logFile = join(stateDir, 'bridge.log')
 const stateFile = join(stateDir, 'state.json')
 const tools = new Map()
@@ -33,16 +33,16 @@ if (tools.size === 0) {
   process.exit(1)
 }
 
-const status = tools.get('codex_status')
-console.log('\n--- codex_status ---')
+const status = tools.get('pc_status')
+console.log('\n--- pc_status ---')
 console.log(await status.execute({}, {}))
 
-const js = tools.get('codex_js')
-console.log('\n--- codex_js: listBrowsers ---')
+const js = tools.get('pc_codex_js')
+console.log('\n--- pc_codex_js: listBrowsers ---')
 const listing = await js.execute({ code: 'await cua.listBrowsers();', title: 'list browsers' }, {})
 console.log(listing.slice(0, 1500))
 
-console.log('\n--- codex_js: open bilibili ---')
+console.log('\n--- pc_codex_js: open bilibili ---')
 const opened = await js.execute({
   code: 'let smkTab = await cua.createBrowserTab("chrome", "https://www.bilibili.com", { sessionName: "🧪 smoke" });',
   title: 'open bilibili',
@@ -50,7 +50,7 @@ const opened = await js.execute({
 }, {})
 console.log(opened.slice(0, 1200))
 
-console.log('\n--- codex_js: screenshot the tab ---')
+console.log('\n--- pc_codex_js: screenshot the tab ---')
 const shot = await js.execute({
   code: 'await smkTab.getScreenshot();',
   title: 'screenshot bilibili',

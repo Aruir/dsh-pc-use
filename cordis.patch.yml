@@ -1,14 +1,14 @@
-# Insert the codex-cu plugin process-wide, so every agent preset gets the
-# codex_js / codex_js_reset / codex_js_add_node_module_dir / codex_status tools
-# without declaring anything in the preset.
+# Insert the pc-use plugin process-wide, so every agent preset gets the
+# pc_codex_js / pc_codex_js_reset / pc_codex_js_add_node_module_dir /
+# pc_codex_docs / pc_status tools without declaring anything in the preset.
 #
-# The entry name is PATH-RELATIVE on purpose: DSH anchors a relative `name:` to the
-# directory of the patch file that declared it, so this row always loads this
-# package's own index.js whatever the install folder is called.
+# The row is named after the package: the profile already records the package as
+# `dsh-pc-use` (a `link:` dependency), so the Loader resolves the package entry and
+# package-level display metadata (locale, icon) can be read.
 
 - insert:
-    - id: codex-cu
-      name: './index.js'
+    - id: pc-use
+      name: 'dsh-pc-use'
       config:
         enabled: true
         # Fail closed by default: only Codex's "Allow Browser use to access <origin>?"
@@ -17,12 +17,18 @@
         # reason. Set true to auto-accept browser access again (everything else is
         # still declined).
         autoApprove: false
-        # Windows desktop control (Codex Computer Use). Off by default; when on, every
-        # desktop app must be approved in DSH the first time it is used.
+        # Windows desktop control (Codex Computer Use). Off by default; when on, desktop
+        # approvals follow DSH's approval policy ("full access" allows them directly).
+        # Approvals are remembered per app within one DSH session while
+        # rememberDesktopApprovals is true.
         computer: false
+        rememberDesktopApprovals: true
         # Empty means %USERPROFILE%\.codex
         codexHome: ''
-        # Empty means ~/.dsh/codex-cu.log; approvals are always logged, no longer
+        # Empty means ~/.dsh/pc-use-state.json; when the new file is missing the old
+        # state file's session id is migrated once.
+        stateFile: ''
+        # Empty means ~/.dsh/pc-use.log; approvals are always logged, no longer
         # console.warn only.
         logFile: ''
         timeoutMs: 120000
@@ -30,4 +36,5 @@
           js: true
           reset: true
           addNodeModuleDir: true
+          docs: true
           status: true

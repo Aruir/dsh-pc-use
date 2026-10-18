@@ -38,7 +38,7 @@ function killAll(pids) {
 }
 
 test('two parallel first calls start exactly one server', async () => {
-  const home = tempDir('codex-cu-race-')
+  const home = tempDir('pc-use-race-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
   const pidFile = join(home, 'pids.txt')
@@ -53,7 +53,7 @@ test('two parallel first calls start exactly one server', async () => {
   })
   const startedPids = []
   try {
-    const js = plugin.tools.get('codex_js')
+    const js = plugin.tools.get('pc_codex_js')
     const results = await Promise.all([
       js.execute({ code: '1', title: 'first' }, {}),
       js.execute({ code: '2', title: 'second' }, {}),
@@ -72,7 +72,7 @@ test('two parallel first calls start exactly one server', async () => {
 })
 
 test('alive stays false while the handshake is in progress', async () => {
-  const home = tempDir('codex-cu-handshake-')
+  const home = tempDir('pc-use-handshake-')
   const serverLog = join(home, 'server.log')
   const pidFile = join(home, 'pids.txt')
   writeFileSync(serverLog, '')

@@ -53,12 +53,14 @@ test('volatile switches still register the enabled tools', () => {
       js: createVolatile(true),
       reset: createVolatile(true),
       addNodeModuleDir: createVolatile(true),
+      docs: createVolatile(true),
       status: createVolatile(true),
     },
   })
   try {
     assert.deepEqual([...plugin.tools.keys()], [
-      'codex_js', 'codex_js_reset', 'codex_js_add_node_module_dir', 'codex_status',
+      'pc_codex_js', 'pc_codex_js_reset', 'pc_codex_js_add_node_module_dir', 'pc_codex_docs',
+      'pc_status',
     ])
   } finally {
     plugin.dispose()
@@ -75,11 +77,11 @@ test('a volatile enabled:false registers nothing', () => {
   }
 })
 
-test('a volatile tools.js:false registers the other three tools', () => {
+test('a volatile tools.js:false registers the other four tools', () => {
   const plugin = registerPlugin({ tools: { js: createVolatile(false) } })
   try {
     assert.deepEqual([...plugin.tools.keys()], [
-      'codex_js_reset', 'codex_js_add_node_module_dir', 'codex_status',
+      'pc_codex_js_reset', 'pc_codex_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
     ])
   } finally {
     plugin.dispose()

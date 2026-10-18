@@ -37,7 +37,7 @@ function makeAgents() {
 }
 
 function setup(options = {}) {
-  const home = tempDir('codex-cu-turn-')
+  const home = tempDir('pc-use-turn-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
   const pidFile = join(home, 'pids.txt')
@@ -74,14 +74,14 @@ function turnEnded(file) {
 function execFor(agent, callId) {
   return {
     agent,
-    name: 'codex_js',
+    name: 'pc_codex_js',
     callId,
     signal: new AbortController().signal,
   }
 }
 
 function runJs(context, exec, code = '1') {
-  return context.plugin.tools.get('codex_js').execute({ code, title: 't' }, exec)
+  return context.plugin.tools.get('pc_codex_js').execute({ code, title: 't' }, exec)
 }
 
 function emitTurnEnd(context, session, reason = { kind: 'completed' }) {
@@ -171,7 +171,7 @@ test('a subagent turn end reports SubagentStop', async () => {
   }
 })
 
-test('a turn that never called codex_js sends nothing and spawns nothing', async () => {
+test('a turn that never called pc_codex_js sends nothing and spawns nothing', async () => {
   const context = setup()
   try {
     const { session } = context.agents.add('session-idle')
@@ -236,8 +236,8 @@ test('a turn from before a bridge rebuild is not reported on the new bridge', as
     const oldCall = callLines(context.serverLog)[0].split(' ')
     const oldTurnId = oldCall[3]
     computer[WRITE](false)
-    // A non-codex_js call rebuilds the bridge without marking the new turn used.
-    await context.plugin.tools.get('codex_js_reset').execute({}, {})
+    // A non-pc_codex_js call rebuilds the bridge without marking the new turn used.
+    await context.plugin.tools.get('pc_codex_js_reset').execute({}, {})
     assert.equal(await waitFor(() => readLines(context.pidFile).length === 2), true)
     emitTurnEnd(context, session)
     await new Promise((done) => setTimeout(done, 300))
@@ -256,7 +256,7 @@ test('a turn from before a bridge rebuild is not reported on the new bridge', as
   }
 })
 
-test('a later turn without codex_js calls sends nothing', async () => {
+test('a later turn without pc_codex_js calls sends nothing', async () => {
   const context = setup()
   try {
     const { agent, session } = context.agents.add('session-second-turn')

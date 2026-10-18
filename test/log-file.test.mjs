@@ -34,7 +34,7 @@ test('appendLogLine does not rotate below the limit', () => {
 })
 
 test('the plugin log rotates at the limit', async () => {
-  const home = tempDir('codex-cu-log-')
+  const home = tempDir('pc-use-log-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
   writeFileSync(serverLog, '')
@@ -49,7 +49,7 @@ test('the plugin log rotates at the limit', async () => {
     stateFile: join(home, 'state.json'),
   })
   try {
-    await plugin.tools.get('codex_js').execute({ code: '1', title: 'rotate' }, {})
+    await plugin.tools.get('pc_codex_js').execute({ code: '1', title: 'rotate' }, {})
     assert.equal(existsSync(`${logFile}.1`), true)
     assert.equal(readFileSync(`${logFile}.1`, 'utf8').startsWith('x'), true)
     const current = readFileSync(logFile, 'utf8')

@@ -1,4 +1,4 @@
-// R4: when a codex_js call ends (here: its own timeout) while a desktop approval is
+// R4: when a pc_codex_js call ends (here: its own timeout) while a desktop approval is
 // still waiting in DSH, the approval must be withdrawn and answered with decline.
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -19,8 +19,8 @@ function approvalLines(file) {
   return readFileSync(file, 'utf8').split('\n').filter((line) => line.includes('approval '))
 }
 
-test('a timed-out codex_js call withdraws the pending desktop approval', async () => {
-  const home = tempDir('codex-cu-stale-')
+test('a timed-out pc_codex_js call withdraws the pending desktop approval', async () => {
+  const home = tempDir('pc-use-stale-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
   writeFileSync(serverLog, '')
@@ -46,12 +46,12 @@ test('a timed-out codex_js call withdraws the pending desktop approval', async (
   }, { services: { approval } })
   const exec = {
     agent: { id: 'agent' },
-    name: 'codex_js',
+    name: 'pc_codex_js',
     callId: 'call-stale',
     signal: new AbortController().signal,
   }
   try {
-    const js = plugin.tools.get('codex_js')
+    const js = plugin.tools.get('pc_codex_js')
     await assert.rejects(
       () => js.execute({ code: '1', title: 'stale' }, exec),
       /timed out after 300ms/,
@@ -60,7 +60,7 @@ test('a timed-out codex_js call withdraws the pending desktop approval', async (
     assert.equal(await waitFor(() => serverAnswers(serverLog).length > 0), true)
     assert.deepEqual(serverAnswers(serverLog), ['answer decline'])
     assert.equal(
-      approvalLines(logFile).some((line) => line.includes('codex_js call ended')),
+      approvalLines(logFile).some((line) => line.includes('pc_codex_js call ended')),
       true,
     )
     // The user now clicks "allow" on the stale card; that answer must be discarded.
@@ -75,7 +75,7 @@ test('a timed-out codex_js call withdraws the pending desktop approval', async (
 })
 
 test('the signal handed to DSH follows a host cancellation', async () => {
-  const home = tempDir('codex-cu-cancel-')
+  const home = tempDir('pc-use-cancel-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
   writeFileSync(serverLog, '')
@@ -98,12 +98,12 @@ test('the signal handed to DSH follows a host cancellation', async () => {
   const controller = new AbortController()
   const exec = {
     agent: { id: 'agent' },
-    name: 'codex_js',
+    name: 'pc_codex_js',
     callId: 'call-cancel',
     signal: controller.signal,
   }
   try {
-    const js = plugin.tools.get('codex_js')
+    const js = plugin.tools.get('pc_codex_js')
     const pending = js.execute({ code: '1', title: 'cancel' }, exec)
       .then((value) => value, (error) => error)
     assert.equal(await waitFor(() => seenSignal !== null), true)
