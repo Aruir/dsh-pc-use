@@ -34,7 +34,7 @@ function receivedMethods(logFile) {
 
 test('the MCP client version comes from package.json', () => {
   assert.equal(bridgeModule.clientVersion, packageJson.version)
-  assert.equal(bridgeModule.clientVersion, '0.5.5')
+  assert.equal(bridgeModule.clientVersion, '0.5.6')
 })
 
 test('init-error: start rejects, alive is false and the child is terminated', async () => {

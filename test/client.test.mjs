@@ -43,6 +43,20 @@ const reactStub = {
     hooks.index += 1
     hooks.effects.push(effect)
   },
+  useState(initial) {
+    const current = hooks
+    const index = current.index
+    current.index += 1
+    if (current.states[index] === undefined) {
+      current.states[index] = { value: typeof initial === 'function' ? initial() : initial }
+    }
+    const slot = current.states[index]
+    const set = (next) => {
+      slot.value = typeof next === 'function' ? next(slot.value) : next
+      current.dirty.value = true
+    }
+    return [slot.value, set]
+  },
 }
 
 /** Compare a hook's dependency list element by element. O(n). */
@@ -54,6 +68,7 @@ function sameDeps(previous, next) {
 /** Render one component with the stub hooks; render() re-reads after state changes. O(n). */
 function createRenderer(Component, props = {}) {
   const memo = []
+  const states = []
   const dirty = { value: false }
   const cleanups = []
 
@@ -72,7 +87,7 @@ function createRenderer(Component, props = {}) {
   const render = () => {
     do {
       dirty.value = false
-      hooks = { index: 0, memo, effects: [], dirty }
+      hooks = { index: 0, memo, states, effects: [], dirty }
       const rendered = expand(Component({ ...props }))
       const effects = hooks.effects
       hooks = null
@@ -157,19 +172,75 @@ function rowsWithReset(tree) {
   return scan(tree).rows
 }
 
-const client = definition.factory((id) => {
-  if (id === 'react') return reactStub
-  throw new Error(`unexpected browser module ${id}`)
-})
+/** Load the bundle; `primitives` simulates the optional DSH primitives module. O(1). */
+function loadClient(primitives = null) {
+  return definition.factory((id) => {
+    if (id === 'react') return reactStub
+    if (id === '@deepseek-ai/dsh-client-ui-primitives' && primitives !== null) return primitives
+    throw new Error(`unexpected browser module ${id}`)
+  })
+}
 
-/** Render the registered settings section with one fake form. O(n). */
-function renderSection(overrides = {}) {
+const client = loadClient()
+
+/** Render the settings section; `module` lets a test use a client loaded with primitives. O(n). */
+function renderSection(overrides = {}, module = client) {
   const context = fakeCtx({ form: readyForm(overrides) })
   context.configForms.setServed(['pc-use'])
-  client.apply(context.ctx)
+  module.apply(context.ctx)
   const entry = context.registrations.find((item) => item.options.name === 'settings.section')
   assert.ok(entry, 'settings.section must be registered')
   return { context, renderer: createRenderer(entry.Component) }
+}
+
+/** Fake DSH primitives: Menu records its props and renders the anchor; icon is a stub. O(1). */
+function fakePrimitives({ menu = true, icon = true } = {}) {
+  const calls = []
+  const iconCalls = []
+  const primitives = { calls, iconCalls }
+  if (menu) {
+    primitives.Menu = (props) => {
+      calls.push(props)
+      return props.anchor
+    }
+  }
+  if (icon) {
+    primitives.IconChevronDownOutlineRegular = (iconProps) => {
+      iconCalls.push(iconProps)
+      return { type: 'icon', props: { ...iconProps, children: [] } }
+    }
+  }
+  return primitives
+}
+
+/** Fake `document` that records injected `<style>` elements. O(1). */
+function fakeDocument() {
+  const styles = []
+  const document = {
+    querySelector(selector) {
+      const match = /^style\[data-plugin-css="(.+)"\]$/.exec(selector)
+      if (match === null) return null
+      return styles.find((style) => (
+        style.attributes['data-plugin-css'] === match[1]
+      )) ?? null
+    },
+    createElement(tagName) {
+      return {
+        tagName,
+        attributes: {},
+        textContent: '',
+        setAttribute(name, value) {
+          this.attributes[name] = value
+        },
+      }
+    },
+    head: {
+      appendChild(node) {
+        styles.push(node)
+      },
+    },
+  }
+  return { document, styles }
 }
 
 /** All rendered switch / input / select controls. O(n). */
@@ -564,6 +635,9 @@ const VERIFIED_THEME_VARIABLES = new Set([
   '--dsw-alias-label-primary-foreground',
   '--dsw-alias-label-tertiary',
   '--dsw-alias-label-secondary',
+  '--dsw-radius-md',
+  '--dsw-alias-bg-module-platform',
+  '--dsw-alias-interactive-bg-hover',
 ])
 
 test('client.js only uses verified DSH theme variables', () => {
@@ -1030,4 +1104,117 @@ test('the footer keeps only the first sentence', () => {
   const en = footer(renderer.getTree())
   assert.equal(en, 'Enable the plugin in "Built-in plugins" or the plugin manager.')
   assert.equal(en.includes('cordis.patch.yml'), false)
+})
+
+/** A section rendered with fake DSH primitives. O(n). */
+function menuSection(overrides = {}) {
+  const primitives = fakePrimitives()
+  const { context, renderer } = renderSection(overrides, loadClient(primitives))
+  return { primitives, context, renderer }
+}
+
+/** The language trigger button. O(n). */
+function languageButton(tree) {
+  return findNode(tree, (node) => (
+    node.type === 'button' && node.props.id === 'pc-use-language'
+  ))
+}
+
+test('the language row uses the official menu when primitives are available', () => {
+  const { primitives, renderer } = menuSection()
+  const tree = renderer.getTree()
+  assert.equal(primitives.calls.length > 0, true)
+  const props = primitives.calls.at(-1)
+  assert.deepEqual(props.items.map((item) => item.id), ['auto', 'zh', 'en'])
+  assert.equal(props.selectedId, 'auto')
+  assert.equal(props.align, 'end')
+  assert.equal(props.portal, true)
+  const button = languageButton(tree)
+  assert.ok(button)
+  assert.equal(button.props['aria-haspopup'], 'menu')
+  assert.equal(button.props.style.height, 36)
+  assert.equal(button.props.style.borderRadius, 'var(--dsw-radius-md)')
+  assert.equal(button.props.style.background, 'var(--dsw-alias-bg-module-platform)')
+  assert.equal(findNode(tree, (node) => node.type === 'select'), undefined)
+  assert.equal(primitives.iconCalls.length > 0, true)
+  assert.equal(primitives.iconCalls.at(-1).className, 'pc-use-chevron')
+})
+
+test('the menu closes when Menu asks to close', () => {
+  const { primitives, renderer } = menuSection()
+  languageButton(renderer.getTree()).props.onClick()
+  renderer.render()
+  assert.equal(primitives.calls.at(-1).open, true)
+  primitives.calls.at(-1).onClose()
+  renderer.render()
+  assert.equal(primitives.calls.at(-1).open, false)
+  assert.equal(languageButton(renderer.getTree()).props['aria-expanded'], false)
+})
+
+test('selecting a menu item saves the language and closes the menu', async () => {
+  const { primitives, context, renderer } = menuSection()
+  languageButton(renderer.getTree()).props.onClick()
+  renderer.render()
+  assert.equal(primitives.calls.at(-1).open, true)
+  const props = primitives.calls.at(-1)
+  props.onSelect('en')
+  await new Promise((done) => setTimeout(done, 0))
+  renderer.render()
+  const form = context.configForms.get('pc-use')
+  assert.deepEqual(form.mutations[0].ops, [{ op: 'set', path: ['language'], value: 'en' }])
+  assert.equal(primitives.calls.at(-1).open, false)
+})
+
+test('the trigger opens the menu and stays closed when the page is read-only', () => {
+  const { primitives, renderer } = menuSection()
+  const button = languageButton(renderer.getTree())
+  button.props.onClick()
+  renderer.render()
+  assert.equal(primitives.calls.at(-1).open, true)
+  assert.equal(languageButton(renderer.getTree()).props['aria-expanded'], true)
+  const readOnly = menuSection({ writable: false })
+  const disabledButton = languageButton(readOnly.renderer.getTree())
+  assert.equal(disabledButton.props.disabled, true)
+  disabledButton.props.onClick()
+  readOnly.renderer.render()
+  assert.equal(readOnly.primitives.calls.at(-1).open, false)
+})
+
+test('a primitives module without Menu falls back to the native select', () => {
+  const primitives = fakePrimitives({ menu: false })
+  const { renderer } = renderSection({}, loadClient(primitives))
+  const select = findNode(renderer.getTree(), (node) => (
+    node.type === 'select' && node.props.id === 'pc-use-language'
+  ))
+  assert.ok(select)
+})
+
+test('the hover style is injected only once', () => {
+  const fake = fakeDocument()
+  globalThis.document = fake.document
+  try {
+    renderSection({}, loadClient(fakePrimitives()))
+    renderSection({}, loadClient(fakePrimitives()))
+    assert.equal(fake.styles.length, 1)
+    const style = fake.styles[0]
+    assert.equal(style.attributes['data-plugin-css'], 'dsh-pc-use/settings.css')
+    assert.ok(style.textContent.includes('.pc-use-selector:hover'))
+    assert.ok(style.textContent.includes('--dsw-alias-interactive-bg-hover'))
+    assert.ok(style.textContent.includes('.pc-use-chevron'))
+    assert.ok(style.textContent.includes('flex: none'))
+  } finally {
+    delete globalThis.document
+  }
+})
+
+test('the whitelist includes the official menu variables', () => {
+  const source = readFileSync(join(root, 'client.js'), 'utf8')
+  for (const variable of [
+    '--dsw-radius-md',
+    '--dsw-alias-bg-module-platform',
+    '--dsw-alias-interactive-bg-hover',
+  ]) {
+    assert.equal(VERIFIED_THEME_VARIABLES.has(variable), true)
+    assert.equal(source.includes(variable), true, variable)
+  }
 })

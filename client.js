@@ -2,13 +2,22 @@
 //
 // Registered through `settings.section` (order 41 sorts right after dshmarket's 40) and
 // only while the Host serves the `pc-use` settings entry. Every visible string comes from
-// the client locale dictionary; the controls use host theme tokens and no external modules
-// besides React from the browser module table.
+// the client locale dictionary; the controls use host theme tokens, React from the browser module
+// table, and the optional DSH primitives menu (with a native <select> fallback).
 window.__ModuleLoader__.load({
   id: 'dsh-pc-use',
   factory(require) {
     const React = require('react')
     const h = React.createElement
+
+    // Optional official DSH primitives. Older hosts and the unit-test loader may not provide
+    // them; the language row then falls back to the native <select>.
+    let primitives = null
+    try {
+      primitives = require('@deepseek-ai/dsh-client-ui-primitives')
+    } catch {
+      primitives = null
+    }
 
     /** Client locale namespace owned by this plugin. */
     const NS = 'pc-use'
@@ -366,6 +375,36 @@ window.__ModuleLoader__.load({
       cursor: 'pointer',
       whiteSpace: 'nowrap',
     }
+    const languageSelectorStyle = {
+      borderRadius: 'var(--dsw-radius-md)',
+      background: 'var(--dsw-alias-bg-module-platform)',
+      height: 36,
+      font: 'inherit',
+      color: 'var(--dsw-alias-label-primary)',
+      cursor: 'pointer',
+      border: 'none',
+      alignItems: 'center',
+      gap: 12,
+      padding: '0 14px',
+      fontSize: 14,
+      lineHeight: '22px',
+      display: 'inline-flex',
+    }
+    const SELECTOR_CSS_ID = 'dsh-pc-use/settings.css'
+    const SELECTOR_HOVER_CSS = '.pc-use-selector:hover { '
+      + 'background: var(--dsw-alias-interactive-bg-hover); }'
+    // The icon component only accepts size/className/strokeWidth, so flex lives in a class.
+    const SELECTOR_CHEVRON_CSS = '.pc-use-chevron { flex: none; }'
+    /** Inject the hover rule once; inline styles cannot express `:hover`. O(1). */
+    function ensureSelectorCss() {
+      if (typeof document === 'undefined' || document === null) return
+      const selector = `style[data-plugin-css="${SELECTOR_CSS_ID}"]`
+      if (document.querySelector(selector) !== null) return
+      const style = document.createElement('style')
+      style.setAttribute('data-plugin-css', SELECTOR_CSS_ID)
+      style.textContent = `${SELECTOR_HOVER_CSS}\n${SELECTOR_CHEVRON_CSS}`
+      document.head.appendChild(style)
+    }
     const noticeStyle = { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }
     const groupStyle = { display: 'flex', flexDirection: 'column' }
     const headingStyle = {
@@ -453,6 +492,46 @@ window.__ModuleLoader__.load({
         style: track,
         onClick: () => onChange(checked !== true),
       }, h('span', { style: knob }))
+    }
+
+    /** Official-style language menu; only rendered when primitives.Menu exists. O(1). */
+    function LanguagePicker({ value, items, disabled, label, onSelect }) {
+      const [open, setOpen] = React.useState(false)
+      React.useEffect(() => {
+        ensureSelectorCss()
+      }, [])
+      const selected = items.find((item) => item.id === value) ?? items[0]
+      const Icon = primitives.IconChevronDownOutlineRegular
+      const anchor = h('button', {
+        type: 'button',
+        id: 'pc-use-language',
+        className: 'pc-use-selector',
+        'aria-haspopup': 'menu',
+        'aria-expanded': open,
+        'aria-label': label,
+        disabled: disabled === true,
+        style: {
+          ...languageSelectorStyle,
+          cursor: disabled === true ? 'default' : 'pointer',
+        },
+        onClick: () => {
+          if (disabled === true) return
+          setOpen(!open)
+        },
+      }, selected.label, Icon === undefined ? null : h(Icon, { className: 'pc-use-chevron' }))
+      return h(primitives.Menu, {
+        open,
+        onClose: () => setOpen(false),
+        items,
+        selectedId: value,
+        onSelect: (id) => {
+          setOpen(false)
+          onSelect(id)
+        },
+        align: 'end',
+        portal: true,
+        anchor,
+      })
     }
 
     /** A text input saving on blur or Enter; shows an inline error. O(1). */
@@ -544,14 +623,22 @@ window.__ModuleLoader__.load({
         resetLabel: t('reset'),
         showReset: changed('language'),
         onReset: reset('language'),
-      }, h('select', {
-        id: 'pc-use-language',
-        'aria-label': t('language'),
-        value: languageValue,
-        disabled: isReadOnly('language'),
-        style: { ...controlStyle, minWidth: 180 },
-        onChange: (event) => page.setLanguage(event.target.value),
-      }, languageOptions.map(([value, label]) => h('option', { key: value, value }, label))))
+      }, primitives !== null && typeof primitives.Menu === 'function'
+        ? h(LanguagePicker, {
+          value: languageValue,
+          items: languageOptions.map(([id, label]) => ({ id, label })),
+          disabled: isReadOnly('language'),
+          label: t('language'),
+          onSelect: (id) => page.setLanguage(id),
+        })
+        : h('select', {
+          id: 'pc-use-language',
+          'aria-label': t('language'),
+          value: languageValue,
+          disabled: isReadOnly('language'),
+          style: { ...controlStyle, minWidth: 180 },
+          onChange: (event) => page.setLanguage(event.target.value),
+        }, languageOptions.map(([value, label]) => h('option', { key: value, value }, label))))
       const timeoutDraft = state.drafts.timeoutMs
         ?? toSeconds(state.values.timeoutMs)
       const timeoutRow = h(Row, {

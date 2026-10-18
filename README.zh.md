@@ -18,6 +18,9 @@
 0.4.0 新增：改名为 `dsh-pc-use`；新增 `pc_codex_docs` 读取 Codex 自带文档；按包名加载并补上
 显示名与图标；`pc_status` 改为按后端分组（`backends`）。
 
+0.5.6 把“界面文字”的原生下拉框换成 DSH 官方的 primitives Menu（圆角按钮、向下箭头与 hover
+样式，style 只注入一次）；拿不到 primitives/Menu 时退回原生 select。
+
 0.5.5 精简设置页文字：第一行改为“启用桌面操控”，页说明与页脚各留一句；“界面文字”移到最后的
 “通用”组。
 

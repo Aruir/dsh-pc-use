@@ -19,6 +19,10 @@ English | [中文](README.zh.md)
 0.4.0 added: the rename to `dsh-pc-use`; `pc_codex_docs` for Codex's own docs; loading by package
 name with display name and icon; `pc_status` now groups by backend (`backends`).
 
+0.5.6 replaced the language row's native select with DSH's official primitives Menu (rounded
+button, chevron and hover style, injected once through a style element), falling back to the native
+select when the primitives module or Menu is unavailable.
+
 0.5.5 shortened the settings page text: the first switch row is "Enable desktop control", the
 intro and footer keep one sentence each, and the interface-language row moved into a new "General"
 group at the end.
