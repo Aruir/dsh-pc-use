@@ -811,8 +811,9 @@ export function apply(ctx, raw = {}) {
         '`markDeliverable()`. Use it to open pages, read them, click and type. On the first call of a ' +
         'session run exactly one API call, then read the returned documentation and UI state. ' +
         'The code runs as one persistent REPL unit: top-level `await` is allowed, a top-level ' +
-        '`return` is not; the value of the last expression is returned, or use `console.log`. ' +
-        'To operate Windows desktop apps, use `pc_codex_desktop_js`.',
+        '`return` is not; print results with `nodeRepl.write(...)` or `console.log(...)`; ' +
+        'observer methods output themselves. To operate Windows desktop apps, use ' +
+        '`pc_codex_desktop_js`.',
       parameters: {
         code: { type: 'string', required: true, description: 'JavaScript to run in the persistent cua_repl kernel.' },
         title: { type: 'string', required: true, description: 'Short user-facing description of what the code does.' },
@@ -853,8 +854,9 @@ export function apply(ctx, raw = {}) {
         '`const { sky } = await import("@oai/sky")`, e.g. `sky.list_windows()` or ' +
         '`sky.get_window_state({ window: { app, id } })`; the rest of the API is in ' +
         'the first-call notes. The code runs as one persistent REPL unit: top-level ' +
-        '`await` is allowed, a top-level `return` is not; the value of the last ' +
-        'expression is returned, or use `console.log`. Use it to control Windows ' +
+        '`await` is allowed, a top-level `return` is not; print results with ' +
+        '`nodeRepl.write(...)` or `console.log(...)`; observer methods output ' +
+        'themselves. Use it to control Windows ' +
         'applications; for browser pages use `pc_codex_js`. Before controlling ' +
         'Windows apps, call `pc_codex_docs` for `skill`, `guidance` and ' +
         '`confirmations`; call it for `api` when you need method signatures. ' +

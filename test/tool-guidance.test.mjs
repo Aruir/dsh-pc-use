@@ -13,7 +13,7 @@ const ERROR_SERVER = fileURLToPath(
   new URL('./fixtures/fake-illegal-return-server.mjs', import.meta.url),
 )
 
-function setup() {
+function setup(options = {}) {
   const home = tempDir('pc-use-guidance-')
   const restore = useHome(home)
   const codexHome = join(home, 'codex')
@@ -23,7 +23,7 @@ function setup() {
   const plugin = registerPlugin({
     codexHome,
     computer: true,
-    language: 'zh',
+    language: options.language ?? 'zh',
     logFile: join(home, 'bridge.log'),
   })
   return { home, restore, plugin }
@@ -38,10 +38,32 @@ test('both js tools append the top-level return hint on that parser error', asyn
         (error) => {
           assert.match(error.message, /Illegal return statement/)
           assert.match(error.message, /去掉顶层 return/)
+          assert.match(error.message, /nodeRepl\.write/)
+          assert.equal(error.message.includes('最后一个表达式'), false)
           return true
         },
       )
     }
+  } finally {
+    context.plugin.dispose()
+    context.restore()
+  }
+})
+
+test('the English top-level return hint tells the model how to print output', async () => {
+  const context = setup({ language: 'en' })
+  try {
+    await assert.rejects(
+      context.plugin.tools.get('pc_codex_js')
+        .execute({ code: 'return 1', title: 'ret' }, {}),
+      (error) => {
+        assert.match(error.message, /Illegal return statement/)
+        assert.match(error.message, /Remove the top-level `return`/)
+        assert.match(error.message, /nodeRepl\.write/)
+        assert.equal(error.message.includes('last expression'), false)
+        return true
+      },
+    )
   } finally {
     context.plugin.dispose()
     context.restore()
@@ -64,8 +86,13 @@ test('a normal js result gets no top-level return hint', async () => {
 test('desktop tools and docs explain that the model should close the apps it opened', () => {
   const plugin = registerPlugin({})
   try {
+    const browser = plugin.tools.get('pc_codex_js').description
+    assert.match(browser, /nodeRepl\.write/)
+    assert.equal(browser.includes('last expression'), false)
     const desktop = plugin.tools.get('pc_codex_desktop_js').description
     assert.equal(desktop.includes(TEXT.en.notes.closeApps), true)
+    assert.match(desktop, /nodeRepl\.write/)
+    assert.equal(desktop.includes('last expression'), false)
     const docs = plugin.tools.get('pc_codex_docs').description
     assert.match(docs, /desktop `node_repl` only/)
     assert.match(docs, /browser-side guide is returned by the first `pc_codex_js` call/)
