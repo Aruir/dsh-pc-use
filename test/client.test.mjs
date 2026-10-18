@@ -554,21 +554,23 @@ test('a read-only form disables every control', () => {
   for (const control of controls) assert.equal(control.props.disabled, true)
 })
 
+// Variables verified in `dsh-client-ui-theme` (the built-in settings pages use them too).
+const VERIFIED_THEME_VARIABLES = new Set([
+  '--dsw-alias-border-l2',
+  '--dsw-alias-border-l3',
+  '--dsw-alias-brand-primary',
+  '--dsw-alias-switch-thumb',
+  '--dsw-alias-label-primary',
+  '--dsw-alias-label-primary-foreground',
+  '--dsw-alias-label-tertiary',
+  '--dsw-alias-label-secondary',
+])
+
 test('client.js only uses verified DSH theme variables', () => {
   const source = readFileSync(join(root, 'client.js'), 'utf8')
   const used = new Set(source.match(/--dsw-[a-z0-9-]+/g))
-  // Variables verified in `dsh-client-ui-theme`.
-  const verified = new Set([
-    '--dsw-alias-border-l2',
-    '--dsw-alias-border-l3',
-    '--dsw-alias-brand-primary',
-    '--dsw-alias-switch-thumb',
-    '--dsw-alias-label-primary',
-    '--dsw-alias-label-primary-foreground',
-    '--dsw-alias-label-tertiary',
-  ])
   for (const variable of used) {
-    assert.ok(verified.has(variable), `unverified theme variable ${variable}`)
+    assert.ok(VERIFIED_THEME_VARIABLES.has(variable), `unverified theme variable ${variable}`)
   }
 })
 
@@ -829,4 +831,120 @@ test('without a usable base, toggling always writes set', async () => {
       String(base),
     )
   }
+})
+
+/** The three group containers: column flex boxes that directly hold an `h3`. O(n). */
+function groupContainers(tree) {
+  return elements(tree).filter((node) => (
+    node.type === 'div'
+    && node.props.style
+    && node.props.style.display === 'flex'
+    && node.props.style.flexDirection === 'column'
+    && Array.isArray(node.props.children)
+    && node.props.children.some((child) => child && child.type === 'h3')
+  ))
+}
+
+/** The rows directly inside one group container. O(n). */
+function rowsOfGroup(group) {
+  return group.props.children.filter((child) => (
+    child && child.type === 'div' && child.props.style
+    && child.props.style.padding === '16px 0'
+  ))
+}
+
+test('the page title and intro use the native settings sizes', () => {
+  const { renderer } = renderSection()
+  const tree = renderer.getTree()
+  const page = pageRoot(tree)
+  assert.equal(page.props.style.gap, 12)
+  const title = findNode(tree, (node) => node.type === 'h2')
+  assert.equal(title.props.style.fontSize, 16)
+  assert.equal(title.props.style.fontWeight, 500)
+  assert.equal(title.props.style.lineHeight, '24px')
+  const intro = findNode(tree, (node) => node.type === 'p' && node.props.key === 'intro')
+  assert.equal(intro.props.style.fontSize, 14)
+  assert.equal(intro.props.style.lineHeight, '22px')
+  assert.equal(intro.props.style.color, 'var(--dsw-alias-label-tertiary)')
+  assert.equal(intro.props.style.margin, 0)
+})
+
+test('rows inside a group have no vertical gap', () => {
+  const { renderer } = renderSection()
+  const groups = groupContainers(renderer.getTree())
+  assert.equal(groups.length, 3)
+  for (const group of groups) {
+    assert.equal(group.props.style.gap === undefined || group.props.style.gap === 0, true)
+  }
+})
+
+test('the last row in each group has no divider', () => {
+  const { renderer } = renderSection()
+  const groups = groupContainers(renderer.getTree())
+  assert.equal(groups.length, 3)
+  for (const group of groups) {
+    const rows = rowsOfGroup(group)
+    assert.equal(rows.length > 0, true)
+    for (const [index, row] of rows.entries()) {
+      const border = row.props.style.borderBottom
+      if (index === rows.length - 1) {
+        assert.equal(border, 'none', `last row of ${group.props.key} still has a divider`)
+      } else {
+        assert.equal(border, '0.5px solid var(--dsw-alias-border-l2)')
+      }
+    }
+  }
+})
+
+test('row descriptions use label-secondary and the footer stays light', () => {
+  const { renderer } = renderSection()
+  const tree = renderer.getTree()
+  const description = findNode(tree, (node) => (
+    node.type === 'p' && node.props.key === 'description'
+  ))
+  assert.ok(description)
+  assert.equal(description.props.style.color, 'var(--dsw-alias-label-secondary)')
+  assert.equal(description.props.style.lineHeight, '18px')
+  assert.equal(description.props.style.margin, '4px 0 0')
+  const footer = findNode(tree, (node) => node.type === 'p' && node.props.key === 'footer')
+  assert.equal(footer.props.style.color, 'var(--dsw-alias-label-tertiary)')
+})
+
+test('the verified theme whitelist includes label-secondary', () => {
+  const source = readFileSync(join(root, 'client.js'), 'utf8')
+  assert.equal(VERIFIED_THEME_VARIABLES.has('--dsw-alias-label-secondary'), true)
+  assert.equal(source.includes('--dsw-alias-label-secondary'), true)
+})
+
+test('group headings use the native section style', () => {
+  const { renderer } = renderSection()
+  const groups = groupContainers(renderer.getTree())
+  assert.equal(groups.length, 3)
+  for (const group of groups) {
+    const heading = group.props.children.find((child) => child && child.type === 'h3')
+    assert.ok(heading, group.props.key)
+    assert.equal(heading.props.style.margin, 0)
+    assert.equal(heading.props.style.fontSize, 14)
+    assert.equal(heading.props.style.fontWeight, 500)
+    assert.equal(heading.props.style.lineHeight, '20px')
+    assert.equal(heading.props.style.color, 'var(--dsw-alias-label-secondary)')
+  }
+})
+
+test('the read-only notice has no default paragraph margin', async () => {
+  const { renderer, context } = renderSection()
+  const form = context.configForms.get('pc-use')
+  // A refused write with an unchanged revision turns the field read-only and shows the notice.
+  form.behavior = async () => false
+  const switchNode = findNode(renderer.getTree(), (node) => (
+    node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
+  ))
+  switchNode.props.onClick()
+  await new Promise((done) => setTimeout(done, 0))
+  renderer.render()
+  const readonly = findNode(renderer.getTree(), (node) => (
+    node.type === 'p' && node.props.key === 'readonly'
+  ))
+  assert.ok(readonly)
+  assert.equal(readonly.props.style.margin, 0)
 })

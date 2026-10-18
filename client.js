@@ -320,11 +320,35 @@ window.__ModuleLoader__.load({
       padding: '16px 0',
       borderBottom: '0.5px solid var(--dsw-alias-border-l2)',
     }
-    const titleStyle = { margin: 0, fontSize: 14, color: 'var(--dsw-alias-label-primary)' }
+    const pageTitleStyle = {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 500,
+      lineHeight: '24px',
+    }
+    const introStyle = {
+      margin: 0,
+      fontSize: 14,
+      lineHeight: '22px',
+      color: 'var(--dsw-alias-label-tertiary)',
+    }
+    const footerStyle = {
+      margin: 0,
+      fontSize: 12,
+      lineHeight: '18px',
+      color: 'var(--dsw-alias-label-tertiary)',
+    }
+    const titleStyle = {
+      margin: 0,
+      fontSize: 14,
+      lineHeight: '20px',
+      color: 'var(--dsw-alias-label-primary)',
+    }
     const descriptionStyle = {
       margin: '4px 0 0',
       fontSize: 12,
-      color: 'var(--dsw-alias-label-tertiary)',
+      lineHeight: '18px',
+      color: 'var(--dsw-alias-label-secondary)',
     }
     const controlStyle = {
       color: 'var(--dsw-alias-label-primary)',
@@ -344,19 +368,27 @@ window.__ModuleLoader__.load({
       cursor: 'pointer',
       whiteSpace: 'nowrap',
     }
-    const noticeStyle = { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }
-    const groupStyle = { display: 'flex', flexDirection: 'column', gap: 4 }
-    const headingStyle = { margin: '18px 0 0', fontSize: 15, fontWeight: 600 }
+    const noticeStyle = { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }
+    const groupStyle = { display: 'flex', flexDirection: 'column' }
+    const headingStyle = {
+      margin: 0,
+      fontSize: 14,
+      fontWeight: 500,
+      lineHeight: '20px',
+      color: 'var(--dsw-alias-label-secondary)',
+    }
     const pageStyle = {
       display: 'flex',
       flexDirection: 'column',
+      gap: 12,
       maxWidth: 760,
       color: 'var(--dsw-alias-label-primary)',
     }
 
     /** One labeled row with its control and optional reset action. O(1). */
-    function Row({ id, label, description, resetLabel, showReset, onReset, children }) {
-      return h('div', { style: rowStyle }, [
+    function Row({ id, label, description, resetLabel, showReset, onReset, last, children }) {
+      const style = last === true ? { ...rowStyle, borderBottom: 'none' } : rowStyle
+      return h('div', { style }, [
         h('div', { key: 'text', style: { minWidth: 0 } }, [
           h('label', { key: 'label', id: `${id}-label`, htmlFor: id, style: titleStyle }, label),
           h('p', { key: 'description', style: descriptionStyle }, description),
@@ -474,7 +506,7 @@ window.__ModuleLoader__.load({
       }, [page])
       if (state.status === 'failed') {
         return h('div', { style: pageStyle }, [
-          h('h2', { key: 'title', style: { margin: 0, fontSize: 18 } }, t('title')),
+          h('h2', { key: 'title', style: pageTitleStyle }, t('title')),
           h('p', { key: 'failed', style: noticeStyle }, t('readFailed')),
         ])
       }
@@ -487,12 +519,12 @@ window.__ModuleLoader__.load({
       const isReadOnly = (field) => disabled || state.readOnly[field] !== undefined
       const changed = (field) => (state.user[field] !== undefined && state.user[field] !== null)
       const reset = (field) => () => page.resetField(field)
-      const rows = []
-      const booleanRow = (field) => h(Row, {
+      const booleanRow = (field, last) => h(Row, {
         key: field,
         id: `pc-use-${field}`,
         label: t(field),
         description: t(`${field}Description`),
+        last,
       }, h(Switch, {
         id: `pc-use-${field}`,
         label: t(field),
@@ -500,17 +532,13 @@ window.__ModuleLoader__.load({
         disabled: isReadOnly(field),
         onChange: (value) => page.setToggle(field, value),
       }))
-      rows.push(h('h3', { key: 'desktop-heading', style: headingStyle }, t('groupDesktop')))
-      rows.push(booleanRow('computer'))
-      rows.push(booleanRow('desktopApprovalChoices'))
-      rows.push(booleanRow('rememberDesktopApprovals'))
       const languageValue = state.values.language ?? 'auto'
       const languageOptions = [
         ['auto', t('languageAuto')],
         ['zh', t('languageZh')],
         ['en', t('languageEn')],
       ]
-      rows.push(h(Row, {
+      const languageRow = h(Row, {
         key: 'language',
         id: 'pc-use-language',
         label: t('language'),
@@ -518,6 +546,7 @@ window.__ModuleLoader__.load({
         resetLabel: t('reset'),
         showReset: changed('language'),
         onReset: reset('language'),
+        last: true,
       }, h('select', {
         id: 'pc-use-language',
         'aria-label': t('language'),
@@ -525,13 +554,10 @@ window.__ModuleLoader__.load({
         disabled: isReadOnly('language'),
         style: { ...controlStyle, minWidth: 180 },
         onChange: (event) => page.setLanguage(event.target.value),
-      }, languageOptions.map(([value, label]) => h('option', { key: value, value }, label)))))
-      rows.push(h('h3', { key: 'browser-heading', style: headingStyle }, t('groupBrowser')))
-      rows.push(booleanRow('autoApprove'))
-      rows.push(h('h3', { key: 'connection-heading', style: headingStyle }, t('groupConnection')))
+      }, languageOptions.map(([value, label]) => h('option', { key: value, value }, label))))
       const timeoutDraft = state.drafts.timeoutMs
         ?? toSeconds(state.values.timeoutMs)
-      rows.push(h(Row, {
+      const timeoutRow = h(Row, {
         key: 'timeoutMs',
         id: 'pc-use-timeoutMs',
         label: t('timeoutMs'),
@@ -550,8 +576,8 @@ window.__ModuleLoader__.load({
         onCommit: () => page.commitText('timeoutMs'),
         errorText: state.errors.timeoutMs === undefined ? undefined : t('timeoutInvalid'),
         errorId: 'pc-use-timeoutMs-error',
-      })))
-      const textRow = (field, placeholderKey) => h(Row, {
+      }))
+      const textRow = (field, placeholderKey, last) => h(Row, {
         key: field,
         id: `pc-use-${field}`,
         label: t(field),
@@ -559,6 +585,7 @@ window.__ModuleLoader__.load({
         resetLabel: t('reset'),
         showReset: changed(field),
         onReset: reset(field),
+        last,
       }, h(TextField, {
         id: `pc-use-${field}`,
         label: t(field),
@@ -568,8 +595,27 @@ window.__ModuleLoader__.load({
         onChange: (text) => page.editText(field, text),
         onCommit: () => page.commitText(field),
       }))
-      rows.push(textRow('codexHome', 'codexHomePlaceholder'))
-      rows.push(textRow('logFile', 'logFilePlaceholder'))
+      const group = (key, headingKey, rows) => h('div', {
+        key: `group-${key}`,
+        style: groupStyle,
+      }, [
+        h('h3', { key: `${key}-heading`, style: headingStyle }, t(headingKey)),
+        ...rows,
+      ])
+      const groups = [
+        group('desktop', 'groupDesktop', [
+          booleanRow('computer'),
+          booleanRow('desktopApprovalChoices'),
+          booleanRow('rememberDesktopApprovals'),
+          languageRow,
+        ]),
+        group('browser', 'groupBrowser', [booleanRow('autoApprove', true)]),
+        group('connection', 'groupConnection', [
+          timeoutRow,
+          textRow('codexHome', 'codexHomePlaceholder'),
+          textRow('logFile', 'logFilePlaceholder', true),
+        ]),
+      ]
       // Keep the live region in the DOM so screen readers announce later updates; the text
       // changes in place and the title row never changes height.
       const notice = h('p', {
@@ -590,13 +636,13 @@ window.__ModuleLoader__.load({
             gap: 12,
           },
         }, [
-          h('h2', { key: 'title', style: { margin: 0, fontSize: 18 } }, t('title')),
+          h('h2', { key: 'title', style: pageTitleStyle }, t('title')),
           notice,
         ]),
-        h('p', { key: 'intro', style: descriptionStyle }, t('intro')),
+        h('p', { key: 'intro', style: introStyle }, t('intro')),
         readOnlyNotice,
-        h('div', { key: 'rows', style: groupStyle }, rows),
-        h('p', { key: 'footer', style: { ...descriptionStyle, marginTop: 20 } }, t('footer')),
+        ...groups,
+        h('p', { key: 'footer', style: footerStyle }, t('footer')),
       ])
     }
 

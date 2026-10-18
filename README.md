@@ -19,6 +19,10 @@ English | [中文](README.zh.md)
 0.4.0 added: the rename to `dsh-pc-use`; `pc_codex_docs` for Codex's own docs; loading by package
 name with display name and icon; `pc_status` now groups by backend (`backends`).
 
+0.5.4 aligned the settings page spacing with the built-in DSH settings pages: page title
+16/500/24, intro 14/22, row titles and descriptions with line heights, 12 px between groups, no
+gaps between rows, and no divider under the last row of a group.
+
 0.5.3 removed "Restore default" from the four switch rows (a switch can always be flipped
 back) and made a switch that returns to its default value remove the stored override instead of
 writing it again.
