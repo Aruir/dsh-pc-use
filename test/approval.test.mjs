@@ -21,7 +21,7 @@ function createVolatile(value) {
 
 function approvalLines(logFile) {
   if (!existsSync(logFile)) return []
-  return readFileSync(logFile, 'utf8').split('\n').filter((line) => line.includes('approval '))
+  return readFileSync(logFile, 'utf8').split('\n').filter((line) => line.includes('approval "'))
 }
 
 /** Start the plugin against the fake server; `logFile` null means the default log path. */

@@ -23,6 +23,12 @@
         # rememberDesktopApprovals is true.
         computer: false
         rememberDesktopApprovals: true
+        # Desktop approvals use the three-option DSH question card (allow once / allow
+        # for this DSH session / deny). Set false to keep the one-shot approval card.
+        desktopApprovalChoices: true
+        # Language of the plugin's own text: auto follows the DSH interface language;
+        # zh / en force one.
+        language: auto
         # Empty means %USERPROFILE%\.codex
         codexHome: ''
         # Empty means ~/.dsh/pc-use.log; approvals are always logged, no longer

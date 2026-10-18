@@ -1,143 +1,192 @@
 # dsh-pc-use
 
-## 改名说明（0.4.0）
+English | [中文](README.zh.md)
 
-- 包名与插件 id：`dsh-codex-cu` → `dsh-pc-use`，`id: codex-cu` → `id: pc-use`；
-- 工具名：`codex_js` / `codex_js_reset` / `codex_js_add_node_module_dir` / `codex_status`
-  改为 `pc_codex_js` / `pc_codex_js_reset` / `pc_codex_js_add_node_module_dir` / `pc_status`，
-  并新增 `pc_codex_docs`；
-- 默认日志 `~/.dsh/codex-cu.log` → `~/.dsh/pc-use.log`，默认截图目录
-  `~/.dsh/codex-cu-images` → `~/.dsh/pc-use-images`；
-- **profile 里的覆盖要改 id：**`- id: codex-cu` 必须改成 `- id: pc-use`，否则不再生效；
-- 0.4.1 起不再使用状态文件；旧日志与截图目录不迁移；
-- 没有采用 `dsh-computer-use`：npm 上已有同名的其他 DSH 插件，插件市场按包名查更新时
-  可能误替换，所以改名为 `dsh-pc-use`。
+## Renaming (0.4.0)
 
-0.4.0 新增：改名为 `dsh-pc-use`；新增 `pc_codex_docs` 读取 Codex 自带文档；按包名加载并补上
-显示名与图标；`pc_status` 改为按后端分组（`backends`）。
+- Package name and plugin id: `dsh-codex-cu` → `dsh-pc-use`, `id: codex-cu` → `id: pc-use`.
+- Tool names: `codex_js` / `codex_js_reset` / `codex_js_add_node_module_dir` / `codex_status`
+  became `pc_codex_js` / `pc_codex_js_reset` / `pc_codex_js_add_node_module_dir` / `pc_status`,
+  and `pc_codex_docs` was added.
+- Default log `~/.dsh/codex-cu.log` → `~/.dsh/pc-use.log`; default screenshot directory
+  `~/.dsh/codex-cu-images` → `~/.dsh/pc-use-images`.
+- **Profile overrides must use the new id:** `- id: codex-cu` has to become `- id: pc-use`,
+  otherwise it no longer applies.
+- State files are no longer used as of 0.4.1; old logs and screenshot directories are not migrated.
+- `dsh-computer-use` was not chosen: another DSH plugin with that name exists on npm, so the
+  marketplace could replace the wrong package when looking updates up by name. Hence `dsh-pc-use`.
 
-0.4.1 修正：删除 `pc_codex_js_add_node_module_dir` 工具、`tools.addNodeModuleDir` 与
-`stateFile` 配置项；桥接级 `session_id` 改为内存随机生成，不再读写状态文件；旧配置里的这些键
-照常加载。
+0.4.0 added: the rename to `dsh-pc-use`; `pc_codex_docs` for Codex's own docs; loading by package
+name with display name and icon; `pc_status` now groups by backend (`backends`).
 
-0.3.2 修正：同一 DSH 会话内按应用记住桌面授权（`rememberDesktopApprovals`）；每轮结束通知
-Codex `turn_ended`，收起“正在使用你的电脑”的橙色光圈。
+0.4.2: fixed three issues found in live testing — `turn_ended` `_meta` used the next turn's turn id,
+waiting for an approval counted against the call timeout, and the plugin kept the old desktop helper
+pipe after Codex restarted; desktop approvals now use a three-option card (`desktopApprovalChoices`,
+on by default; when off or the approval policy is "full access" the original one-shot card is used);
+English support was added (`language` controls the text the plugin shows, `auto` by default
+following the DSH interface language).
 
-0.3.1 修正：补充桌面授权与 DSH 权限模式的说明；`codex_status`（现为 `pc_status`）增加
-`servicesFrom`；测试夹具移入 `test/fixtures`。
+0.4.1 fixed: removed the `pc_codex_js_add_node_module_dir` tool, `tools.addNodeModuleDir` and the
+`stateFile` option; the bridge-level `session_id` is now generated randomly in memory and no state
+file is read or written; old profiles with those keys still load.
 
-0.3.0 新增：Windows 桌面操控（`computer`，默认关闭；桌面授权交给 DSH 的审批策略）。
+0.3.2 fixed: desktop approvals are remembered per app within one DSH session
+(`rememberDesktopApprovals`); each finished turn notifies Codex via `turn_ended`, clearing the orange
+"using your computer" glow.
 
-0.2.0 修正：
+0.3.1 fixed: documented desktop approvals and the DSH permission modes; `codex_status` (now
+`pc_status`) gained `servicesFrom`; test fixtures moved into `test/fixtures`.
 
-- 参数 schema 兜底：拿不到宿主 `defineTool` 时把参数 DSL 转成对象 JSON Schema，并在执行前校验参数；
-- volatile 配置修复：正确解包加载器传入的 `Volatile` 配置值，`autoApprove` / `logFile` / `timeoutMs` 改完即生效；
-- 审批默认 fail-closed：`autoApprove` 默认 `false`，且只自动接受浏览器访问授权，其他 elicitation 审批一律 decline；
-- 审批日志：每一次审批都记录原始文案、决定（accept/decline）和原因，默认写入 `~/.dsh/pc-use.log`；
-- 截图清理：工具返回的截图保存到 `~/.dsh/pc-use-images`，扩展名按 mimeType 决定，目录只保留最新的 50 个文件；
-- 握手失败清理：initialize 出错、超时或 spawn 失败时结束子进程，不会把没握手的连接当成可用；
-- 客户端版本号取自 `package.json`，不再硬编码。
+0.3.0 added: Windows desktop control (`computer`, off by default; desktop approvals follow DSH's
+approval policy).
 
-`npm test` 运行离线回归检查；`npm run test:smoke` 会连接 Codex 并操作浏览器。
+0.2.0 fixed:
 
-把 **Codex Computer Use**（`cua_repl`）做成 DeepSeek Harness 的原生工具插件：用本机 Codex
-操作真实的 Chrome 与 Windows 桌面应用，不需要任何手工 MCP 配置。目前后端是 Codex，
-以后会增加其他后端（见“后端”一节）。
+- Parameter schema fallback: without the host `defineTool`, the parameter DSL becomes an object JSON
+  Schema and arguments are validated before execution.
+- Volatile config fix: values passed by the loader as `Volatile` are unwrapped correctly, so changes
+  to `autoApprove` / `logFile` / `timeoutMs` take effect immediately.
+- Fail-closed approvals: `autoApprove` defaults to `false` and only browser-access approvals are
+  accepted automatically; every other elicitation is declined.
+- Approval log: every approval records the original wording, the decision (accept/decline) and the
+  reason, by default in `~/.dsh/pc-use.log`.
+- Screenshot cleanup: screenshots returned by tools are saved to `~/.dsh/pc-use-images` with an
+  extension chosen from the mimeType, and only the newest 50 files are kept.
+- Handshake failure cleanup: an initialize error, timeout or spawn failure terminates the child
+  process instead of treating an uninitialized connection as usable.
+- The client version is read from `package.json` instead of being hard-coded.
 
-装好之后，每个 agent preset 自动拥有：
+`npm test` runs the offline regression checks; `npm run test:smoke` connects to Codex and drives the
+browser.
 
-| 工具 | 作用 |
+This plugin turns **Codex Computer Use** (`cua_repl`) into native DeepSeek Harness tools: it uses the
+local Codex app to drive the real Chrome and Windows desktop apps without any manual MCP
+configuration. The current backend is Codex; more backends will follow (see "Backends").
+
+Once installed, every agent preset automatically has:
+
+| Tool | Purpose |
 |---|---|
-| `pc_codex_js` | 在持久的 `cua_repl` 内核里执行 JS，用 `cua` API 打开/读取/操作网页，或用 `sky` 操作桌面应用 |
-| `pc_codex_js_reset` | 重置 JS 内核（不关闭标签页和应用） |
-| `pc_codex_docs` | 读取本机 Codex 自带的 Computer Use 文档（`skill` / `guidance` / `api` / `confirmations`） |
-| `pc_status` | 报告解析结果和连接状态；其他工具失败时先看它 |
+| `pc_codex_js` | Run JS in the persistent `cua_repl` kernel, using the `cua` API to open/read/drive pages or `sky` to control desktop apps |
+| `pc_codex_js_reset` | Reset the JS kernel (tabs and apps stay open) |
+| `pc_codex_docs` | Read the Computer Use docs bundled with the local Codex installation (`skill` / `guidance` / `api` / `confirmations`) |
+| `pc_status` | Report the resolved configuration and connection state; check it first when another tool fails |
 
-## 为什么需要这个插件
+## Why this plugin is needed
 
-Codex 的 `cua_repl` 依赖三件只有 Codex 自己的客户端才会做的事，普通 MCP 客户端接不了：
+Codex's `cua_repl` depends on three things only Codex's own client does; a vanilla MCP client cannot
+connect to it:
 
-1. 每次 `tools/call` 要带 `_meta["x-codex-turn-metadata"]`，否则服务端直接拒绝；
-2. `initialize` 要声明 `elicitation` 能力，否则浏览器/应用授权请求发不出去；
-3. 服务端反向发来的 `elicitation/create` 授权请求要被应答，否则报
-   `The approval request did not return a valid decision`。
+1. every `tools/call` must carry `_meta["x-codex-turn-metadata"]`, or the server rejects it;
+2. `initialize` must advertise the `elicitation` capability, or browser/app approval requests cannot
+   be sent;
+3. the `elicitation/create` approval requests the server sends back must be answered, or it reports
+   `The approval request did not return a valid decision`.
 
-另外 Codex 每次重启都会改写 `codex-computer-use-<GUID>` 管道名和运行时哈希，配置写死必然失效。
+Codex also rewrites the `codex-computer-use-<GUID>` pipe name and the runtime hash on every restart,
+so hard-coded configuration always goes stale.
 
-本插件把这几件事都内置了（`lib/mcp-bridge.js` + `lib/codex-config.js`），每次启动重读 Codex 配置。
+The plugin builds all of this in (`lib/mcp-bridge.js` + `lib/codex-config.js`) and re-reads the Codex
+configuration on every start.
 
-## 安装
+## Installation
 
-按官方流程（[打包与安装插件](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.zh.md)）：包声明了 `dsh.bundle`，用 `dsh plugin` 装进 profile 即可。
+Use the official flow ([packaging and installing plugins](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.md)): the package declares `dsh.bundle`, so installing it into a profile with `dsh plugin` is enough.
 
 ```powershell
-dsh plugin --profile desktop add C:\Users\<你>\...\plugins\dsh-pc-use
+dsh plugin --profile desktop add C:\Users\<you>\...\plugins\dsh-pc-use
 ```
 
-`dsh plugin add` 会把包写进 profile 的 `dependencies`，并追加到 `dsh.profile.bundles`；bundle 自带的 `cordis.patch.yml` 负责插入 `pc-use` 这一行。
+`dsh plugin add` writes the package into the profile's `dependencies` and appends it to
+`dsh.profile.bundles`; the bundle's own `cordis.patch.yml` inserts the `pc-use` row.
 
-卸载：
+Uninstall:
 
 ```powershell
 dsh plugin --profile desktop remove dsh-pc-use
 ```
 
-### 要改配置，别重复 insert
+### To change the config, do not insert again
 
-bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里**只能按 id 覆盖**，不要再 `insert` 一次——同一个 id 插两行会让 loader 挂载失败，插件就静默不出现：
+The bundle layer already inserts `pc-use`. In the profile's `cordis.patch.yml` you can **only override by id**;
+do not `insert` it again — the same id in two rows makes the loader fail and the plugin silently
+disappears:
 
 ```yaml
 - id: pc-use
   config:
-    autoApprove: true   # 只自动接受浏览器访问授权，其余审批仍会 decline 并写日志
-    logFile: 'C:\Users\<你>\.dsh\pc-use.log'
-    # 注意：patch 是整块替换 config，不是深合并；没写的键会回到上表的默认值
+    autoApprove: true   # only browser access is auto-accepted; other approvals still decline and are logged
+    logFile: 'C:\Users\<you>\.dsh\pc-use.log'
+    # Note: a patch replaces the whole config block, it does not deep-merge; omitted keys fall back to the defaults above
 ```
 
-`dsh --profile desktop --dump-config` 在 Electron 托管的 profile 上会被拒绝，验证层顺序请改用桌面端的插件面板。
+`dsh --profile desktop --dump-config` is rejected on Electron-hosted profiles; use the desktop
+plugin panel instead.
 
-## 配置
+## Configuration
 
-全部字段都可选，写在 `cordis.patch.yml` 的 `config:` 里。
+All fields are optional and go in the `config:` block of `cordis.patch.yml`.
 
-| 字段 | 默认 | 说明 |
+| Field | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | `false` 则不注册任何工具 |
-| `autoApprove` | `false` | 只自动接受浏览器访问授权；其他 elicitation 审批一律 decline（fail-closed） |
-| `computer` | `false` | 开启 Windows 桌面应用操控（Codex Computer Use）；是否弹卡片由 DSH 的权限模式决定 |
-| `rememberDesktopApprovals` | `true` | 同一个 DSH 会话里，某个应用经你允许一次后不再询问；拒绝不会被记住 |
-| `codexHome` | `''` | 空表示 `%USERPROFILE%\.codex` |
-| `logFile` | `''` | 桥接日志路径；空表示 `~/.dsh/pc-use.log` |
-| `timeoutMs` | `120000` | 单次调用超时 |
-| `tools` | 全开 | `{ js, reset, docs, status }` 逐项开关 |
-| `tools.docs` | `true` | 注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档（不需要 Codex 连接） |
+| `enabled` | `true` | `false` registers no tools at all |
+| `autoApprove` | `false` | Only browser-access approvals are accepted automatically; other elicitations are declined (fail-closed) |
+| `computer` | `false` | Enable Windows desktop app control (Codex Computer Use); whether a card appears is decided by DSH's permission mode |
+| `rememberDesktopApprovals` | `true` | Within one DSH session an app you allowed once is not asked about again; denials are not remembered |
+| `desktopApprovalChoices` | `true` | Desktop approvals use the three-option card (allow this time / allow for this session / deny); when off, the one-shot approval card is used |
+| `language` | `'auto'` | Language of the plugin interface text: `auto` follows the DSH interface language, or force `zh` / `en` |
+| `codexHome` | `''` | Empty means `%USERPROFILE%\.codex` |
+| `logFile` | `''` | Bridge log path; empty means `~/.dsh/pc-use.log` |
+| `timeoutMs` | `120000` | Timeout for one tool call |
+| `tools` | all on | Per-tool switches: `{ js, reset, docs, status }` |
+| `tools.docs` | `true` | Register `pc_codex_docs`: read Codex's bundled Computer Use docs (no Codex connection needed) |
 
-`autoApprove` / `computer` / `rememberDesktopApprovals` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载插件；`computer` 改变后，下一次调用会先停掉旧连接再按新值重连。`enabled`、`codexHome`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。
+`autoApprove` / `computer` / `rememberDesktopApprovals` / `desktopApprovalChoices` / `language` /
+`logFile` / `timeoutMs` are hot-updatable (volatile): a change applies to later calls without
+remounting the plugin; after `computer` changes, the next call stops the old connection and
+reconnects with the new value. `enabled`, `codexHome` and `tools.*` are not volatile; changing one
+remounts the plugin and registers the tools again for the new configuration.
 
-每一次审批都会写进日志（`logFile` 为空时写入 `~/.dsh/pc-use.log`，不再只走 `console.warn`），记录原始文案、决定和原因，例如：
+`language` only affects the text this plugin displays (the two sets — Chinese and English — of the
+three-option card, the one-shot card's `displayReason` and the audit `reason`): `auto` first tries to
+read the interface-language preference the DSH host exposes and falls back to the system language
+(`zh` prefix means Chinese, otherwise English); you can also force `zh` / `en`. The one-shot approval
+card's `displayReason` carries both Chinese and English text, and the DSH client picks the one matching
+its interface language regardless of `language`.
+
+Every approval is written to the log (when `logFile` is empty, into `~/.dsh/pc-use.log`; it no longer
+only goes to `console.warn`), recording the original wording, the decision and the reason, for example:
 
 ```
 approval "Allow Browser use to access https://www.bilibili.com?" -> accept (browser access auto-approved)
 ```
 
-- `autoApprove: false`（默认）：浏览器授权一律 decline，原因记为 `auto-approve is off`；
-- `autoApprove: true`：只有浏览器访问授权会 accept（原因 `browser access auto-approved`），其他审批一律 decline，原因记为 `not a browser-access approval`；
-- 桌面授权不适用 `autoApprove`：`computer: false` 时一律 decline（`computer use is off`）；`computer: true` 时交给 DSH 审批，结果写进日志（`approved in DSH` / `rejected in DSH` / `approval cancelled` / `approval unavailable`），没有审批服务或没有进行中的 `pc_codex_js` 调用时 decline。
+- `autoApprove: false` (default): browser approvals always decline, with reason `auto-approve is off`;
+- `autoApprove: true`: only browser-access approvals are accepted (reason `browser access auto-approved`);
+  all other approvals decline with reason `not a browser-access approval`;
+- `autoApprove` does not apply to desktop approvals: with `computer: false` they always decline
+  (`computer use is off`); with `computer: true` they go to DSH and the result is logged
+  (`approved in DSH` / `rejected in DSH` / `approval cancelled` / `approval unavailable`); without an
+  approval service or without a running `pc_codex_js` call they decline.
 
-如果 Codex 改掉授权文案，浏览器授权和桌面授权都会被拒绝——这是安全的失败方式。
+If Codex changes the approval wording, browser and desktop approvals are both declined — a safe
+failure mode.
 
-## 桌面操控
+## Desktop control
 
-Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `CUA_REPL_ENABLED_SURFACES`
-决定启用哪些能力，`.mcp.json` 里写死为 `browser`；插件只在子进程的 env 里追加
-`computer`（得到 `browser,computer`），不修改任何 Codex 文件。桌面能力还需要 `sky`
-可信服务：`.mcp.json` 已经把 `NODE_REPL_TRUSTED_SERVICES` 写死，启动器不会按 surfaces
-重新生成，所以插件同时在该变量里加入 `"sky": "@oai/sky/service"`（已有的 `sky` 不覆盖）；
-原值不是 JSON 对象时插件拒绝启动并报错。
+Windows desktop app control is off by default. Codex's `cua_repl` uses the
+`CUA_REPL_ENABLED_SURFACES` environment variable to decide which surfaces are enabled; `.mcp.json`
+hard-codes `browser`, and the plugin only appends `computer` to the child's env (making it
+`browser,computer`) without modifying any Codex file. Desktop control also needs the `sky` trusted
+service: `.mcp.json` already hard-codes `NODE_REPL_TRUSTED_SERVICES` and the launcher does not
+regenerate it per surfaces, so the plugin also adds `"sky": "@oai/sky/service"` to that variable
+(an existing `sky` entry is kept); when the original value is not a JSON object the plugin refuses
+to start and reports an error.
 
-开启方式：在 profile 的 `cordis.patch.yml` 里设置，改完重启桌面版。实测 DSH 桌面版
-0.2.1-rc.2 的“设置 → 内置插件”页只显示插件状态，不显示配置表单。该 patch 的
-`config:` 会整体替换配置，要把原有的键一起写上。
+How to enable: set it in the profile's `cordis.patch.yml` and restart the desktop app. On the tested
+DSH desktop 0.2.1-rc.2 the "Settings → Built-in plugins" page only shows plugin status, not the
+config form. A patch replaces the whole `config:` block, so include the keys that were already
+there.
 
 ```yaml
 - id: pc-use
@@ -145,113 +194,149 @@ Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `C
     computer: true
 ```
 
-首次用 `sky` 操作某个桌面应用时，Codex 会发来授权请求。插件识别两种桌面授权文案：
-`Allow Codex to use <应用名>?`（桌面版实测所用）和 `Allow Computer Use to use "<应用名>"?`。
-录音请求 `Allow Computer Use to record computer audio?` 不在识别范围内，会被拒绝。
-插件把桌面授权转成 DSH 的审批提示（例如“允许 Codex Computer Use 操作“记事本”？”），
-交给 DSH 的审批策略处理；`autoApprove` 对桌面授权不起作用。
+The first time `sky` operates a desktop app, Codex sends an approval request. The plugin recognizes
+two wordings: `Allow Codex to use <app name>?` (what the desktop app sends) and
+`Allow Computer Use to use "<app name>"?`. The recording request
+`Allow Computer Use to record computer audio?` is not recognized and is declined.
+The plugin turns desktop approvals into DSH prompts (the three-option card or the one-shot card, see
+below) handled by DSH; `autoApprove` does not apply to desktop approvals.
 
-插件会记住你在同一个 DSH 会话内的桌面授权：同一个应用经你允许一次后，后续请求不再询问，
-日志原因写为 `approved earlier in this DSH session`。只记住“允许”，拒绝、取消或失败
-不会被记住。以下情况会重新询问：桥接重连（例如切换 `computer`、`.mcp.json` 变化或进程
-重启）、新开一个 DSH 会话、或把 `rememberDesktopApprovals` 设为 `false`（关闭期间的下一次
-调用或授权请求会清空记录）。想立刻重新询问，最可靠的办法是新开会话或切换一次 `computer`。
-注意：之后把权限模式改严，本会话内已经记住的应用仍会放行。
+The plugin remembers your desktop approvals within one DSH session: once you allowed an app, later
+requests are not asked again and the log reason reads `approved earlier in this DSH session`. Only
+"allow" is remembered; denials, cancellations and failures are not. You are asked again after a
+bridge reconnect (for example switching `computer`, a `.mcp.json` change or a process restart), in a
+new DSH session, or after setting `rememberDesktopApprovals` to `false` (the next call or approval
+request while it is off clears the memory). To be asked again immediately, the most reliable way is
+to start a new session or toggle `computer` once. Note: if you tighten the permission mode later,
+apps already remembered in this session still pass.
 
-每轮 DSH 轮次结束时，插件会用同一 agent 的 Codex `session_id` / `turn_id` 调用
-`turn_ended`（正常结束为 `Stop`，中途停止为 `Interrupt`，子 agent 为 `SubagentStop`）。
-这会让 Codex 收起屏幕上“正在使用你的电脑”的橙色光圈，并结束那一轮。本轮没有调用过
-`pc_codex_js` 或 `pc_codex_js_reset`、桥接未连接或插件已卸载时不会补发；桥接重连后从新的
-`turn_id` 开始。
+Desktop approvals show the DSH three-option card by default: `允许这一次` (allow this step only, not
+remembered), `本次会话内允许` (don't ask again for the same agent and app in this DSH session; it
+ends on reconnect or restart) and `拒绝` (deny). The second option appears only when
+`rememberDesktopApprovals` is on and the request's `_meta.persist` contains `session`; when the
+approval policy is `never` ("full access"), no question service is available, or
+`desktopApprovalChoices: false`, the one-shot DSH approval card is used instead. A custom-typed
+answer, an empty selection, unknown wording or a failing question service all count as denial. The
+card text follows `language`; the DSH client shows the Chinese or English text of the old one-shot
+card according to its interface language.
 
-### 先读 Codex 自带的文档：`pc_codex_docs`
+When each DSH turn ends, the plugin calls `turn_ended` with the same agent's Codex `session_id` /
+`turn_id` (`Stop` for a normal finish, `Interrupt` when stopped, `SubagentStop` for a subagent).
+This makes Codex clear the orange "using your computer" glow and end that turn. It is not sent when
+the turn never called `pc_codex_js` or `pc_codex_js_reset`, when the bridge is disconnected, or after
+the plugin is unloaded; after a bridge reconnect it starts from a new `turn_id`.
 
-Codex 的 computer-use 插件自带一份 skill 和三份文档。插件不复制、不打包这些文件；
-`pc_codex_docs` 每次调用都从本机 Codex 安装
-（`<codexHome>/plugins/cache/openai-bundled/computer-use/`）读取原文并原样返回，前面附一行
-来源和 DSH 工具对照。Codex 更新后内容随之更新；目录或文件不存在时，错误会写出期望的路径。
-这些文档属于 OpenAI（Proprietary），只在本机读取，不随插件分发。
+### Read Codex's own docs first: `pc_codex_docs`
 
-`topic` 取 `skill`（入口）、`guidance`（运行规则、目标窗口、截图、恢复）、
-`confirmations`（需要用户确认的动作）、`api`（完整 `sky` API）。这个工具不需要 Codex
-连接，`computer: false` 时也会注册。
+Codex's computer-use plugin ships one skill and three documents. The plugin neither copies nor bundles
+them; `pc_codex_docs` reads the original files from the local Codex installation
+(`<codexHome>/plugins/cache/openai-bundled/computer-use/`) on every call and returns them verbatim
+after a source line and a mapping to the DSH tools. Codex updates are picked up automatically; when a
+directory or file is missing the error names the expected path. These documents belong to OpenAI
+(Proprietary); they are only read locally and are not distributed with the plugin.
 
-在 `pc_codex_js` 里使用（`computer: true` 且连接建立之后）：
+`topic` is `skill` (entry point), `guidance` (runtime rules, target windows, screenshots, recovery),
+`confirmations` (actions that need user confirmation) or `api` (the full `sky` API). This tool needs no
+Codex connection and is registered even with `computer: false`.
+
+Use it inside `pc_codex_js` (with `computer: true` and a live connection):
 
 ```js
 const { sky } = await import('@oai/sky');
 await sky.list_apps();
 ```
 
-`sky` 还提供截屏、点击、输入等桌面操作，具体 API 见 `pc_codex_docs` 的 `api` 文档。
+`sky` also offers screenshots, clicks, typing and other desktop operations; see the `api` document via
+`pc_codex_docs`.
 
-**风险提示：** 桌面操控的权限大于浏览器——它可以读取屏幕、移动鼠标并向任意应用发送
-输入。默认关闭；只在你确有必要时开启。桌面授权交给 DSH 的审批策略：在“完全权限”模式下
-DSH 不询问、直接放行；要逐次确认，请使用“仅可查看”或“工作区内修改”。Codex 也可能记住
-以前的授权而不再询问。`autoApprove` 对桌面授权不起作用。
+**Risk notice:** desktop control has more power than the browser — it can read the screen, move the
+mouse and send input to any app. It is off by default; enable it only when you really need it. Desktop
+approvals follow DSH's approval policy: under "full access" DSH does not ask and allows them directly;
+to confirm every time, use "read only" or "workspace write". Codex may also remember earlier grants
+and stop asking. `autoApprove` does not apply to desktop approvals.
 
-## 后端
+## Backends
 
-目前只有 Codex 后端：`pc_codex_*` 工具通过本机 Codex 桌面应用执行。命名已为其他后端预留：
-只属于 Codex 的工具用 `pc_codex_` 前缀，以后 Claude 的 computer use 会以 `pc_claude_`
-前缀与之并列；`pc_status` 的顶层按 `backends` 分组，当前只有 `backends.codex`。配置键
-暂时保持扁平（`codexHome` 等），等第二个后端有具体设计后再决定是否分组。
+Only the Codex backend exists today: the `pc_codex_*` tools run through the local Codex desktop app.
+The naming already reserves room for other backends: tools exclusive to Codex use the `pc_codex_`
+prefix, and Claude's computer use will sit next to it under `pc_claude_`; the top level of `pc_status`
+groups by `backends`, currently only `backends.codex`. Config keys stay flat for now (`codexHome`
+etc.); whether to group them will be decided once a second backend has a concrete design.
 
-## 前置条件
+## Prerequisites
 
-- Codex 桌面应用必须正在运行（插件连的是它的原生管道）；
-- Chrome 插件已连接，`pc_codex_js` 里 `await cua.listBrowsers()` 能看到 `Chrome / type=extension`；
-- 只在 Windows 上验证过（Codex 的 Computer Use 在 Windows 上走 `sky` 原生管道）。
+- The Codex desktop app must be running (the plugin connects to its native pipe);
+- The Chrome extension must be connected, so `await cua.listBrowsers()` inside `pc_codex_js` lists
+  `Chrome / type=extension`;
+- Only Windows has been verified (Codex's Computer Use uses the `sky` native pipe on Windows).
 
-## 验证
+## Verification
 
 ```js
 await cua.listBrowsers();
 ```
 
-或先调 `pc_status`，看 `backends.codex`。第一次 `pc_codex_js` 建立连接之前，
-`backends.codex.computer`、`services`、`servicesFrom` 都是 `null`，这是正常的（尚未连接）。
-连接后 `servicesFrom` 为 `env` 或 `launcher`：`launcher` 表示 `.mcp.json` 没写
-`NODE_REPL_TRUSTED_SERVICES`、由 Codex 启动器生成，此时 `services` 为 `null`，插件不知道
-具体内容。命令行冒烟测试：
+Or call `pc_status` first and look at `backends.codex`. Before the first `pc_codex_js` connection,
+`backends.codex.computer`, `services` and `servicesFrom` are all `null`, which is normal (not connected
+yet). After connecting, `servicesFrom` is `env` or `launcher`: `launcher` means `.mcp.json` did not
+write `NODE_REPL_TRUSTED_SERVICES` and the Codex launcher generated it; then `services` is `null`
+because the plugin does not know the contents. Command-line smoke test:
 
 ```powershell
 npm run test:smoke
 ```
 
-冒烟测试会连接 Codex 并操作真实 Chrome。
+The smoke test connects to Codex and drives the real Chrome.
 
-## 实现
+## Implementation
 
-- `index.js` — cordis 插件：`defineTool` + `parameters` DSL 声明工具、导出 Schemastery `Config`、懒连接、`ctx.effect` 清理
-- `lib/config-value.js` — 解包 cordis 加载器传入的 `Volatile` 配置值
-- `lib/define-tool.js` — `defineTool` 的可移植兜底：把参数 DSL 转成对象 JSON Schema，并在 `execute` 前校验参数
-- `lib/images.js` — 保存工具结果里的截图：按 mimeType 取扩展名，保存后只保留最新 50 个文件
-- `lib/codex-config.js` — 从 `.mcp.json` / `config.toml` 解析启动参数，易变值以 config.toml 为准
-- `lib/mcp-bridge.js` — 极简 MCP stdio 客户端：注入 turn metadata、声明 elicitation、按策略应答审批、超时后通知取消
-- `lib/approval.js` — 审批判定：浏览器授权按 `autoApprove`，桌面授权交给 DSH 确认，其余一律拒绝并给出原因
-- `lib/surfaces.js` — 合并 `CUA_REPL_ENABLED_SURFACES`（追加桌面能力、去重）与 `NODE_REPL_TRUSTED_SERVICES`（开启 `computer` 时加入 `sky`）
-- `locale/en.json` / `locale/zh.json` — 插件管理页的显示名与描述（`PC Use` / `电脑操控`）
-- `icon.svg` — 原创的窗口加指针图标，不引用外部资源
-- `cordis.patch.yml` — bundle 层，按包名把插件插进每个 preset
+- `index.js` — the cordis plugin: `defineTool` + `parameters` DSL, the Schemastery `Config`, lazy connections and `ctx.effect` cleanup
+- `lib/text.js` — the Chinese and English text the plugin displays itself (three-option card, `displayReason`, audit reason, config descriptions); both key sets match
+- `lib/config-value.js` — unwraps the `Volatile` config values passed by the cordis loader
+- `lib/define-tool.js` — portable fallback for `defineTool`: converts the parameter DSL to object JSON Schema and validates arguments before `execute`
+- `lib/images.js` — saves screenshots from tool results: extension from the mimeType, only the newest 50 files kept
+- `lib/codex-config.js` — resolves launch arguments from `.mcp.json` / `config.toml`, with config.toml winning for volatile values
+- `lib/mcp-bridge.js` — a minimal MCP stdio client: injects turn metadata, advertises elicitation, answers approvals by policy, notifies cancellation on timeout
+- `lib/approval.js` — approval decisions: browser approvals follow `autoApprove`, desktop approvals go to DSH, everything else is declined with a reason
+- `lib/surfaces.js` — merges `CUA_REPL_ENABLED_SURFACES` (appends the desktop surface, deduplicates) and `NODE_REPL_TRUSTED_SERVICES` (adds `sky` when `computer` is on)
+- `locale/en.json` / `locale/zh.json` — display name and description for the plugin manager (`PC Use` / `电脑操控`)
+- `icon.svg` — an original window-and-pointer icon with no external resources
+- `cordis.patch.yml` — the bundle layer that inserts the plugin into every preset by package name
 
-进程是**懒启动**的：加载插件本身不会 spawn 任何东西，Codex 没装也不会影响 profile 启动，错误只在真正调用工具时暴露。
+Processes are **lazily started**: loading the plugin spawns nothing, a missing Codex does not affect
+profile startup, and errors only surface when a tool is actually called.
 
-## 为什么 `defineTool` 要有兜底
+## Why `defineTool` needs a fallback
 
-`dsh plugin add` 安装的是 `link:` 目录，插件从**工作区路径**加载。DSH 桌面版 0.2.1-rc.2 的 profile 设置了 `autoInstallPeers: false`，也没有通用的 `@deepseek-ai` 解析钩子，因此以 `link:` 安装时插件解析不到宿主包（`@deepseek-ai/dsh-tools` / `@deepseek-ai/schemastery` / `@deepseek-ai/cordis`），始终走 `lib/define-tool.js` 的兜底分支。兜底分支已与宿主原生 `defineTool` 核对一致：把参数 DSL 转成对象 JSON Schema，并在执行前校验参数。
+`dsh plugin add` installs a `link:` directory, so the plugin is loaded from its **workspace path**. The
+DSH desktop 0.2.1-rc.2 profile sets `autoInstallPeers: false` and has no generic `@deepseek-ai`
+resolution hook, so a `link:` install cannot resolve the host packages (`@deepseek-ai/dsh-tools` /
+`@deepseek-ai/schemastery` / `@deepseek-ai/cordis`) and always takes the `lib/define-tool.js` fallback.
+That fallback has been checked against the host's native `defineTool`: it converts the parameter DSL to
+object JSON Schema and validates arguments before execution.
 
-0.1.0 在这里踩过坑：拿不到 `defineTool` 时直接把参数 DSL（`{ code: { type: 'string', required: true } }`）当成 JSON Schema 注册，模型请求里出现了非法 schema（属性里带 `required`、根缺 `type: object`），DeepSeek 直接拒绝**整轮**请求。`npm test` 会在离线环境断言四个工具都发布合法的对象 JSON Schema。
+0.1.0 tripped here: without `defineTool`, the parameter DSL (`{ code: { type: 'string', required: true } }`)
+was registered directly as JSON Schema, producing an invalid schema in the model request (properties
+carrying `required`, root missing `type: object`), and DeepSeek rejected the **whole turn**. `npm test`
+asserts offline that all four tools publish valid object JSON Schema.
 
-只有插件目录里装了 `@deepseek-ai/schemastery` 之后，设置界面才会出现这些开关——这是插件自己的 devDependency 带来的效果（本地 `npm install` 后插件目录里才会有一份）。发布和安装方式需要留意这一点。
-桌面版 0.2.1-rc.2 实测不显示配置表单，`computer` 等配置仍需改 profile 的 `cordis.patch.yml`。
+The switches only appear in the settings page once `@deepseek-ai/schemastery` is installed in the
+plugin directory — that is a side effect of the plugin's own devDependency (a local `npm install` puts
+a copy there). Keep this in mind when publishing and installing.
+The tested DSH desktop 0.2.1-rc.2 does not show the config form; options such as `computer` still have
+to be set in the profile's `cordis.patch.yml`.
 
-## 已知限制
+## Known limitations
 
-- 非官方用法，Codex 更新可能改变 `.mcp.json` 结构或管道机制；失效先看 `pc_status` 和 `logFile`。
-- 自动审批只认 `Allow Browser use to access <origin>?` 这条文案；Codex 改文案后浏览器授权会被拒绝（fail-closed），被拒绝的原文会写进日志。
-- 桌面授权只认 `Allow Computer Use to use "<名称>"?` 和 `Allow Codex to use <名称>?` 两种文案，
-  改文案后会被拒绝；桌面操控默认关闭，是否弹卡片由 DSH 的权限模式决定（“完全权限”直接放行，
-  “仅可查看”/“工作区内修改”逐次确认），Codex 也可能记住授权而不再询问。
-- 同一时间只维持一个 Codex 连接；插件被卸载或进程退出时子进程会一起结束。
-- 兜底分支只支持 `string` / `number` / `boolean` 三种原始参数；需要嵌套对象时必须在宿主里真正拿到 `defineTool`。
+- Unofficial usage: Codex updates may change the `.mcp.json` shape or the pipe mechanism; on failure
+  check `pc_status` and `logFile` first.
+- Automatic approval only recognizes the exact wording `Allow Browser use to access <origin>?`; if
+  Codex changes it, browser approvals are declined (fail-closed) and the declined wording is logged.
+- Desktop approvals only recognize `Allow Computer Use to use "<name>"?` and `Allow Codex to use <name>?`;
+  other wordings are declined. Desktop control is off by default, and whether a card appears is decided
+  by DSH's permission mode ("full access" allows directly, "read only" / "workspace write" ask each
+  time); Codex may also remember grants and stop asking.
+- Only one Codex connection is kept at a time; unloading the plugin or exiting the process terminates
+  the child process.
+- The fallback only supports the `string` / `number` / `boolean` primitive parameters; nested objects
+  require the host's real `defineTool`.

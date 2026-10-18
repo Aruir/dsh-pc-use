@@ -68,7 +68,7 @@ function setup(options = {}) {
 }
 
 function approvalLines(logFile) {
-  return readFileSync(logFile, 'utf8').split('\n').filter((line) => line.includes('approval '))
+  return readFileSync(logFile, 'utf8').split('\n').filter((line) => line.includes('approval "'))
 }
 
 async function runDesktopCall(context) {
@@ -122,7 +122,10 @@ test('computer:true asks DSH and accepts allowed-once', async () => {
     // is already aborted once the call has returned.
     assert.equal(typeof request.signal?.addEventListener, 'function')
     assert.equal(request.signal.aborted, true)
-    assert.equal(request.displayReason, '允许 Codex Computer Use 操作“记事本”？')
+    assert.deepEqual(request.displayReason, {
+      en: 'Allow Codex Computer Use to operate “记事本”?',
+      zh: '允许 Codex Computer Use 操作“记事本”？',
+    })
     const lines = approvalLines(context.logFile)
     assert.equal(lines.length, 1)
     assert.match(lines[0], /-> accept \(approved in DSH\)/)
@@ -226,7 +229,10 @@ test('the Allow Codex to use form asks DSH with the app name', async () => {
     const result = await runDesktopCall(context)
     assert.match(result, /decision accept/)
     assert.equal(requests.length, 1)
-    assert.equal(requests[0].displayReason, '允许 Codex Computer Use 操作“Notepad”？')
+    assert.deepEqual(requests[0].displayReason, {
+      en: 'Allow Codex Computer Use to operate “Notepad”?',
+      zh: '允许 Codex Computer Use 操作“Notepad”？',
+    })
   } finally {
     finish(context)
   }

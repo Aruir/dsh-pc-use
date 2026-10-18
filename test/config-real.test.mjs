@@ -55,6 +55,17 @@ test('old config keys addNodeModuleDir and stateFile are tolerated', (t) => {
   }
 })
 
+test('desktopApprovalChoices and language default through the real config path', (t) => {
+  if (!canResolve) return t.skip(SKIP)
+  assert.equal(unwrapConfigValue(validate({}).desktopApprovalChoices), true)
+  assert.equal(
+    unwrapConfigValue(validate({ desktopApprovalChoices: false }).desktopApprovalChoices),
+    false,
+  )
+  assert.equal(unwrapConfigValue(validate({}).language), 'auto')
+  assert.equal(unwrapConfigValue(validate({ language: 'en' }).language), 'en')
+})
+
 test('enabled:false registers nothing through the real config path', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate({ enabled: false }))
@@ -83,6 +94,8 @@ test('only the hot-updatable fields come back as Volatile', (t) => {
   assert.equal(isVolatile(value.autoApprove), true)
   assert.equal(isVolatile(value.logFile), true)
   assert.equal(isVolatile(value.timeoutMs), true)
+  assert.equal(isVolatile(value.desktopApprovalChoices), true)
+  assert.equal(isVolatile(value.language), true)
   assert.equal(isVolatile(value.enabled), false)
   assert.equal(isVolatile(value.codexHome), false)
   for (const [key, item] of Object.entries(value.tools)) {

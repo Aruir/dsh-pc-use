@@ -35,6 +35,10 @@ import { appendLogLine } from './lib/log-file.js'
 import { McpBridge } from './lib/mcp-bridge.js'
 import { enableComputerSurface, mergeTrustedServices } from './lib/surfaces.js'
 import { definePortableTool } from './lib/define-tool.js'
+import {
+  CONFIG_I18N, auditReason, choiceDecision, desktopApprovalQuestion, legacyDisplayReason,
+  resolveLanguage, systemLocale,
+} from './lib/text.js'
 
 export const name = 'pc-use'
 export const inject = ['tools']
@@ -59,19 +63,19 @@ try {
 
 /**
  * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean,
- *   rememberDesktopApprovals: boolean, codexHome: string, logFile: string,
- *   timeoutMs: number, tools: {js: boolean, reset: boolean, docs: boolean,
- *   status: boolean}}} Config
+ *   rememberDesktopApprovals: boolean, desktopApprovalChoices: boolean, language: string,
+ *   codexHome: string, logFile: string, timeoutMs: number,
+ *   tools: {js: boolean, reset: boolean, docs: boolean, status: boolean}}} Config
  */
 
 /**
  * The plugin's configuration schema. `autoApprove`, `computer`,
  * `rememberDesktopApprovals`, `logFile` and `timeoutMs` are `.volatile()`: the loader
  * writes new values into the running plugin and every use re-reads them, so they never
- * remount it. `enabled`, `codexHome` and `tools.*` are deliberately not volatile:
- * changing one remounts the plugin, the old bridge is disposed by `ctx.effect`,
- * and the tools are registered again for the new values. Volatile fields are the ones the
- * settings UI can flip live.
+ * remount it. `desktopApprovalChoices` and `language` are volatile too, because the
+ * settings UI flips them live; `enabled`, `codexHome` and `tools.*` are deliberately not
+ * volatile: changing one remounts the plugin, the old bridge is disposed by `ctx.effect`,
+ * and the tools are registered again for the new values.
  */
 function buildConfig(schema) {
   if (schema === null) return undefined
@@ -90,6 +94,13 @@ function buildConfig(schema) {
         .description('同一个 DSH 会话里，某个应用经你允许一次后不再询问；拒绝不会被记住。'
           + '桥接重连或关闭此项后重新询问。')
         .volatile(),
+      desktopApprovalChoices: schema.boolean().default(true)
+        .description('桌面授权使用三选项卡片（允许这一次 / 本次会话内允许 / 拒绝）；'
+          + '关闭后沿用一次性授权卡片。')
+        .volatile(),
+      language: schema.union(['auto', 'zh', 'en']).default('auto')
+        .description('插件界面文字的语言：auto 跟随 DSH 界面语言，或强制 zh / en。')
+        .volatile(),
       codexHome: schema.string().default('')
         .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。'),
       logFile: schema.string().default('')
@@ -106,6 +117,7 @@ function buildConfig(schema) {
         status: schema.boolean().default(true).description('注册 `pc_status`：报告解析结果与连接状态。'),
       }).description('要注册哪些工具。'),
     }).description('dsh-pc-use 的功能开关与默认值。')
+      .i18n(CONFIG_I18N)
   } catch (error) {
     console.warn('dsh-pc-use: building the Config schema failed — running on built-in defaults', error)
     return undefined
@@ -119,6 +131,8 @@ const DEFAULTS = {
   autoApprove: false,
   computer: false,
   rememberDesktopApprovals: true,
+  desktopApprovalChoices: true,
+  language: 'auto',
   codexHome: '',
   logFile: '',
   timeoutMs: 120000,
@@ -127,6 +141,28 @@ const DEFAULTS = {
 
 // Marker for "the approving pc_codex_js call ended while DSH was still asking".
 const CALL_ENDED = Symbol('pc_codex_js call ended')
+
+// Marker for "only the one-shot approval card can be used (no top-level agent)".
+const DELEGATED = Symbol('delegated caller')
+
+const SPEC_FIELDS = ['command', 'args', 'cwd', 'pipeDirectory', 'source']
+
+/** Names of the launch fields that differ between two resolved specs. O(n), n = args. */
+function changedSpecFields(previous, next) {
+  const changed = []
+  for (const field of SPEC_FIELDS) {
+    if (field !== 'args') {
+      if (previous[field] !== next[field]) changed.push(field)
+      continue
+    }
+    const before = Array.isArray(previous.args) ? previous.args : []
+    const after = Array.isArray(next.args) ? next.args : []
+    const same = before.length === after.length
+      && before.every((value, index) => value === after[index])
+    if (!same) changed.push(field)
+  }
+  return changed
+}
 
 function defaultLogFile() {
   return join(homedir(), '.dsh', 'pc-use.log')
@@ -180,8 +216,10 @@ const DOCS_EXPLANATION = [
 ].join('\n')
 
 /**
- * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean, codexHome?: string,
- *   logFile?: string, timeoutMs?: number, tools?: Record<string, boolean>}} raw
+ * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean,
+ *   rememberDesktopApprovals?: boolean, desktopApprovalChoices?: boolean,
+ *   language?: string, codexHome?: string, logFile?: string, timeoutMs?: number,
+ *   tools?: Record<string, boolean>}} raw
  */
 export function apply(ctx, raw = {}) {
   const source = raw ?? {}
@@ -202,6 +240,25 @@ export function apply(ctx, raw = {}) {
   const autoApproveEnabled = () => unwrapConfigValue(source.autoApprove) === true
   const computerEnabled = () => unwrapConfigValue(source.computer) === true
   const rememberEnabled = () => unwrapConfigValue(source.rememberDesktopApprovals) !== false
+  const desktopApprovalChoicesEnabled = () => (
+    unwrapConfigValue(source.desktopApprovalChoices) !== false
+  )
+  const configuredLanguage = () => {
+    const value = unwrapConfigValue(source.language)
+    return value === 'zh' || value === 'en' ? value : 'auto'
+  }
+  const localePreference = () => {
+    if (typeof ctx.get !== 'function') return null
+    try {
+      const preference = ctx.get('locale')?.preference
+      return typeof preference === 'string' && preference !== '' ? preference : null
+    } catch {
+      return null
+    }
+  }
+  const effectiveLanguage = () => (
+    resolveLanguage(configuredLanguage(), localePreference() ?? systemLocale())
+  )
   const configuredLogFile = () => {
     const value = unwrapConfigValue(source.logFile)
     return typeof value === 'string' && value !== '' ? value : defaultLogFile()
@@ -235,6 +292,14 @@ export function apply(ctx, raw = {}) {
       return undefined
     }
   }
+  const readQuestionsService = () => {
+    if (typeof ctx.get !== 'function') return undefined
+    try {
+      return ctx.get('userQuestions')
+    } catch {
+      return undefined
+    }
+  }
 
   // Remembered desktop approvals: WeakMap(agent -> Set(appKey)). The agent object is a
   // process-local object, so entries disappear with the agent; bridge rebuilds reset it.
@@ -255,7 +320,11 @@ export function apply(ctx, raw = {}) {
     apps.add(appKey)
   }
 
-  /** Ask DSH to approve one desktop app; O(1) apart from waiting for the user. */
+  /**
+   * Ask DSH to approve one desktop app. The three-option question card is used when
+   * the host allows it; otherwise the 0.4.1 one-shot approval card is used unchanged.
+   * O(1) apart from waiting for the user.
+   */
   const requestDesktopApproval = async ({ appName, meta }) => {
     const active = activeCalls[0]
     if (active === undefined || active.exec === undefined || active.exec === null) {
@@ -283,7 +352,6 @@ export function apply(ctx, raw = {}) {
       signals.push(exec.signal)
     }
     const signal = signals.length > 1 ? AbortSignal.any(signals) : callSignal
-    const displayReason = `允许 Codex Computer Use 操作“${appName}”？`
     const ended = new Promise((resolve) => {
       if (callSignal.aborted) {
         resolve(CALL_ENDED)
@@ -291,14 +359,94 @@ export function apply(ctx, raw = {}) {
       }
       callSignal.addEventListener('abort', () => resolve(CALL_ENDED), { once: true })
     })
+    const sessionOption = remember === true && wantsSessionApproval(meta)
+    const questions = readQuestionsService()
+    const language = effectiveLanguage()
+    if (canUseDesktopChoices(approval, questions, exec.agent)) {
+      const decision = await requestDesktopChoice({
+        questions,
+        agent: exec.agent,
+        appName,
+        language,
+        signal,
+        ended,
+        callSignal,
+        sessionOption,
+        remember,
+        appKey,
+      })
+      if (decision !== DELEGATED) return decision
+    }
+    return requestLegacyDesktopApproval({
+      approval, exec, appName, language, signal, ended, callSignal, remember, appKey, meta,
+    })
+  }
+
+  /** True when the three-option question card may be used. O(1). */
+  const canUseDesktopChoices = (approval, questions, agent) => {
+    if (questions === undefined || questions === null) return false
+    if (desktopApprovalChoicesEnabled() !== true) return false
+    try {
+      return approval.effectivePolicy(agent.session) === 'ask'
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Show the three-option card and map its answer. Returns DELEGATED when only a
+   * subagent may ask, so the caller falls back to the one-shot card. O(1) + the wait.
+   */
+  const requestDesktopChoice = async ({
+    questions, agent, appName, language, signal, ended, callSignal, sessionOption, remember,
+    appKey,
+  }) => {
+    try {
+      const answer = await Promise.race([
+        questions.ask({
+          questions: [desktopApprovalQuestion(language, appName, sessionOption)],
+          agent,
+          signal,
+        }),
+        ended,
+      ])
+      if (callSignal.aborted || answer === CALL_ENDED) {
+        return { action: DECLINE, reason: 'pc_codex_js call ended' }
+      }
+      const decision = choiceDecision(answer, language, sessionOption)
+      if (
+        decision.action === APPROVE
+        && decision.reason === 'approved for this DSH session'
+        && remember === true
+        && appKey !== null
+      ) {
+        rememberApp(agent, appKey)
+      }
+      return decision
+    } catch (error) {
+      if (callSignal.aborted) {
+        return { action: DECLINE, reason: 'pc_codex_js call ended' }
+      }
+      if (error?.code === 'DELEGATED_CALLER') return DELEGATED
+      return { action: DECLINE, reason: 'no valid choice' }
+    }
+  }
+
+  /**
+   * The 0.4.1 one-shot approval path, used whenever the question card does not apply.
+   * O(1) apart from waiting for the user.
+   */
+  const requestLegacyDesktopApproval = async ({
+    approval, exec, appName, language, signal, ended, callSignal, remember, appKey, meta,
+  }) => {
     try {
       const outcome = await Promise.race([
         approval.request({
           agent: exec.agent,
           toolName: exec.name,
           callId: exec.callId,
-          reason: `Codex Computer Use 请求操作桌面应用：${appName}`,
-          displayReason,
+          reason: auditReason(language, appName),
+          displayReason: legacyDisplayReason(appName),
           signal,
         }),
         ended,
@@ -365,11 +513,14 @@ export function apply(ctx, raw = {}) {
   const reportTurnEnded = (hookEventName, state) => {
     const active = bridge
     if (active === null || active.alive !== true) return
+    // D16: copy the identity before onSessionEvent rotates `state` in the same tick;
+    // call() fixes its _meta from this snapshot before its first await.
+    const identity = { sessionId: state.sessionId, turnId: state.turnId }
     active.call('turn_ended', {
       hook_event_name: hookEventName,
-      session_id: state.sessionId,
-      turn_id: state.turnId,
-    }, 10_000, state).then(
+      session_id: identity.sessionId,
+      turn_id: identity.turnId,
+    }, 10_000, identity).then(
       () => log(`turn ended (${hookEventName})`),
       (error) => log(`turn_ended failed: ${error.message}`),
     )
@@ -401,6 +552,26 @@ export function apply(ctx, raw = {}) {
     state.generation = bridgeGeneration
   }
 
+  /** Stop the current bridge and forget its active fields. O(1). */
+  const dropBridge = () => {
+    if (bridge !== null) bridge.stop()
+    bridge = null
+    activeComputer = null
+    activeSurfaces = null
+    activeServices = null
+    activeServicesFrom = null
+  }
+
+  /** Re-resolve the launch spec; null when Codex's config cannot be read. O(file size). */
+  const resolveSpecOrNull = () => {
+    try {
+      const spec = resolveCodexServer({ codexHome })
+      return spec.ok === true ? spec : null
+    } catch {
+      return null
+    }
+  }
+
   const ensureBridge = async () => {
     if (connecting !== null) {
       await connecting
@@ -410,24 +581,31 @@ export function apply(ctx, raw = {}) {
     if (rememberEnabled() !== true) {
       resetRemembered()
     }
+    // D15: Codex rewrites .mcp.json on every app start, so re-read the launch spec
+    // before reusing a live bridge. O(file size): one config.toml + .mcp.json read.
+    let keepCurrent = false
+    if (bridge !== null && bridge.alive && connecting === null) {
+      const fresh = resolveSpecOrNull()
+      if (fresh === null) {
+        log('Codex server re-check failed; keeping the current connection')
+        keepCurrent = true
+      } else {
+        const changed = lastSpec === null ? [] : changedSpecFields(lastSpec, fresh)
+        if (changed.length > 0) {
+          // Log the field names only: the values contain paths and pipe names.
+          log(`Codex server changed (${changed.join(', ')}); reconnecting`)
+          dropBridge()
+        }
+      }
+    }
     if (bridge !== null && bridge.alive) {
-      if (activeComputer === computer) return bridge
+      if (keepCurrent === true || activeComputer === computer) return bridge
       // The `computer` switch changed while connected: stop the old server, then connect
       // again with the new surfaces. The concurrent first call still shares `connecting`.
-      bridge.stop()
-      bridge = null
-      activeComputer = null
-      activeSurfaces = null
-      activeServices = null
-      activeServicesFrom = null
+      dropBridge()
     }
     if (bridge !== null) {
-      bridge.stop()
-      bridge = null
-      activeComputer = null
-      activeSurfaces = null
-      activeServices = null
-      activeServicesFrom = null
+      dropBridge()
     }
     const spec = resolveCodexServer({ codexHome })
     if (!spec.ok) throw new Error(`dsh-pc-use: ${spec.reason}`)

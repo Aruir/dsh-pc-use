@@ -75,6 +75,14 @@ function turnEnded(file) {
     .map((line) => JSON.parse(line.slice(prefix.length)))
 }
 
+/** The `_meta["x-codex-turn-metadata"]` of every recorded turn_ended call. O(n). */
+function turnEndedMeta(file) {
+  const prefix = 'turn_ended-meta '
+  return readLines(file)
+    .filter((line) => line.startsWith(prefix))
+    .map((line) => JSON.parse(line.slice(prefix.length)))
+}
+
 function execFor(agent, callId) {
   return {
     agent,
@@ -322,6 +330,34 @@ test('a turn that only called reset still reports one turn_ended', async () => {
       session_id: sessionId,
       turn_id: turnId,
     })
+  } finally {
+    finish(context)
+  }
+})
+
+test('turn_ended uses one turn for both arguments and _meta', async () => {
+  const context = setup()
+  try {
+    const { agent, session } = context.agents.add('session-meta')
+    await runJs(context, execFor(agent, 'call-js'))
+    assert.equal(await waitFor(() => callLines(context.serverLog).length === 1), true)
+    const [, , sessionId, turnId] = callLines(context.serverLog)[0].split(' ')
+    emitTurnEnd(context, session)
+    assert.equal(await waitFor(() => (
+      turnEnded(context.serverLog).length === 1 && turnEndedMeta(context.serverLog).length === 1
+    )), true)
+    const args = turnEnded(context.serverLog)[0]
+    const meta = turnEndedMeta(context.serverLog)[0]
+    assert.equal(args.session_id, meta.session_id)
+    assert.equal(args.turn_id, meta.turn_id)
+    assert.equal(args.session_id, sessionId)
+    assert.equal(args.turn_id, turnId)
+    // The next turn starts from a new turn id.
+    await runJs(context, execFor(agent, 'call-next'))
+    assert.equal(await waitFor(() => callLines(context.serverLog).length === 2), true)
+    const next = callLines(context.serverLog)[1].split(' ')
+    assert.equal(next[2], sessionId)
+    assert.notEqual(next[3], turnId)
   } finally {
     finish(context)
   }

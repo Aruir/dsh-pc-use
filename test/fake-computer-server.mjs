@@ -18,6 +18,8 @@ import readline from 'node:readline'
 const [mode, logFile, pidFile] = process.argv.slice(2)
 if (pidFile !== undefined) appendFileSync(pidFile, `${process.pid}\n`)
 const waiting = new Map()
+// Counts tools/call messages for the `first-ask-then-slow` mode.
+let toolCallCount = 0
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`)
@@ -83,6 +85,9 @@ function handleTurnEnded(message, turnMode) {
   const args = message.params?.arguments ?? {}
   if (name === 'turn_ended') {
     record(`turn_ended ${JSON.stringify(args)}`)
+    record(
+      `turn_ended-meta ${JSON.stringify(message.params?._meta?.['x-codex-turn-metadata'] ?? {})}`,
+    )
     if (turnMode === 'turn-ended-error') {
       send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'boom' } })
       return
@@ -112,11 +117,17 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const callId = waiting.get(message.id)
     if (callId !== undefined) {
       waiting.delete(message.id)
-      send({
+      const reply = {
         jsonrpc: '2.0',
         id: callId,
         result: { content: [{ type: 'text', text: `decision ${action}` }] },
-      })
+      }
+      // The remaining-time test needs the result 400 ms after the approval answer.
+      if (mode === 'slow-ask-answer') {
+        setTimeout(() => send(reply), 400)
+      } else {
+        send(reply)
+      }
     }
     return
   }
@@ -152,6 +163,30 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   }
   if (mode === 'computer-codex') {
     ask(message.id, CODEX_QUESTION)
+    return
+  }
+  if (mode === 'slow-ask-answer') {
+    // Ask only after 300 ms; the caller's timeout must be paused from that moment on.
+    setTimeout(() => ask(message.id, COMPUTER_QUESTION), 300)
+    return
+  }
+  if (mode === 'hang') {
+    // Never answer the tool call, so the client's own timeout is the only way out.
+    return
+  }
+  if (mode === 'first-ask-then-slow') {
+    toolCallCount += 1
+    if (toolCallCount === 1) {
+      ask(message.id, COMPUTER_QUESTION)
+      return
+    }
+    // Later calls never ask and answer after 1100 ms, so a call started while an
+    // approval is pending must survive that wait without its own timeout firing.
+    setTimeout(() => send({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: { content: [{ type: 'text', text: 'ran js' }] },
+    }), 1100)
     return
   }
   send({

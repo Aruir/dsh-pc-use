@@ -65,7 +65,7 @@ function setup(options = {}) {
 }
 
 function approvalLines(logFile) {
-  return readFileSync(logFile, 'utf8').split('\n').filter((line) => line.includes('approval '))
+  return readFileSync(logFile, 'utf8').split('\n').filter((line) => line.includes('approval "'))
 }
 
 function serverAnswers(serverLog) {
