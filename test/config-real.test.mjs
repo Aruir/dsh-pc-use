@@ -96,8 +96,8 @@ test('only the hot-updatable fields come back as Volatile', (t) => {
   assert.equal(isVolatile(value.timeoutMs), true)
   assert.equal(isVolatile(value.desktopApprovalChoices), true)
   assert.equal(isVolatile(value.language), true)
+  assert.equal(isVolatile(value.codexHome), true)
   assert.equal(isVolatile(value.enabled), false)
-  assert.equal(isVolatile(value.codexHome), false)
   for (const [key, item] of Object.entries(value.tools)) {
     assert.equal(isVolatile(item), false, `tools.${key} must remount instead of updating`)
   }

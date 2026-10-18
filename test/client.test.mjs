@@ -1,0 +1,555 @@
+// Client half of 0.4.3: load the browser bundle with a fake module loader and fake React,
+// then drive the settings page model and slot registration without a browser.
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { test } from 'node:test'
+
+const root = fileURLToPath(new URL('..', import.meta.url))
+
+// The bundle registers itself through window.__ModuleLoader__; capture the definition.
+const definitions = []
+globalThis.window = { __ModuleLoader__: { load: (definition) => definitions.push(definition) } }
+await import(pathToFileURL(join(root, 'client.js')).href)
+const definition = definitions.find((entry) => entry.id === 'dsh-pc-use')
+assert.ok(definition, 'client.js must register the dsh-pc-use module')
+
+// Minimal React replacement: createElement builds plain { type, props } nodes and the
+// three hooks the page uses are stubbed, so the component can be rendered in Node.
+let hooks = null
+
+const reactStub = {
+  createElement(type, props, ...children) {
+    return { type, props: { ...(props ?? {}), children } }
+  },
+  useMemo(factory, deps) {
+    const slot = hooks.memo[hooks.index]
+    hooks.index += 1
+    if (slot !== undefined && sameDeps(slot.deps, deps)) return slot.value
+    const value = factory()
+    hooks.memo[hooks.index - 1] = { deps, value }
+    return value
+  },
+  useSyncExternalStore(subscribe, getSnapshot) {
+    const current = hooks
+    current.index += 1
+    subscribe(() => {
+      current.dirty.value = true
+    })
+    return getSnapshot()
+  },
+  useEffect(effect) {
+    hooks.index += 1
+    hooks.effects.push(effect)
+  },
+}
+
+/** Compare a hook's dependency list element by element. O(n). */
+function sameDeps(previous, next) {
+  return previous.length === next.length
+    && previous.every((value, index) => Object.is(value, next[index]))
+}
+
+/** Render one component with the stub hooks; render() re-reads after state changes. O(n). */
+function createRenderer(Component, props = {}) {
+  const memo = []
+  const dirty = { value: false }
+  const cleanups = []
+
+  const expand = (node) => {
+    if (Array.isArray(node)) return node.flatMap(expand)
+    if (node === null || node === undefined || node === false || node === true) return []
+    if (typeof node !== 'object') return [node]
+    if (typeof node.type === 'function') return expand(node.type({ ...node.props }))
+    return [{
+      type: node.type,
+      props: { ...node.props, children: expand(node.props.children) },
+    }]
+  }
+
+  let tree = []
+  const render = () => {
+    do {
+      dirty.value = false
+      hooks = { index: 0, memo, effects: [], dirty }
+      const rendered = expand(Component({ ...props }))
+      const effects = hooks.effects
+      hooks = null
+      for (const effect of effects) {
+        const cleanup = effect()
+        if (typeof cleanup === 'function') cleanups.push(cleanup)
+      }
+      tree = rendered
+    } while (dirty.value)
+    return tree
+  }
+  render()
+  return {
+    render,
+    getTree: () => tree,
+    unmount() {
+      hooks = null
+      for (const cleanup of cleanups.splice(0)) cleanup()
+    },
+  }
+}
+
+/** Depth-first list of rendered elements. O(n). */
+function elements(tree, out = []) {
+  if (Array.isArray(tree)) {
+    for (const item of tree) elements(item, out)
+    return out
+  }
+  if (tree === null || typeof tree !== 'object') return out
+  out.push(tree)
+  elements(tree.props?.children ?? [], out)
+  return out
+}
+
+/** Text content of a rendered tree. O(n). */
+function renderedText(tree) {
+  if (Array.isArray(tree)) return tree.map(renderedText).join('')
+  if (tree === null || tree === undefined || tree === false) return ''
+  if (typeof tree !== 'object') return String(tree)
+  return renderedText(tree.props?.children ?? [])
+}
+
+function findNode(tree, predicate) {
+  return elements(tree).find(predicate)
+}
+
+function mergeScan(target, source) {
+  for (const label of source.labels) target.labels.add(label)
+  target.resets += source.resets
+  target.rows.push(...source.rows)
+}
+
+/**
+ * Field ids whose rendered row contains a "Restore default" button. The deepest div with
+ * exactly one label and one reset button is the row; clearing after recording keeps an
+ * ancestor page container from being reported again. O(n²) on a small tree.
+ */
+function rowsWithReset(tree) {
+  const resetLabel = '恢复默认'
+  const scan = (node) => {
+    if (Array.isArray(node)) {
+      const acc = { labels: new Set(), resets: 0, rows: [] }
+      for (const child of node) mergeScan(acc, scan(child))
+      return acc
+    }
+    if (node === null || typeof node !== 'object') {
+      return { labels: new Set(), resets: 0, rows: [] }
+    }
+    const acc = { labels: new Set(), resets: 0, rows: [] }
+    if (node.type === 'label' && typeof node.props.htmlFor === 'string') {
+      acc.labels.add(node.props.htmlFor)
+    }
+    for (const child of node.props.children ?? []) mergeScan(acc, scan(child))
+    if (node.type === 'button' && renderedText(node).includes(resetLabel)) acc.resets += 1
+    if (node.type === 'div' && acc.labels.size === 1 && acc.resets === 1) {
+      acc.rows.push([...acc.labels][0])
+      acc.labels.clear()
+      acc.resets = 0
+    }
+    return acc
+  }
+  return scan(tree).rows
+}
+
+const client = definition.factory((id) => {
+  if (id === 'react') return reactStub
+  throw new Error(`unexpected browser module ${id}`)
+})
+
+/** Render the registered settings section with one fake form. O(n). */
+function renderSection(overrides = {}) {
+  const context = fakeCtx({ form: readyForm(overrides) })
+  context.configForms.setServed(['pc-use'])
+  client.apply(context.ctx)
+  const entry = context.registrations.find((item) => item.options.name === 'settings.section')
+  assert.ok(entry, 'settings.section must be registered')
+  return { context, renderer: createRenderer(entry.Component) }
+}
+
+/** All rendered switch / input / select controls. O(n). */
+function renderedControls(tree) {
+  return elements(tree).filter((node) => (
+    node.type === 'input' || node.type === 'select'
+    || (node.type === 'button' && node.props.role === 'switch')
+  ))
+}
+
+/** One fake config form with the fields the settings host exposes. O(1). */
+class FakeForm {
+  constructor(overrides = {}) {
+    this.snapshot = {
+      status: 'ready',
+      value: {
+        computer: false,
+        desktopApprovalChoices: true,
+        rememberDesktopApprovals: true,
+        language: 'auto',
+        autoApprove: false,
+        timeoutMs: 120000,
+        codexHome: '',
+        logFile: '',
+      },
+      base: {},
+      user: {},
+      revision: 7,
+      writable: true,
+      ...overrides,
+    }
+    this.mutations = []
+    this.listeners = []
+    this.behavior = null
+  }
+
+  getSnapshot() {
+    return this.snapshot
+  }
+
+  subscribe(listener) {
+    this.listeners.push(listener)
+    return () => {
+      const index = this.listeners.indexOf(listener)
+      if (index >= 0) this.listeners.splice(index, 1)
+    }
+  }
+
+  countSubscriptions() {
+    return this.listeners.length
+  }
+
+  async mutate(ops, revision) {
+    this.mutations.push({ ops, revision })
+    if (this.behavior !== null) return this.behavior(ops, revision, this)
+    return true
+  }
+
+  update(patch) {
+    this.snapshot = { ...this.snapshot, ...patch }
+    for (const listener of [...this.listeners]) listener()
+  }
+}
+
+function fakeLocale() {
+  const dictionaries = new Map()
+  const locale = {
+    language: 'zh',
+    revision: 0,
+    register(namespace, dictionary) {
+      dictionaries.set(namespace, dictionary)
+      locale.revision += 1
+      return () => {
+        if (dictionaries.get(namespace) !== dictionary) return
+        dictionaries.delete(namespace)
+        locale.revision += 1
+      }
+    },
+    bind(namespace) {
+      return (key) => dictionaries.get(namespace)?.[locale.language]?.[key] ?? key
+    },
+    getSnapshot() {
+      return { revision: locale.revision }
+    },
+    subscribe() {
+      return () => {}
+    },
+  }
+  return { locale, dictionaries }
+}
+
+/** Fake configForms with the whileServed contract the real provider implements. O(1). */
+function fakeConfigForms(form) {
+  const configForms = {
+    forms: new Map(),
+    served: new Set(),
+    getCalls: [],
+    whileServedCalls: [],
+    disposed: 0,
+    sync: null,
+    get(entryId) {
+      this.getCalls.push(entryId)
+      if (!this.forms.has(entryId)) this.forms.set(entryId, form)
+      return this.forms.get(entryId)
+    },
+    whileServed(namespaces, register) {
+      this.whileServedCalls.push([...namespaces])
+      let off
+      const sync = () => {
+        const watched = namespaces.some((namespace) => this.served.has(namespace))
+        if (watched && off === undefined) off = register(new Set(this.served))
+        else if (!watched && off !== undefined) {
+          off()
+          off = undefined
+        }
+      }
+      this.sync = sync
+      sync()
+      return () => {
+        off?.()
+        off = undefined
+        this.disposed += 1
+      }
+    },
+  }
+  configForms.setServed = (namespaces) => {
+    configForms.served = new Set(namespaces)
+    if (typeof configForms.sync === 'function') configForms.sync()
+  }
+  return configForms
+}
+
+function fakeCtx(options = {}) {
+  const effects = []
+  const disposers = []
+  const registrations = []
+  let registered = 0
+  let unregistered = 0
+  const { locale } = fakeLocale()
+  const configForms = fakeConfigForms(options.form ?? new FakeForm())
+  const slots = {
+    injected: [],
+    inject(owner, callback) {
+      slots.injected.push(owner)
+      const dispose = callback()
+      return () => {
+        if (typeof dispose === 'function') dispose()
+      }
+    },
+    register(registration, Component) {
+      registered += 1
+      const entry = { options: registration, Component, disposed: false }
+      registrations.push(entry)
+      return () => {
+        unregistered += 1
+        entry.disposed = true
+        const index = registrations.indexOf(entry)
+        if (index >= 0) registrations.splice(index, 1)
+      }
+    },
+  }
+  const ctx = {
+    slots,
+    locale,
+    configForms,
+    effect(factory) {
+      effects.push(factory)
+      const dispose = factory()
+      if (typeof dispose === 'function') disposers.push(dispose)
+      return dispose
+    },
+    get() {
+      return undefined
+    },
+  }
+  return {
+    ctx, registrations, configForms, locale, effects, disposers,
+    counts: () => ({ registered, unregistered }),
+  }
+}
+
+function readyForm(overrides = {}) {
+  return new FakeForm(overrides)
+}
+
+function pageFor(form) {
+  return client.internals.createPage(form)
+}
+
+test('registers the pc-use settings section after the plugin market', () => {
+  const context = fakeCtx()
+  context.configForms.setServed(['pc-use'])
+  client.apply(context.ctx)
+  const entry = context.registrations.find((item) => item.options.name === 'settings.section')
+  assert.ok(entry, 'settings.section must be registered')
+  assert.equal(entry.options.id, 'pc-use')
+  assert.equal(typeof entry.options.order, 'number')
+  assert.ok(entry.options.order > 40, 'must sort after dshmarket order 40')
+  context.locale.language = 'zh'
+  assert.equal(entry.options.label(), '电脑操控')
+  context.locale.language = 'en'
+  assert.equal(entry.options.label(), 'PC Use')
+})
+
+test('whileServed only registers while the pc-use entry is served', () => {
+  const context = fakeCtx()
+  client.apply(context.ctx)
+  assert.equal(context.registrations.length, 0)
+  assert.deepEqual(context.configForms.whileServedCalls[0], ['pc-use'])
+  context.configForms.setServed(['pc-use'])
+  assert.equal(context.registrations.length, 1)
+  context.configForms.setServed([])
+  assert.equal(context.registrations.length, 0)
+  context.configForms.setServed(['another-plugin'])
+  assert.equal(context.registrations.length, 0)
+})
+
+test('controls write the right keys, units and read revision', async () => {
+  const form = readyForm()
+  const page = pageFor(form)
+  assert.equal(page.getSnapshot().status, 'ready')
+  assert.equal(page.getSnapshot().revision, 7)
+  await page.setToggle('computer', true)
+  assert.deepEqual(form.mutations[0], {
+    ops: [{ op: 'set', path: ['computer'], value: true }],
+    revision: 7,
+  })
+  await page.setToggle('desktopApprovalChoices', false)
+  await page.setToggle('rememberDesktopApprovals', false)
+  await page.setToggle('autoApprove', true)
+  await page.setLanguage('en')
+  assert.deepEqual(form.mutations[4].ops, [{ op: 'set', path: ['language'], value: 'en' }])
+  page.editText('timeoutMs', '60')
+  await page.commitText('timeoutMs')
+  assert.deepEqual(form.mutations[5].ops, [{ op: 'set', path: ['timeoutMs'], value: 60000 }])
+  assert.equal(form.mutations[5].revision, 7)
+  await page.resetField('computer')
+  assert.deepEqual(form.mutations[6].ops, [{ op: 'unset', path: ['computer'] }])
+  assert.equal(form.mutations[6].revision, 7)
+  page.editText('codexHome', '  C:\\codex  ')
+  await page.commitText('codexHome')
+  assert.deepEqual(form.mutations[7].ops, [{ op: 'set', path: ['codexHome'], value: 'C:\\codex' }])
+  page.editText('logFile', 'C:\\log.txt')
+  await page.commitText('logFile')
+  assert.deepEqual(form.mutations[8].ops, [{ op: 'set', path: ['logFile'], value: 'C:\\log.txt' }])
+})
+
+test('a timeout outside 10-3600 seconds is not saved', async () => {
+  const form = readyForm()
+  const page = pageFor(form)
+  for (const value of ['5', '3601', 'abc', '']) {
+    page.editText('timeoutMs', value)
+    await page.commitText('timeoutMs')
+    assert.equal(page.getSnapshot().errors.timeoutMs, 'timeoutRange', value)
+  }
+  assert.equal(form.mutations.length, 0)
+  page.editText('timeoutMs', '3600')
+  await page.commitText('timeoutMs')
+  assert.equal(form.mutations.length, 1)
+  assert.equal(form.mutations[0].ops[0].value, 3600000)
+})
+
+test('a revision conflict keeps the input and refreshes the display', async () => {
+  const form = readyForm()
+  form.behavior = async (_ops, revision, self) => {
+    self.update({ revision: revision + 1, value: { ...self.snapshot.value, timeoutMs: 180000 } })
+    return false
+  }
+  const page = pageFor(form)
+  page.editText('timeoutMs', '60')
+  const accepted = await page.commitText('timeoutMs')
+  assert.equal(accepted, false)
+  const state = page.getSnapshot()
+  assert.equal(state.notice, 'conflict')
+  assert.equal(state.drafts.timeoutMs, '60')
+  assert.equal(state.values.timeoutMs, 180000)
+  assert.equal(state.revision, 8)
+})
+
+test('a read-only form is not written and a rejected field turns read-only', async () => {
+  const readOnlyForm = readyForm({ writable: false })
+  const readOnlyPage = pageFor(readOnlyForm)
+  assert.equal(readOnlyPage.getSnapshot().writable, false)
+  await readOnlyPage.setToggle('computer', true)
+  assert.equal(readOnlyForm.mutations.length, 0)
+  const form = readyForm()
+  form.behavior = async () => false
+  const page = pageFor(form)
+  await page.setToggle('computer', true)
+  const state = page.getSnapshot()
+  assert.equal(state.readOnly.computer, 'writeRejected')
+  await page.setToggle('computer', false)
+  assert.equal(form.mutations.length, 1)
+})
+
+test('a failed read shows readFailed instead of default values', () => {
+  const form = readyForm({ status: 'unavailable', value: undefined, revision: undefined })
+  const page = pageFor(form)
+  const state = page.getSnapshot()
+  assert.equal(state.status, 'failed')
+  assert.equal(state.readFailed, true)
+  assert.equal('timeoutMs' in state.values, false)
+  assert.equal('computer' in state.values, false)
+})
+
+test('the two client dictionaries have identical keys and no empty strings', () => {
+  const zh = client.copy.zh
+  const en = client.copy.en
+  assert.deepEqual(Object.keys(zh).sort(), Object.keys(en).sort())
+  for (const [key, value] of Object.entries(zh)) assert.notEqual(String(value).trim(), '', key)
+  for (const [key, value] of Object.entries(en)) assert.notEqual(String(value).trim(), '', key)
+})
+
+test('disposing the page module clears every registration and subscription', () => {
+  const context = fakeCtx()
+  context.configForms.setServed(['pc-use'])
+  client.apply(context.ctx)
+  assert.equal(context.effects.length, 2)
+  const counts = context.counts()
+  assert.equal(counts.registered, 1)
+  for (const dispose of context.disposers) dispose()
+  assert.deepEqual(context.counts(), { registered: 1, unregistered: 1 })
+  assert.equal(context.configForms.disposed, 1)
+  const form = readyForm()
+  const page = pageFor(form)
+  page.mount()
+  assert.equal(form.countSubscriptions(), 1)
+  const unsubscribe = page.subscribe(() => {})
+  unsubscribe()
+  page.dispose()
+  assert.equal(form.countSubscriptions(), 0)
+})
+
+test('the rendered page shows the three groups', () => {
+  const { renderer } = renderSection()
+  const content = renderedText(renderer.getTree())
+  for (const group of ['桌面操控', '浏览器', '连接与日志']) {
+    assert.ok(content.includes(group), `missing group ${group}`)
+  }
+})
+
+test('"Restore default" only appears for fields with a user override', () => {
+  const untouched = renderSection()
+  assert.deepEqual(rowsWithReset(untouched.renderer.getTree()), [])
+  const changed = renderSection({ user: { computer: true, autoApprove: false } })
+  assert.deepEqual(rowsWithReset(changed.renderer.getTree()).sort(), [
+    'pc-use-autoApprove',
+    'pc-use-computer',
+  ])
+})
+
+test('a failed read renders readFailed and no controls', () => {
+  const { renderer } = renderSection({
+    status: 'unavailable',
+    value: undefined,
+    revision: undefined,
+  })
+  assert.ok(renderedText(renderer.getTree()).includes('读取失败'))
+  assert.equal(renderedControls(renderer.getTree()).length, 0)
+})
+
+test('an out-of-range timeout shows the error and aria-invalid on the input', () => {
+  const { renderer } = renderSection()
+  const input = findNode(renderer.getTree(), (node) => (
+    node.type === 'input' && node.props.id === 'pc-use-timeoutMs'
+  ))
+  assert.ok(input)
+  input.props.onChange({ target: { value: '5' } })
+  input.props.onBlur()
+  renderer.render()
+  const invalid = findNode(renderer.getTree(), (node) => (
+    node.type === 'input' && node.props.id === 'pc-use-timeoutMs'
+  ))
+  assert.equal(invalid.props['aria-invalid'], true)
+  assert.ok(renderedText(renderer.getTree()).includes('请输入 10 到 3600 之间的整数秒。'))
+})
+
+test('a read-only form disables every control', () => {
+  const { renderer } = renderSection({ writable: false })
+  const controls = renderedControls(renderer.getTree())
+  assert.equal(controls.length > 0, true)
+  for (const control of controls) assert.equal(control.props.disabled, true)
+})

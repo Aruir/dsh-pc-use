@@ -19,6 +19,11 @@ English | [中文](README.zh.md)
 0.4.0 added: the rename to `dsh-pc-use`; `pc_codex_docs` for Codex's own docs; loading by package
 name with display name and icon; `pc_status` now groups by backend (`backends`).
 
+0.4.3 added: a "PC Use" settings page in the DSH settings sidebar right below the plugin market,
+with desktop control, three-option card, remembered approvals, interface text, browser auto-approval,
+call timeout, Codex home and bridge log fields; `codexHome` became volatile, so the next call
+reconnects to the new Codex directory without remounting the plugin.
+
 0.4.2: fixed three issues found in live testing — `turn_ended` `_meta` used the next turn's turn id,
 waiting for an approval counted against the call timeout, and the plugin kept the old desktop helper
 pipe after Codex restarted; desktop approvals now use a three-option card (`desktopApprovalChoices`,
@@ -142,10 +147,11 @@ All fields are optional and go in the `config:` block of `cordis.patch.yml`.
 | `tools.docs` | `true` | Register `pc_codex_docs`: read Codex's bundled Computer Use docs (no Codex connection needed) |
 
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `desktopApprovalChoices` / `language` /
-`logFile` / `timeoutMs` are hot-updatable (volatile): a change applies to later calls without
-remounting the plugin; after `computer` changes, the next call stops the old connection and
-reconnects with the new value. `enabled`, `codexHome` and `tools.*` are not volatile; changing one
-remounts the plugin and registers the tools again for the new configuration.
+`codexHome` / `logFile` / `timeoutMs` are hot-updatable (volatile): a change applies to later calls
+without remounting the plugin; after `computer` changes, the next call stops the old connection and
+reconnects with the new value, and after `codexHome` changes the next call re-resolves and reconnects
+to that directory. `enabled` and `tools.*` are not volatile; changing one remounts the plugin and
+registers the tools again for the new configuration.
 
 `language` only affects the text this plugin displays (the two sets — Chinese and English — of the
 three-option card, the one-shot card's `displayReason` and the audit `reason`): `auto` first tries to
@@ -171,6 +177,22 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 
 If Codex changes the approval wording, browser and desktop approvals are both declined — a safe
 failure mode.
+
+## Settings page (0.4.3)
+
+The DSH settings sidebar shows a "PC Use" page right below "Plugin market" (entry id `pc-use`; it
+only appears while the Host serves that entry). It can change:
+
+- **Desktop control**: `computer`, `desktopApprovalChoices`, `rememberDesktopApprovals`, `language`;
+- **Browser**: `autoApprove`;
+- **Connection and logs**: `timeoutMs` (seconds, 10–3600, stored in milliseconds), `codexHome`,
+  `logFile`.
+
+Switches and the language select save immediately; text and number fields save on blur or Enter.
+Every field shows "Restore default" once the user has changed it. `enabled` and `tools.*` are not on
+the page: enable the plugin in "Built-in plugins" or the plugin manager, and change tool switches in
+the profile. `codexHome` is volatile: the next call after a change re-resolves and reconnects to the
+new Codex directory without remounting the plugin.
 
 ## Desktop control
 
@@ -291,6 +313,7 @@ The smoke test connects to Codex and drives the real Chrome.
 ## Implementation
 
 - `index.js` — the cordis plugin: `defineTool` + `parameters` DSL, the Schemastery `Config`, lazy connections and `ctx.effect` cleanup
+- `client.js` — the browser half: the "PC Use" settings section (`settings.section`), its controls and the zh/en client dictionaries
 - `lib/text.js` — the Chinese and English text the plugin displays itself (three-option card, `displayReason`, audit reason, config descriptions); both key sets match
 - `lib/config-value.js` — unwraps the `Volatile` config values passed by the cordis loader
 - `lib/define-tool.js` — portable fallback for `defineTool`: converts the parameter DSL to object JSON Schema and validates arguments before `execute`

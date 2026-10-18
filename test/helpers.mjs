@@ -59,7 +59,9 @@ export function registerPlugin(config, options = {}) {
   const disposers = []
   const handlers = []
   const services = options.services ?? {}
+  const fiber = options.fiber ?? { id: 'plugin-fiber' }
   const ctx = {
+    fiber,
     tools: {
       register(tool) {
         if (tools.has(tool.name)) throw new Error(`duplicate tool: ${tool.name}`)
@@ -78,6 +80,9 @@ export function registerPlugin(config, options = {}) {
       const created = []
       const scope = {
         ...services,
+        effect(factory) {
+          disposers.push(factory())
+        },
         on(event, handler) {
           const entry = { event, handler }
           created.push(entry)
@@ -100,6 +105,7 @@ export function registerPlugin(config, options = {}) {
   apply(ctx, config)
   return {
     tools,
+    fiber,
     emit(event, ...args) {
       for (const entry of handlers.filter((item) => item.event === event)) {
         entry.handler(...args)

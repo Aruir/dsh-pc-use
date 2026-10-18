@@ -70,12 +70,11 @@ try {
 
 /**
  * The plugin's configuration schema. `autoApprove`, `computer`,
- * `rememberDesktopApprovals`, `logFile` and `timeoutMs` are `.volatile()`: the loader
- * writes new values into the running plugin and every use re-reads them, so they never
- * remount it. `desktopApprovalChoices` and `language` are volatile too, because the
- * settings UI flips them live; `enabled`, `codexHome` and `tools.*` are deliberately not
- * volatile: changing one remounts the plugin, the old bridge is disposed by `ctx.effect`,
- * and the tools are registered again for the new values.
+ * `rememberDesktopApprovals`, `desktopApprovalChoices`, `language`, `codexHome`, `logFile`
+ * and `timeoutMs` are `.volatile()`: the loader writes new values into the running plugin
+ * and every use re-reads them, so they never remount it (the settings page edits them live).
+ * `enabled` and `tools.*` are deliberately not volatile: changing one remounts the plugin,
+ * the old bridge is disposed by `ctx.effect`, and the tools are registered again.
  */
 function buildConfig(schema) {
   if (schema === null) return undefined
@@ -102,7 +101,8 @@ function buildConfig(schema) {
         .description('插件界面文字的语言：auto 跟随 DSH 界面语言，或强制 zh / en。')
         .volatile(),
       codexHome: schema.string().default('')
-        .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。'),
+        .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。')
+        .volatile(),
       logFile: schema.string().default('')
         .description('桥接日志路径；留空则写入 ~/.dsh/pc-use.log。')
         .volatile(),
@@ -225,10 +225,13 @@ export function apply(ctx, raw = {}) {
   const source = raw ?? {}
   if (unwrapConfigValue(source.enabled) === false) return
 
-  const configuredHome = unwrapConfigValue(source.codexHome)
-  const codexHome = typeof configuredHome === 'string' && configuredHome !== ''
-    ? configuredHome
-    : defaultCodexHome()
+  /** Read the configured Codex home at every use; the field is volatile. O(1). */
+  const codexHome = () => {
+    const configuredHome = unwrapConfigValue(source.codexHome)
+    return typeof configuredHome === 'string' && configuredHome !== ''
+      ? configuredHome
+      : defaultCodexHome()
+  }
 
   const toolEnabled = (key) => {
     const tools = unwrapConfigValue(source.tools)
@@ -483,6 +486,8 @@ export function apply(ctx, raw = {}) {
   let activeServices = null
   let activeServicesFrom = null
   let lastSpec = null
+  // Which codexHome produced lastSpec; a change makes the old connection stale.
+  let lastSpecHome = null
 
   // F6: per-agent Codex session/turn identity, separate from remembered approvals.
   const agentTurns = new WeakMap()
@@ -565,11 +570,18 @@ export function apply(ctx, raw = {}) {
   /** Re-resolve the launch spec; null when Codex's config cannot be read. O(file size). */
   const resolveSpecOrNull = () => {
     try {
-      const spec = resolveCodexServer({ codexHome })
+      const spec = resolveCodexServer({ codexHome: codexHome() })
       return spec.ok === true ? spec : null
     } catch {
       return null
     }
+  }
+
+  /** Last spec only while codexHome is unchanged; otherwise re-resolve. O(file size). */
+  const currentSpec = () => {
+    const home = codexHome()
+    if (lastSpec !== null && lastSpecHome === home) return lastSpec
+    return resolveCodexServer({ codexHome: home })
   }
 
   const ensureBridge = async () => {
@@ -580,6 +592,13 @@ export function apply(ctx, raw = {}) {
     const computer = computerEnabled()
     if (rememberEnabled() !== true) {
       resetRemembered()
+    }
+    const home = codexHome()
+    // A changed codexHome is not an unreadable config: the old bridge belongs to another
+    // directory, so disconnect first and resolve the new directory below.
+    if (lastSpecHome !== null && lastSpecHome !== home) {
+      log('Codex home changed; reconnecting')
+      dropBridge()
     }
     // D15: Codex rewrites .mcp.json on every app start, so re-read the launch spec
     // before reusing a live bridge. O(file size): one config.toml + .mcp.json read.
@@ -607,7 +626,7 @@ export function apply(ctx, raw = {}) {
     if (bridge !== null) {
       dropBridge()
     }
-    const spec = resolveCodexServer({ codexHome })
+    const spec = resolveCodexServer({ codexHome: home })
     if (!spec.ok) throw new Error(`dsh-pc-use: ${spec.reason}`)
     const env = { ...spec.env }
     const surfaces = computer
@@ -638,6 +657,7 @@ export function apply(ctx, raw = {}) {
       log,
     })
     lastSpec = spec
+    lastSpecHome = home
     bridge = created
     // One promise for the whole handshake: a second call during the first handshake
     // reuses this connection instead of spawning another server.
@@ -748,9 +768,9 @@ export function apply(ctx, raw = {}) {
             `pc_codex_docs topic must be one of: ${COMPUTER_USE_DOC_TOPICS.join(', ')}`,
           )
         }
-        const spec = lastSpec ?? resolveCodexServer({ codexHome })
+        const spec = currentSpec()
         const preferVersion = spec.ok === true ? versionFromSource(spec.source) : null
-        const resolved = resolveComputerUseDocs({ codexHome, preferVersion })
+        const resolved = resolveComputerUseDocs({ codexHome: codexHome(), preferVersion })
         const file = resolved.files[topic]
         let size
         try {
@@ -782,7 +802,7 @@ export function apply(ctx, raw = {}) {
       parameters: {},
       output,
       async execute() {
-        const spec = lastSpec ?? resolveCodexServer({ codexHome })
+        const spec = currentSpec()
         const connected = bridge !== null && bridge.alive
         return JSON.stringify({
           backends: {
@@ -798,7 +818,7 @@ export function apply(ctx, raw = {}) {
               computer: connected ? activeSurfaces : null,
               services: connected ? activeServices : null,
               servicesFrom: connected ? activeServicesFrom : null,
-              codexHome,
+              codexHome: codexHome(),
             },
           },
         }, null, 2)
@@ -814,6 +834,14 @@ export function apply(ctx, raw = {}) {
     } catch (error) {
       console.error(`dsh-pc-use: registering the ${key} tool failed`, error)
     }
+  }
+
+  // The settings page edits the volatile fields, so tell the settings service this
+  // plugin provides its own page instead of a generated form. The service is optional.
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['settings'], (scope) => {
+      scope.effect(() => scope.settings.configure({ auto: false }, ctx.fiber))
+    })
   }
 
   // F6: DSH session events. `ctx.inject` waits for the `agents` service and the

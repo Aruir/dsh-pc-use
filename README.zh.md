@@ -18,6 +18,10 @@
 0.4.0 新增：改名为 `dsh-pc-use`；新增 `pc_codex_docs` 读取 Codex 自带文档；按包名加载并补上
 显示名与图标；`pc_status` 改为按后端分组（`backends`）。
 
+0.4.3 新增：DSH 设置侧栏“插件市场”下方的“电脑操控”设置页，可改桌面操控、三选项卡片、记住授权、
+界面文字、浏览器自动授权、调用超时、Codex 配置目录与日志路径；`codexHome` 改为 volatile，改完下一次
+调用即重新解析并换到新目录，插件不重新挂载。
+
 0.4.2：修复三处实测问题——`turn_ended` 的 `_meta` 用了下一轮 turn id、等待授权的时间计入
 调用超时、Codex 重启后仍连着旧桌面助手管道；桌面授权改为三选项卡片（`desktopApprovalChoices`，
 默认开启；关闭或授权策略为“完全权限”时沿用原一次性卡片）；加入英文支持（`language` 控制插件
@@ -122,9 +126,9 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `tools.docs` | `true` | 注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档（不需要 Codex 连接） |
 
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `desktopApprovalChoices` / `language` /
-`logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载插件；`computer`
-改变后，下一次调用会先停掉旧连接再按新值重连。`enabled`、`codexHome`、`tools.*` 不是 volatile，
-改动会重新挂载插件并按新配置注册工具。
+`codexHome` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载
+插件；`computer` 改变后，下一次调用会先停掉旧连接再按新值重连；`codexHome` 改变后，下一次调用会
+重新解析并连到新目录。`enabled`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。
 
 `language` 只影响插件自己显示的文字（三选项卡片、一次性卡片的 `displayReason` 与审计 `reason` 的
 中英两套）：`auto` 先尝试读取 DSH 宿主公开的界面语言偏好，读不到时用系统语言（`zh` 开头为中文，
@@ -142,6 +146,18 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 - 桌面授权不适用 `autoApprove`：`computer: false` 时一律 decline（`computer use is off`）；`computer: true` 时交给 DSH 审批，结果写进日志（`approved in DSH` / `rejected in DSH` / `approval cancelled` / `approval unavailable`），没有审批服务或没有进行中的 `pc_codex_js` 调用时 decline。
 
 如果 Codex 改掉授权文案，浏览器授权和桌面授权都会被拒绝——这是安全的失败方式。
+
+## 设置页（0.4.3）
+
+DSH 设置侧栏的“插件市场”下方有“电脑操控”页（条目 id `pc-use`，只在 Host 提供该条目时显示）。可以改：
+
+- **桌面操控**：`computer`、`desktopApprovalChoices`、`rememberDesktopApprovals`、`language`；
+- **浏览器**：`autoApprove`；
+- **连接与日志**：`timeoutMs`（秒，10–3600，按毫秒保存）、`codexHome`、`logFile`。
+
+开关和下拉框改完立即保存，文本框与数字在失焦或回车时保存；每项在改过后出现“恢复默认”。
+`enabled` 与 `tools.*` 不在页面上：启用插件请到“内置插件”或插件管理，工具开关改 profile。
+`codexHome` 是 volatile：改完下一次调用会重新解析并换到新的 Codex 目录，插件不重新挂载。
 
 ## 桌面操控
 
@@ -248,6 +264,7 @@ npm run test:smoke
 ## 实现
 
 - `index.js` — cordis 插件：`defineTool` + `parameters` DSL 声明工具、导出 Schemastery `Config`、懒连接、`ctx.effect` 清理
+- `client.js` — 浏览器半侧：“电脑操控”设置页（`settings.section`）、控件与中英文界面字典
 - `lib/text.js` — 插件自己显示的中英文字（三选项卡片、`displayReason`、审计 reason、配置说明），两套键一致
 - `lib/config-value.js` — 解包 cordis 加载器传入的 `Volatile` 配置值
 - `lib/define-tool.js` — `defineTool` 的可移植兜底：把参数 DSL 转成对象 JSON Schema，并在 `execute` 前校验参数
