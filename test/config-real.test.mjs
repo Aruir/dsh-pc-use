@@ -12,6 +12,8 @@ const schemastery = await import('@deepseek-ai/schemastery').catch(() => null)
 const canResolve = schemastery !== null && Config !== undefined
 const SKIP = '@deepseek-ai/schemastery is not installed; the real Config resolution path cannot run'
 
+const TOOL_NAMES = ['pc_codex_js', 'pc_codex_js_reset', 'pc_codex_docs', 'pc_status']
+
 function validate(raw) {
   const result = Config['~standard'].validate(raw)
   assert.equal(result.issues, undefined)
@@ -25,18 +27,29 @@ function bundlePatch(codexHome = '') {
     codexHome,
     logFile: '',
     timeoutMs: 120000,
-    tools: { js: true, reset: true, addNodeModuleDir: true, docs: true, status: true },
+    tools: { js: true, reset: true, docs: true, status: true },
   }
 }
 
-test('the bundle patch config registers all five tools', (t) => {
+test('the bundle patch config registers all four tools', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate(bundlePatch()))
   try {
-    assert.deepEqual([...plugin.tools.keys()], [
-      'pc_codex_js', 'pc_codex_js_reset', 'pc_codex_js_add_node_module_dir', 'pc_codex_docs',
-      'pc_status',
-    ])
+    assert.deepEqual([...plugin.tools.keys()], TOOL_NAMES)
+  } finally {
+    plugin.dispose()
+  }
+})
+
+test('old config keys addNodeModuleDir and stateFile are tolerated', (t) => {
+  if (!canResolve) return t.skip(SKIP)
+  const value = validate({
+    tools: { js: true, reset: true, addNodeModuleDir: true, docs: true, status: true },
+    stateFile: 'X',
+  })
+  const plugin = registerPlugin(value)
+  try {
+    assert.deepEqual([...plugin.tools.keys()], TOOL_NAMES)
   } finally {
     plugin.dispose()
   }
@@ -52,12 +65,12 @@ test('enabled:false registers nothing through the real config path', (t) => {
   }
 })
 
-test('tools.js:false registers the other four tools through the real config path', (t) => {
+test('tools.js:false registers the other three tools through the real config path', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate({ tools: { js: false } }))
   try {
     assert.deepEqual([...plugin.tools.keys()], [
-      'pc_codex_js_reset', 'pc_codex_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
+      'pc_codex_js_reset', 'pc_codex_docs', 'pc_status',
     ])
   } finally {
     plugin.dispose()
@@ -83,7 +96,7 @@ test('autoApprove defaults to false (fail-closed)', (t) => {
   assert.equal(unwrapConfigValue(value.autoApprove), false)
   const plugin = registerPlugin(value)
   try {
-    assert.equal(plugin.tools.size, 5)
+    assert.equal(plugin.tools.size, 4)
   } finally {
     plugin.dispose()
   }

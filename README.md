@@ -6,16 +6,19 @@
 - 工具名：`codex_js` / `codex_js_reset` / `codex_js_add_node_module_dir` / `codex_status`
   改为 `pc_codex_js` / `pc_codex_js_reset` / `pc_codex_js_add_node_module_dir` / `pc_status`，
   并新增 `pc_codex_docs`；
-- 默认日志 `~/.dsh/codex-cu.log` → `~/.dsh/pc-use.log`，默认状态文件
-  `~/.dsh/codex-cu-state.json` → `~/.dsh/pc-use-state.json`，默认截图目录
+- 默认日志 `~/.dsh/codex-cu.log` → `~/.dsh/pc-use.log`，默认截图目录
   `~/.dsh/codex-cu-images` → `~/.dsh/pc-use-images`；
 - **profile 里的覆盖要改 id：**`- id: codex-cu` 必须改成 `- id: pc-use`，否则不再生效；
-- 旧状态文件只在默认路径下迁移一次会话 id，旧文件不删；旧日志与截图目录不迁移；
+- 0.4.1 起不再使用状态文件；旧日志与截图目录不迁移；
 - 没有采用 `dsh-computer-use`：npm 上已有同名的其他 DSH 插件，插件市场按包名查更新时
   可能误替换，所以改名为 `dsh-pc-use`。
 
 0.4.0 新增：改名为 `dsh-pc-use`；新增 `pc_codex_docs` 读取 Codex 自带文档；按包名加载并补上
 显示名与图标；`pc_status` 改为按后端分组（`backends`）。
+
+0.4.1 修正：删除 `pc_codex_js_add_node_module_dir` 工具、`tools.addNodeModuleDir` 与
+`stateFile` 配置项；桥接级 `session_id` 改为内存随机生成，不再读写状态文件；旧配置里的这些键
+照常加载。
 
 0.3.2 修正：同一 DSH 会话内按应用记住桌面授权（`rememberDesktopApprovals`）；每轮结束通知
 Codex `turn_ended`，收起“正在使用你的电脑”的橙色光圈。
@@ -47,7 +50,6 @@ Codex `turn_ended`，收起“正在使用你的电脑”的橙色光圈。
 |---|---|
 | `pc_codex_js` | 在持久的 `cua_repl` 内核里执行 JS，用 `cua` API 打开/读取/操作网页，或用 `sky` 操作桌面应用 |
 | `pc_codex_js_reset` | 重置 JS 内核（不关闭标签页和应用） |
-| `pc_codex_js_add_node_module_dir` | 给内核增加一个 `node_modules` 解析目录 |
 | `pc_codex_docs` | 读取本机 Codex 自带的 Computer Use 文档（`skill` / `guidance` / `api` / `confirmations`） |
 | `pc_status` | 报告解析结果和连接状态；其他工具失败时先看它 |
 
@@ -105,13 +107,12 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `computer` | `false` | 开启 Windows 桌面应用操控（Codex Computer Use）；是否弹卡片由 DSH 的权限模式决定 |
 | `rememberDesktopApprovals` | `true` | 同一个 DSH 会话里，某个应用经你允许一次后不再询问；拒绝不会被记住 |
 | `codexHome` | `''` | 空表示 `%USERPROFILE%\.codex` |
-| `stateFile` | `''` | 会话状态文件路径；空表示 `~/.dsh/pc-use-state.json` |
 | `logFile` | `''` | 桥接日志路径；空表示 `~/.dsh/pc-use.log` |
 | `timeoutMs` | `120000` | 单次调用超时 |
-| `tools` | 全开 | `{ js, reset, addNodeModuleDir, docs, status }` 逐项开关 |
+| `tools` | 全开 | `{ js, reset, docs, status }` 逐项开关 |
 | `tools.docs` | `true` | 注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档（不需要 Codex 连接） |
 
-`autoApprove` / `computer` / `rememberDesktopApprovals` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载插件；`computer` 改变后，下一次调用会先停掉旧连接再按新值重连。`enabled`、`codexHome`、`stateFile`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。
+`autoApprove` / `computer` / `rememberDesktopApprovals` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载插件；`computer` 改变后，下一次调用会先停掉旧连接再按新值重连。`enabled`、`codexHome`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。
 
 每一次审批都会写进日志（`logFile` 为空时写入 `~/.dsh/pc-use.log`，不再只走 `console.warn`），记录原始文案、决定和原因，例如：
 
@@ -124,8 +125,6 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 - 桌面授权不适用 `autoApprove`：`computer: false` 时一律 decline（`computer use is off`）；`computer: true` 时交给 DSH 审批，结果写进日志（`approved in DSH` / `rejected in DSH` / `approval cancelled` / `approval unavailable`），没有审批服务或没有进行中的 `pc_codex_js` 调用时 decline。
 
 如果 Codex 改掉授权文案，浏览器授权和桌面授权都会被拒绝——这是安全的失败方式。
-
-`stateFile` 保存一个持久的 `session_id`，重启后沿用同一个 id；它是否让 Codex 按 session_id 跨会话保留已授予的授权，**未验证**。冒烟测试会传入临时路径，避免测试产生的状态和授权写进日常使用的那一份。
 
 ## 桌面操控
 
@@ -162,7 +161,8 @@ Windows 桌面应用操控默认关闭。Codex 的 `cua_repl` 用环境变量 `C
 每轮 DSH 轮次结束时，插件会用同一 agent 的 Codex `session_id` / `turn_id` 调用
 `turn_ended`（正常结束为 `Stop`，中途停止为 `Interrupt`，子 agent 为 `SubagentStop`）。
 这会让 Codex 收起屏幕上“正在使用你的电脑”的橙色光圈，并结束那一轮。本轮没有调用过
-`pc_codex_js`、桥接未连接或插件已卸载时不会补发；桥接重连后从新的 `turn_id` 开始。
+`pc_codex_js` 或 `pc_codex_js_reset`、桥接未连接或插件已卸载时不会补发；桥接重连后从新的
+`turn_id` 开始。
 
 ### 先读 Codex 自带的文档：`pc_codex_docs`
 
@@ -241,7 +241,7 @@ npm run test:smoke
 
 `dsh plugin add` 安装的是 `link:` 目录，插件从**工作区路径**加载。DSH 桌面版 0.2.1-rc.2 的 profile 设置了 `autoInstallPeers: false`，也没有通用的 `@deepseek-ai` 解析钩子，因此以 `link:` 安装时插件解析不到宿主包（`@deepseek-ai/dsh-tools` / `@deepseek-ai/schemastery` / `@deepseek-ai/cordis`），始终走 `lib/define-tool.js` 的兜底分支。兜底分支已与宿主原生 `defineTool` 核对一致：把参数 DSL 转成对象 JSON Schema，并在执行前校验参数。
 
-0.1.0 在这里踩过坑：拿不到 `defineTool` 时直接把参数 DSL（`{ code: { type: 'string', required: true } }`）当成 JSON Schema 注册，模型请求里出现了非法 schema（属性里带 `required`、根缺 `type: object`），DeepSeek 直接拒绝**整轮**请求。`npm test` 会在离线环境断言五个工具都发布合法的对象 JSON Schema。
+0.1.0 在这里踩过坑：拿不到 `defineTool` 时直接把参数 DSL（`{ code: { type: 'string', required: true } }`）当成 JSON Schema 注册，模型请求里出现了非法 schema（属性里带 `required`、根缺 `type: object`），DeepSeek 直接拒绝**整轮**请求。`npm test` 会在离线环境断言四个工具都发布合法的对象 JSON Schema。
 
 只有插件目录里装了 `@deepseek-ai/schemastery` 之后，设置界面才会出现这些开关——这是插件自己的 devDependency 带来的效果（本地 `npm install` 后插件目录里才会有一份）。发布和安装方式需要留意这一点。
 桌面版 0.2.1-rc.2 实测不显示配置表单，`computer` 等配置仍需改 profile 的 `cordis.patch.yml`。

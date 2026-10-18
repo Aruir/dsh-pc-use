@@ -83,7 +83,6 @@ function setup(envSurfaces = 'browser', config = {}, trusted = { present: false 
   const plugin = registerPlugin({
     codexHome,
     logFile: join(home, 'bridge.log'),
-    stateFile: join(home, 'state.json'),
     ...config,
   })
   return {

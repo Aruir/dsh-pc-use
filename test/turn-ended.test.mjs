@@ -50,7 +50,6 @@ function setup(options = {}) {
   const plugin = registerPlugin({
     codexHome,
     logFile,
-    stateFile: join(home, 'state.json'),
     ...options.config,
   }, { services: { agents } })
   return { home, restore, serverLog, pidFile, logFile, plugin, agents }
@@ -62,6 +61,11 @@ function readLines(file) {
 
 function callLines(file) {
   return readLines(file).filter((line) => line.startsWith('call js '))
+}
+
+/** Every recorded `call <tool> ...` line, reset included. O(n), n = log lines. */
+function toolCalls(file) {
+  return readLines(file).filter((line) => line.startsWith('call '))
 }
 
 function turnEnded(file) {
@@ -284,5 +288,41 @@ test('no turn_ended is sent after the plugin is disposed', async () => {
     assert.deepEqual(turnEnded(context.serverLog), [])
   } finally {
     context.restore()
+  }
+})
+
+test('pc_codex_js_reset uses the agent session and turn ids', async () => {
+  const context = setup()
+  try {
+    const { agent } = context.agents.add('session-reset-ids')
+    await context.plugin.tools.get('pc_codex_js_reset').execute({}, execFor(agent, 'call-reset'))
+    assert.equal(await waitFor(() => toolCalls(context.serverLog).length === 1), true)
+    const [, , sessionId, turnId] = toolCalls(context.serverLog)[0].split(' ')
+    await runJs(context, execFor(agent, 'call-js'))
+    assert.equal(await waitFor(() => toolCalls(context.serverLog).length === 2), true)
+    const jsCall = toolCalls(context.serverLog)[1].split(' ')
+    assert.equal(jsCall[2], sessionId)
+    assert.equal(jsCall[3], turnId)
+  } finally {
+    finish(context)
+  }
+})
+
+test('a turn that only called reset still reports one turn_ended', async () => {
+  const context = setup()
+  try {
+    const { agent, session } = context.agents.add('session-reset-turn')
+    await context.plugin.tools.get('pc_codex_js_reset').execute({}, execFor(agent, 'call-only'))
+    assert.equal(await waitFor(() => toolCalls(context.serverLog).length === 1), true)
+    const [, , sessionId, turnId] = toolCalls(context.serverLog)[0].split(' ')
+    emitTurnEnd(context, session)
+    assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 1), true)
+    assert.deepEqual(turnEnded(context.serverLog)[0], {
+      hook_event_name: 'Stop',
+      session_id: sessionId,
+      turn_id: turnId,
+    })
+  } finally {
+    finish(context)
   }
 })

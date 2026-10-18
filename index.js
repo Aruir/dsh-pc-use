@@ -17,10 +17,10 @@
 //
 // Everything is lazy: importing or applying the plugin never spawns a process.
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 import {
   APPROVE, DECLINE, decisionFromHostOutcome, desktopAppKey, wantsSessionApproval,
@@ -59,17 +59,17 @@ try {
 
 /**
  * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean,
- *   rememberDesktopApprovals: boolean, codexHome: string, stateFile: string, logFile: string,
- *   timeoutMs: number, tools: {js: boolean, reset: boolean, addNodeModuleDir: boolean,
- *   docs: boolean, status: boolean}}} Config
+ *   rememberDesktopApprovals: boolean, codexHome: string, logFile: string,
+ *   timeoutMs: number, tools: {js: boolean, reset: boolean, docs: boolean,
+ *   status: boolean}}} Config
  */
 
 /**
  * The plugin's configuration schema. `autoApprove`, `computer`,
  * `rememberDesktopApprovals`, `logFile` and `timeoutMs` are `.volatile()`: the loader
  * writes new values into the running plugin and every use re-reads them, so they never
- * remount it. `enabled`, `codexHome`, `stateFile` and `tools.*` are deliberately not
- * volatile: changing one remounts the plugin, the old bridge is disposed by `ctx.effect`,
+ * remount it. `enabled`, `codexHome` and `tools.*` are deliberately not volatile:
+ * changing one remounts the plugin, the old bridge is disposed by `ctx.effect`,
  * and the tools are registered again for the new values. Volatile fields are the ones the
  * settings UI can flip live.
  */
@@ -92,8 +92,6 @@ function buildConfig(schema) {
         .volatile(),
       codexHome: schema.string().default('')
         .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。'),
-      stateFile: schema.string().default('')
-        .description('会话状态文件路径；留空则写入 ~/.dsh/pc-use-state.json。'),
       logFile: schema.string().default('')
         .description('桥接日志路径；留空则写入 ~/.dsh/pc-use.log。')
         .volatile(),
@@ -103,8 +101,6 @@ function buildConfig(schema) {
       tools: schema.object({
         js: schema.boolean().default(true).description('注册 `pc_codex_js`：在持久的 cua_repl 内核中执行 JS。'),
         reset: schema.boolean().default(true).description('注册 `pc_codex_js_reset`：重置 JS 内核。'),
-        addNodeModuleDir: schema.boolean().default(true)
-          .description('注册 `pc_codex_js_add_node_module_dir`：增加模块解析目录。'),
         docs: schema.boolean().default(true)
           .description('注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档。'),
         status: schema.boolean().default(true).description('注册 `pc_status`：报告解析结果与连接状态。'),
@@ -126,20 +122,11 @@ const DEFAULTS = {
   codexHome: '',
   logFile: '',
   timeoutMs: 120000,
-  tools: { js: true, reset: true, addNodeModuleDir: true, docs: true, status: true },
+  tools: { js: true, reset: true, docs: true, status: true },
 }
 
 // Marker for "the approving pc_codex_js call ended while DSH was still asking".
 const CALL_ENDED = Symbol('pc_codex_js call ended')
-
-function stateFilePath() {
-  return join(homedir(), '.dsh', 'pc-use-state.json')
-}
-
-// Old default state file; read once only to migrate its session id (D9).
-function legacyStateFilePath() {
-  return join(homedir(), '.dsh', 'codex-cu-state.json')
-}
 
 function defaultLogFile() {
   return join(homedir(), '.dsh', 'pc-use.log')
@@ -147,35 +134,6 @@ function defaultLogFile() {
 
 function imagesDirectory() {
   return join(homedir(), '.dsh', 'pc-use-images')
-}
-
-function readState(file) {
-  try {
-    return JSON.parse(readFileSync(file, 'utf8'))
-  } catch {
-    return null
-  }
-}
-
-function writeState(file, state) {
-  try {
-    mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`)
-  } catch {}
-}
-
-/**
- * A session id for calls without an agent: it survives restarts and the old default
- * state file is migrated once. Calls with an agent use their own random session id
- * (turnStateFor). O(1): two small JSON reads.
- */
-function stableSessionId(file, legacyFile = null) {
-  const state = readState(file)
-  if (state?.session_id) return state.session_id
-  const legacy = legacyFile === null ? null : readState(legacyFile)
-  const sessionId = legacy?.session_id ?? `dsh-pc-${randomUUID()}`
-  writeState(file, { session_id: sessionId, created_at: new Date().toISOString() })
-  return sessionId
 }
 
 /** Flatten an MCP tool result into the canonical string value DSH renders for the model. */
@@ -223,7 +181,7 @@ const DOCS_EXPLANATION = [
 
 /**
  * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean, codexHome?: string,
- *   stateFile?: string, logFile?: string, timeoutMs?: number, tools?: Record<string, boolean>}} raw
+ *   logFile?: string, timeoutMs?: number, tools?: Record<string, boolean>}} raw
  */
 export function apply(ctx, raw = {}) {
   const source = raw ?? {}
@@ -244,14 +202,6 @@ export function apply(ctx, raw = {}) {
   const autoApproveEnabled = () => unwrapConfigValue(source.autoApprove) === true
   const computerEnabled = () => unwrapConfigValue(source.computer) === true
   const rememberEnabled = () => unwrapConfigValue(source.rememberDesktopApprovals) !== false
-  const configuredStateFile = () => {
-    const value = unwrapConfigValue(source.stateFile)
-    return typeof value === 'string' && value !== '' ? value : stateFilePath()
-  }
-  const explicitStateFile = () => {
-    const value = unwrapConfigValue(source.stateFile)
-    return typeof value === 'string' && value !== ''
-  }
   const configuredLogFile = () => {
     const value = unwrapConfigValue(source.logFile)
     return typeof value === 'string' && value !== '' ? value : defaultLogFile()
@@ -501,9 +451,9 @@ export function apply(ctx, raw = {}) {
       args: spec.args,
       env,
       cwd: spec.cwd,
-      sessionId: stableSessionId(
-        configuredStateFile(), explicitStateFile() ? null : legacyStateFilePath(),
-      ),
+      // Bridge-level session id for calls without an agent: generated in memory on
+      // every new bridge; no state file is read or written.
+      sessionId: `dsh-pc-${randomUUID()}`,
       shouldApprove: autoApproveEnabled,
       isComputerEnabled: computerEnabled,
       requestDesktopApproval,
@@ -591,19 +541,9 @@ export function apply(ctx, raw = {}) {
       description: 'Reset the persistent cua_repl JavaScript kernel. Bindings are discarded; browser tabs and apps are not closed.',
       parameters: {},
       output,
-      async execute() {
-        return call('js_reset', {})
-      },
-    }),
-    addNodeModuleDir: () => tool({
-      name: 'pc_codex_js_add_node_module_dir',
-      description: 'Add an absolute node_modules directory to the cua_repl package resolution. Survives js_reset.',
-      parameters: {
-        path: { type: 'string', required: true, description: 'Absolute path to a node_modules directory.' },
-      },
-      output,
-      async execute(args) {
-        return call('js_add_node_module_dir', { path: args.path })
+      async execute(_args, exec) {
+        // Same turn identity as pc_codex_js, so a reset-only turn still reports turn_ended.
+        return call('js_reset', {}, configuredTimeoutMs(), exec?.agent ?? null)
       },
     }),
     docs: () => tool({

@@ -13,7 +13,6 @@ const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const TOOL_NAMES = [
   'pc_codex_js',
   'pc_codex_js_reset',
-  'pc_codex_js_add_node_module_dir',
   'pc_codex_docs',
   'pc_status',
 ]
@@ -24,7 +23,6 @@ function register() {
   return registerPlugin({
     codexHome: join(tmpdir(), 'dsh-pc-use-manifest-codex'),
     logFile: join(tmpdir(), 'dsh-pc-use-manifest.log'),
-    stateFile: join(tmpdir(), 'dsh-pc-use-manifest-state.json'),
   })
 }
 
@@ -79,7 +77,7 @@ test('the patch insert uses the package name and loads the exported entry', () =
   assert.equal(existsSync(join(root, packageJson.exports['.'])), true)
 })
 
-test('exactly the five new tool names are registered', () => {
+test('exactly the four new tool names are registered', () => {
   const plugin = register()
   try {
     assert.deepEqual([...plugin.tools.keys()], TOOL_NAMES)

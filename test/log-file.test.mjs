@@ -46,7 +46,6 @@ test('the plugin log rotates at the limit', async () => {
     codexHome,
     autoApprove: true,
     logFile,
-    stateFile: join(home, 'state.json'),
   })
   try {
     await plugin.tools.get('pc_codex_js').execute({ code: '1', title: 'rotate' }, {})

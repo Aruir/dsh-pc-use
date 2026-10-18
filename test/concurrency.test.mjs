@@ -49,7 +49,6 @@ test('two parallel first calls start exactly one server', async () => {
   const plugin = registerPlugin({
     codexHome,
     logFile: join(home, 'bridge.log'),
-    stateFile: join(home, 'state.json'),
   })
   const startedPids = []
   try {

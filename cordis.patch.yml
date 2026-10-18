@@ -1,6 +1,6 @@
 # Insert the pc-use plugin process-wide, so every agent preset gets the
-# pc_codex_js / pc_codex_js_reset / pc_codex_js_add_node_module_dir /
-# pc_codex_docs / pc_status tools without declaring anything in the preset.
+# pc_codex_js / pc_codex_js_reset / pc_codex_docs / pc_status tools without
+# declaring anything in the preset.
 #
 # The row is named after the package: the profile already records the package as
 # `dsh-pc-use` (a `link:` dependency), so the Loader resolves the package entry and
@@ -25,9 +25,6 @@
         rememberDesktopApprovals: true
         # Empty means %USERPROFILE%\.codex
         codexHome: ''
-        # Empty means ~/.dsh/pc-use-state.json; when the new file is missing the old
-        # state file's session id is migrated once.
-        stateFile: ''
         # Empty means ~/.dsh/pc-use.log; approvals are always logged, no longer
         # console.warn only.
         logFile: ''
@@ -35,6 +32,5 @@
         tools:
           js: true
           reset: true
-          addNodeModuleDir: true
           docs: true
           status: true

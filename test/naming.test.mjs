@@ -64,7 +64,6 @@ test('screenshots land in ~/.dsh/pc-use-images by default', async () => {
   const plugin = registerPlugin({
     codexHome,
     logFile: join(home, 'bridge.log'),
-    stateFile: join(home, 'state.json'),
   })
   try {
     const js = plugin.tools.get('pc_codex_js')

@@ -66,7 +66,6 @@ function register(codexHome, config = {}) {
   return registerPlugin({
     codexHome,
     logFile: join(codexHome, 'bridge.log'),
-    stateFile: join(codexHome, 'state.json'),
     ...config,
   })
 }

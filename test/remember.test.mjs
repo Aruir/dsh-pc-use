@@ -60,7 +60,6 @@ function setup(options = {}) {
     rememberDesktopApprovals: options.remember,
     autoApprove: false,
     logFile,
-    stateFile: join(home, 'state.json'),
   }, { services: options.services ?? {} })
   return { home, restore, serverLog, logFile, plugin }
 }

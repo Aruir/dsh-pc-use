@@ -56,7 +56,6 @@ function setup(options = {}) {
     computer: options.computer ?? false,
     autoApprove: options.autoApprove ?? false,
     logFile,
-    stateFile: join(home, 'state.json'),
   }, { services: options.services ?? {} })
   return {
     home,

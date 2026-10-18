@@ -20,7 +20,6 @@ const BAD_ARGUMENTS = /Missing required parameter|Invalid parameter|must be an o
 const REGISTERED = [
   'pc_codex_js',
   'pc_codex_js_reset',
-  'pc_codex_js_add_node_module_dir',
   'pc_codex_docs',
   'pc_status',
 ]
@@ -71,7 +70,6 @@ test('every registered tool publishes an object JSON Schema', () => {
     if (platform) platform.assertSupportedJsonSchema(schema)
   }
   assert.deepEqual(tools.get('pc_codex_js').parameters.required, ['code', 'title'])
-  assert.deepEqual(tools.get('pc_codex_js_add_node_module_dir').parameters.required, ['path'])
   assert.deepEqual(tools.get('pc_codex_js_reset').parameters.properties, {})
   assert.deepEqual(tools.get('pc_status').parameters.properties, {})
   assert.deepEqual(tools.get('pc_codex_docs').parameters.required, ['topic'])
@@ -90,11 +88,6 @@ test('bad arguments are rejected with a TypeError before any bridge starts', asy
       return true
     })
   }
-  await assert.rejects(() => tools.get('pc_codex_js_add_node_module_dir').execute({}, {}), (error) => {
-    assert.ok(error instanceof TypeError, 'expected a TypeError for a missing path')
-    assert.match(error.message, BAD_ARGUMENTS)
-    return true
-  })
   await assert.rejects(() => tools.get('pc_codex_docs').execute({}, {}), (error) => {
     assert.ok(error instanceof TypeError, 'expected a TypeError for a missing topic')
     assert.match(error.message, BAD_ARGUMENTS)
@@ -143,6 +136,6 @@ test('the fallback agrees with the host defineTool', async (t) => {
 test('plugin and individual tool switches still work', () => {
   assert.equal(register({ enabled: false }).size, 0)
   assert.deepEqual([...register({ tools: { js: false } }).keys()], [
-    'pc_codex_js_reset', 'pc_codex_js_add_node_module_dir', 'pc_codex_docs', 'pc_status',
+    'pc_codex_js_reset', 'pc_codex_docs', 'pc_status',
   ])
 })

@@ -37,7 +37,6 @@ function setup({ mode, autoApprove, customLogFile = true }) {
     codexHome,
     autoApprove,
     logFile,
-    stateFile: join(home, 'state.json'),
   })
   return {
     home,
@@ -63,7 +62,6 @@ test('autoApprove:true accepts a browser approval and logs the decision', async 
     assert.match(lines[0], /"Allow Browser use to access https:\/\/example\.com\?"/)
     assert.match(lines[0], /-> accept \(browser access auto-approved\)/)
     assert.match(readFileSync(context.serverLog, 'utf8'), /answer accept/)
-    assert.equal(existsSync(join(context.home, 'state.json')), true)
   } finally {
     context.plugin.dispose()
     context.restore()

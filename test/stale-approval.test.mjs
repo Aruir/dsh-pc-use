@@ -42,7 +42,6 @@ test('a timed-out pc_codex_js call withdraws the pending desktop approval', asyn
     computer: true,
     timeoutMs: 300,
     logFile,
-    stateFile: join(home, 'state.json'),
   }, { services: { approval } })
   const exec = {
     agent: { id: 'agent' },
@@ -93,7 +92,6 @@ test('the signal handed to DSH follows a host cancellation', async () => {
     computer: true,
     timeoutMs: 60_000,
     logFile: join(home, 'bridge.log'),
-    stateFile: join(home, 'state.json'),
   }, { services: { approval } })
   const controller = new AbortController()
   const exec = {

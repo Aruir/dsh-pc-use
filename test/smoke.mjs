@@ -8,7 +8,6 @@ import { apply } from '../index.js'
 
 const stateDir = mkdtempSync(join(tmpdir(), 'dsh-pc-use-'))
 const logFile = join(stateDir, 'bridge.log')
-const stateFile = join(stateDir, 'state.json')
 const tools = new Map()
 const disposers = []
 
@@ -25,7 +24,7 @@ const ctx = {
   },
 }
 
-apply(ctx, { autoApprove: true, logFile, stateFile })
+apply(ctx, { autoApprove: true, logFile })
 
 console.log('registered tools:', [...tools.keys()].join(', '))
 if (tools.size === 0) {
