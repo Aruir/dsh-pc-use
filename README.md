@@ -19,6 +19,9 @@ English | [中文](README.zh.md)
 0.4.0 added: the rename to `dsh-pc-use`; `pc_codex_docs` for Codex's own docs; loading by package
 name with display name and icon; `pc_status` now groups by backend (`backends`).
 
+0.5.1 fixed the settings page switches: the thumb now uses a real DSH theme token, so on and off
+are visible, and the switch is no longer squeezed by "Restore default".
+
 0.5.0 split the browser and the desktop into two servers, started the way the Codex app starts them:
 `cua_repl` for the browser and `node_repl` for Windows desktop apps. New desktop tools
 `pc_codex_desktop_js`, `pc_codex_desktop_js_reset` and

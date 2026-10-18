@@ -334,6 +334,7 @@ window.__ModuleLoader__.load({
       padding: '4px 0',
       fontSize: 12,
       cursor: 'pointer',
+      whiteSpace: 'nowrap',
     }
     const noticeStyle = { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }
     const groupStyle = { display: 'flex', flexDirection: 'column', gap: 4 }
@@ -354,7 +355,10 @@ window.__ModuleLoader__.load({
         ]),
         h(
           'div',
-          { key: 'control', style: { display: 'flex', alignItems: 'center', gap: 12 } },
+          {
+            key: 'control',
+            style: { display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 },
+          },
           children,
           showReset === true
             ? h('button', {
@@ -371,24 +375,29 @@ window.__ModuleLoader__.load({
     /** A theme-token switch with the host's role/aria contract. O(1). */
     function Switch({ id, label, checked, disabled, onChange }) {
       const track = {
-        width: 34,
+        boxSizing: 'border-box',
+        flex: '0 0 auto',
+        width: 36,
         height: 20,
-        borderRadius: 10,
         padding: 2,
-        border: 'none',
+        border: 0,
+        borderRadius: 999,
         cursor: disabled === true ? 'default' : 'pointer',
         background: checked === true
-          ? 'var(--dsw-alias-state-business-primary)'
-          : 'var(--dsw-alias-border-l2)',
+          ? 'var(--dsw-alias-brand-primary)'
+          : 'var(--dsw-alias-border-l3)',
         opacity: disabled === true ? 0.5 : 1,
       }
       const knob = {
+        display: 'block',
         width: 16,
         height: 16,
-        borderRadius: 8,
-        background: 'var(--dsw-alias-bg-l1)',
-        transform: checked === true ? 'translateX(14px)' : 'none',
-        transition: 'transform 120ms ease',
+        borderRadius: '50%',
+        background: checked === true
+          ? 'var(--dsw-alias-label-primary-foreground)'
+          : 'var(--dsw-alias-switch-thumb)',
+        transform: checked === true ? 'translateX(16px)' : 'none',
+        transition: 'transform .12s ease',
       }
       return h('button', {
         id,
@@ -399,7 +408,7 @@ window.__ModuleLoader__.load({
         disabled: disabled === true,
         style: track,
         onClick: () => onChange(checked !== true),
-      }, h('span', { style: { ...knob, display: 'block' } }))
+      }, h('span', { style: knob }))
     }
 
     /** A text input saving on blur or Enter; shows an inline error. O(1). */

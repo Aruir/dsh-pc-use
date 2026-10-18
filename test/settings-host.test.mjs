@@ -184,7 +184,7 @@ test('an invalid codexHome fails the call instead of keeping the stale bridge', 
 
 test('the package ships the browser client and settings manifest', () => {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-  assert.equal(pkg.version, '0.5.0')
+  assert.equal(pkg.version, '0.5.1')
   assert.equal(pkg.exports['./client'], './client.js')
   assert.equal(pkg.dsh.client.platform, 'web')
   assert.deepEqual([...pkg.dsh.client.inject].sort(), [

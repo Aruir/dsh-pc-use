@@ -553,3 +553,76 @@ test('a read-only form disables every control', () => {
   assert.equal(controls.length > 0, true)
   for (const control of controls) assert.equal(control.props.disabled, true)
 })
+
+test('client.js only uses verified DSH theme variables', () => {
+  const source = readFileSync(join(root, 'client.js'), 'utf8')
+  const used = new Set(source.match(/--dsw-[a-z0-9-]+/g))
+  // Variables verified in `dsh-client-ui-theme`.
+  const verified = new Set([
+    '--dsw-alias-border-l2',
+    '--dsw-alias-border-l3',
+    '--dsw-alias-brand-primary',
+    '--dsw-alias-switch-thumb',
+    '--dsw-alias-label-primary',
+    '--dsw-alias-label-primary-foreground',
+    '--dsw-alias-label-tertiary',
+  ])
+  for (const variable of used) {
+    assert.ok(verified.has(variable), `unverified theme variable ${variable}`)
+  }
+})
+
+test('open and closed switches use different colors and thumb positions', () => {
+  const BASE_VALUES = {
+    computer: false,
+    desktopApprovalChoices: true,
+    rememberDesktopApprovals: true,
+    language: 'auto',
+    autoApprove: false,
+    timeoutMs: 120000,
+    codexHome: '',
+    logFile: '',
+  }
+  const findSwitch = (tree) => elements(tree).find((node) => (
+    node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
+  ))
+  const findThumb = (button) => button.props.children.find(
+    (child) => child && child.type === 'span',
+  )
+
+  const openForm = renderSection({ value: { ...BASE_VALUES, computer: true } })
+  const open = findSwitch(openForm.renderer.getTree())
+  const closedForm = renderSection({ value: { ...BASE_VALUES, computer: false } })
+  const closed = findSwitch(closedForm.renderer.getTree())
+  const openThumb = findThumb(open)
+  const closedThumb = findThumb(closed)
+
+  assert.equal(open.props.style.background, 'var(--dsw-alias-brand-primary)')
+  assert.equal(closed.props.style.background, 'var(--dsw-alias-border-l3)')
+  assert.equal(openThumb.props.style.background, 'var(--dsw-alias-label-primary-foreground)')
+  assert.equal(closedThumb.props.style.background, 'var(--dsw-alias-switch-thumb)')
+  assert.equal(openThumb.props.style.transform, 'translateX(16px)')
+  assert.equal(closedThumb.props.style.transform, 'none')
+})
+
+test('the switch and its control keep their width', () => {
+  const { renderer } = renderSection({ user: { computer: true } })
+  const tree = renderer.getTree()
+  const switchButton = elements(tree).find((node) => (
+    node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
+  ))
+  assert.equal(switchButton.props.style.flex, '0 0 auto')
+  assert.equal(switchButton.props.style.width, 36)
+
+  const controlColumn = elements(tree).find((node) => (
+    node.type === 'div' && Array.isArray(node.props.children)
+    && node.props.children.some((child) => child && child.type === 'button'
+      && child.props.id === 'pc-use-computer')
+  ))
+  assert.equal(controlColumn.props.style.flexShrink, 0)
+
+  const restore = elements(tree).find((node) => (
+    node.type === 'button' && renderedText(node).includes('恢复默认')
+  ))
+  assert.equal(restore.props.style.whiteSpace, 'nowrap')
+})

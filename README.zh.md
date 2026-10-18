@@ -18,6 +18,9 @@
 0.4.0 新增：改名为 `dsh-pc-use`；新增 `pc_codex_docs` 读取 Codex 自带文档；按包名加载并补上
 显示名与图标；`pc_status` 改为按后端分组（`backends`）。
 
+0.5.1 修正设置页开关：滑块改用 DSH 主题里真实存在的变量，开与关清晰可见；开关不再被“恢复默认”
+挤窄。
+
 0.5.0 把浏览器与桌面拆成两个服务器，按 Codex 应用的方式分别启动：浏览器用 `cua_repl`，桌面用
 `node_repl`。新增桌面工具 `pc_codex_desktop_js`、`pc_codex_desktop_js_reset` 与
 `pc_codex_desktop_js_add_node_module_dir`（开关 `tools.desktopJs` / `tools.desktopReset` /
