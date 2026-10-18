@@ -30,8 +30,6 @@ window.__ModuleLoader__.load({
 
     const zh = {
       nav: '电脑操控',
-      title: '电脑操控',
-      intro: '改动会立即生效。',
       groupDesktop: '桌面操控',
       groupBrowser: '浏览器',
       groupGeneral: '通用',
@@ -70,8 +68,6 @@ window.__ModuleLoader__.load({
 
     const en = {
       nav: 'PC Use',
-      title: 'PC Use',
-      intro: 'Changes apply immediately.',
       groupDesktop: 'Desktop control',
       groupBrowser: 'Browser',
       groupGeneral: 'General',
@@ -321,18 +317,6 @@ window.__ModuleLoader__.load({
       padding: '16px 0',
       borderBottom: '0.5px solid var(--dsw-alias-border-l2)',
     }
-    const pageTitleStyle = {
-      margin: 0,
-      fontSize: 16,
-      fontWeight: 500,
-      lineHeight: '24px',
-    }
-    const introStyle = {
-      margin: 0,
-      fontSize: 14,
-      lineHeight: '22px',
-      color: 'var(--dsw-alias-label-tertiary)',
-    }
     const footerStyle = {
       margin: 0,
       fontSize: 12,
@@ -400,6 +384,16 @@ window.__ModuleLoader__.load({
       document.head.appendChild(style)
     }
     const noticeStyle = { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }
+    // Same visually-hidden recipe as the host's wCInkW_hiddenLabel: the live region exists
+    // for screen readers but does not take part in layout or spacing.
+    const visuallyHiddenStyle = {
+      position: 'absolute',
+      width: 1,
+      height: 1,
+      overflow: 'hidden',
+      clip: 'rect(0 0 0 0)',
+      whiteSpace: 'nowrap',
+    }
     const groupStyle = { display: 'flex', flexDirection: 'column' }
     const headingStyle = {
       margin: 0,
@@ -577,7 +571,6 @@ window.__ModuleLoader__.load({
       }, [page])
       if (state.status === 'failed') {
         return h('div', { style: pageStyle }, [
-          h('h2', { key: 'title', style: pageTitleStyle }, t('title')),
           h('p', { key: 'failed', style: noticeStyle }, t('readFailed')),
         ])
       }
@@ -693,30 +686,22 @@ window.__ModuleLoader__.load({
           textRow('logFile', 'logFilePlaceholder', true),
         ]),
       ]
-      // Keep the live region in the DOM so screen readers announce later updates; the text
-      // changes in place and the title row never changes height.
+      // The live region stays in the DOM so screen readers announce later updates, but the
+      // official General page shows no page-level success text; only conflicts stay visible.
       const notice = h('p', {
         key: 'notice',
         role: 'status',
-        style: { ...noticeStyle, margin: 0, whiteSpace: 'nowrap' },
+        style: visuallyHiddenStyle,
       }, state.notice === null ? '' : t(state.notice))
+      const conflictNotice = state.notice === 'conflict'
+        ? h('p', { key: 'conflict', style: noticeStyle }, t('conflict'))
+        : null
       const readOnlyNotice = Object.keys(state.readOnly).length > 0
         ? h('p', { key: 'readonly', style: noticeStyle }, t('writeRejected'))
         : null
       return h('div', { style: pageStyle }, [
-        h('div', {
-          key: 'header',
-          style: {
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            gap: 12,
-          },
-        }, [
-          h('h2', { key: 'title', style: pageTitleStyle }, t('title')),
-          notice,
-        ]),
-        h('p', { key: 'intro', style: introStyle }, t('intro')),
+        notice,
+        conflictNotice,
         readOnlyNotice,
         ...groups,
         h('p', { key: 'footer', style: footerStyle }, t('footer')),

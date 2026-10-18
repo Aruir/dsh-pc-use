@@ -26,7 +26,8 @@ select when the primitives module or Menu is unavailable. It also removed the
 approvals always use the three-option card; only the missing question service and non-`ask` policy
 fallbacks remain. A profile that still carries the old field keeps loading: DSH's non-strict schema
 passes the unknown key through and the plugin ignores it, so the field can be left for later
-cleanup.
+cleanup. The page top now follows the official "General" page: no page title or intro, the saved
+status is only exposed to screen readers, and conflict notices stay visible.
 
 0.5.5 shortened the settings page text: the first switch row is "Enable desktop control", the
 intro and footer keep one sentence each, and the interface-language row moved into a new "General"

@@ -598,6 +598,7 @@ test('a failed read renders readFailed and no controls', () => {
   })
   assert.ok(renderedText(renderer.getTree()).includes('读取失败'))
   assert.equal(renderedControls(renderer.getTree()).length, 0)
+  assert.equal(findNode(renderer.getTree(), (node) => node.type === 'h2'), undefined)
 })
 
 test('an out-of-range timeout shows the error and aria-invalid on the input', () => {
@@ -728,44 +729,53 @@ function parentOf(tree, predicate) {
   return found
 }
 
-test('the status line sits on the title row', () => {
-  const { renderer } = renderSection()
-  const tree = renderer.getTree()
-  const lines = statusLines(tree)
+test('the saved status is only exposed to screen readers', async () => {
+  const { renderer, context } = renderSection()
+  let tree = renderer.getTree()
+  let lines = statusLines(tree)
   assert.equal(lines.length, 1)
   assert.equal(renderedText(lines[0]), '')
-  const title = findNode(tree, (node) => (
-    node.type === 'h2' && renderedText(node).includes('电脑操控')
-  ))
-  assert.ok(title)
-  const header = parentOf(tree, (node) => node === lines[0])
-  assert.ok(header)
-  assert.equal(header.props.children.some((child) => child === title), true)
-  assert.equal(header.props.children.length, 2)
-  assert.equal(header.props.style.display, 'flex')
-  assert.equal(header.props.style.justifyContent, 'space-between')
-  assert.equal(header.props.style.alignItems, 'baseline')
-})
-
-test('saving changes only the status text', async () => {
-  const { renderer } = renderSection()
-  const beforeTree = renderer.getTree()
-  assert.equal(statusLines(beforeTree).length, 1)
-  const beforeCount = pageRoot(beforeTree).props.children.length
-  const switchNode = findNode(beforeTree, (node) => (
+  assert.equal(lines[0].props.style.position, 'absolute')
+  assert.equal(lines[0].props.style.clip, 'rect(0 0 0 0)')
+  const switchNode = findNode(tree, (node) => (
     node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
   ))
   switchNode.props.onClick()
   await new Promise((done) => setTimeout(done, 0))
   renderer.render()
-  const tree = renderer.getTree()
-  const lines = statusLines(tree)
+  tree = renderer.getTree()
+  lines = statusLines(tree)
   assert.equal(lines.length, 1)
   assert.equal(renderedText(lines[0]), '已保存')
-  assert.equal(pageRoot(tree).props.children.length, beforeCount)
-  const header = parentOf(tree, (node) => node === lines[0])
-  assert.ok(header)
-  assert.equal(header.props.children.length, 2)
+  assert.equal(lines[0].props.style.clip, 'rect(0 0 0 0)')
+  const visibleSaved = elements(tree).filter((node) => (
+    node !== lines[0] && node.type === 'p' && renderedText(node) === '已保存'
+  ))
+  assert.equal(visibleSaved.length, 0)
+  context.locale.language = 'en'
+  renderer.render()
+  assert.equal(renderedText(statusLines(renderer.getTree())[0]), 'Saved')
+})
+
+test('the page has no title or intro in either language', () => {
+  const { renderer, context } = renderSection()
+  const check = (tree) => {
+    assert.equal(findNode(tree, (node) => node.type === 'h2'), undefined)
+    assert.equal(findNode(tree, (node) => (
+      node.type === 'p' && node.props.key === 'intro'
+    )), undefined)
+  }
+  check(renderer.getTree())
+  context.locale.language = 'en'
+  renderer.render()
+  check(renderer.getTree())
+  const failed = renderSection({
+    status: 'unavailable',
+    value: undefined,
+    revision: undefined,
+  })
+  assert.ok(renderedText(failed.renderer.getTree()).includes('读取失败'))
+  check(failed.renderer.getTree())
 })
 
 test('"Restore default" sits before the control', () => {
@@ -921,20 +931,13 @@ function rowsOfGroup(group) {
   ))
 }
 
-test('the page title and intro use the native settings sizes', () => {
+test('the page starts with the desktop group', () => {
   const { renderer } = renderSection()
-  const tree = renderer.getTree()
-  const page = pageRoot(tree)
-  assert.equal(page.props.style.gap, 12)
-  const title = findNode(tree, (node) => node.type === 'h2')
-  assert.equal(title.props.style.fontSize, 16)
-  assert.equal(title.props.style.fontWeight, 500)
-  assert.equal(title.props.style.lineHeight, '24px')
-  const intro = findNode(tree, (node) => node.type === 'p' && node.props.key === 'intro')
-  assert.equal(intro.props.style.fontSize, 14)
-  assert.equal(intro.props.style.lineHeight, '22px')
-  assert.equal(intro.props.style.color, 'var(--dsw-alias-label-tertiary)')
-  assert.equal(intro.props.style.margin, 0)
+  const page = pageRoot(renderer.getTree())
+  const visible = page.props.children.filter((child) => (
+    child && child.props.role !== 'status' && child.props.key !== 'conflict'
+  ))
+  assert.equal(visible[0].props.key, 'group-desktop')
 })
 
 test('rows inside a group have no vertical gap', () => {
@@ -1045,15 +1048,31 @@ test('the first switch row is titled differently from its group', () => {
   assert.equal(renderedText(enLabel), 'Enable desktop control')
 })
 
-test('the intro is one sentence in both languages', () => {
+test('a conflict shows a visible notice before the desktop group', async () => {
   const { renderer, context } = renderSection()
-  const intro = (tree) => renderedText(findNode(tree, (node) => (
-    node.type === 'p' && node.props.key === 'intro'
-  )))
-  assert.equal(intro(renderer.getTree()), '改动会立即生效。')
-  context.locale.language = 'en'
+  const form = context.configForms.get('pc-use')
+  form.behavior = async (_ops, revision, self) => {
+    self.update({ revision: revision + 1 })
+    return false
+  }
+  const switchNode = findNode(renderer.getTree(), (node) => (
+    node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
+  ))
+  switchNode.props.onClick()
+  await new Promise((done) => setTimeout(done, 0))
   renderer.render()
-  assert.equal(intro(renderer.getTree()), 'Changes apply immediately.')
+  const tree = renderer.getTree()
+  const conflict = findNode(tree, (node) => (
+    node.type === 'p' && node.props.role !== 'status'
+    && renderedText(node) === '设置已被其他地方修改，已载入最新值'
+  ))
+  assert.ok(conflict)
+  assert.equal(conflict.props.style.position, undefined)
+  const page = pageRoot(tree)
+  const conflictIndex = page.props.children.findIndex((child) => child === conflict)
+  const groupIndex = page.props.children.findIndex((child) => child?.props.key === 'group-desktop')
+  assert.equal(conflictIndex >= 0, true)
+  assert.equal(conflictIndex < groupIndex, true)
 })
 
 test('the groups and their rows have the new order', () => {
