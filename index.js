@@ -63,7 +63,7 @@ try {
  * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean,
  *   rememberDesktopApprovals: boolean, language: string,
  *   codexHome: string, logFile: string, timeoutMs: number,
- *   attachImages: boolean, keepImageFiles: boolean,
+ *   attachImages: boolean, keepImageFiles: boolean, allowUserTabs: boolean,
  *   tools: {js: boolean, reset: boolean, desktopJs: boolean, desktopReset: boolean,
  *     desktopAddNodeModuleDir: boolean, observe: boolean, runPlan: boolean,
  *     docs: boolean, status: boolean}}} Config
@@ -115,6 +115,11 @@ function buildConfig(schema) {
         .description('附图时同时在本机 ~/.dsh/pc-use-images 再存一份；'
           + '默认只由 DSH 附件库保存。')
         .volatile(),
+      allowUserTabs: schema.boolean().default(false)
+        .description('允许模型读你自己的浏览器标签页和浏览历史（`browser.user.openTabs`、'
+          + '`claimTab`、`getTabContext`、`browser.history`）。关闭时这些调用会报错。'
+          + '打开后，标签页标题、网址、页面内容或历史会发给模型服务商。')
+        .volatile(),
       tools: schema.object({
         js: schema.boolean().default(true).description('注册 `pc_codex_js`：在持久的 cua_repl 内核中执行 JS。'),
         reset: schema.boolean().default(true).description('注册 `pc_codex_js_reset`：重置浏览器 JS 内核。'),
@@ -154,6 +159,7 @@ const DEFAULTS = {
   timeoutMs: 120000,
   attachImages: true,
   keepImageFiles: false,
+  allowUserTabs: false,
   tools: {
     js: true,
     reset: true,
@@ -282,7 +288,10 @@ const COMPUTER_OFF = 'dsh-pc-use: computer use is off; '
 const OBSERVE_TARGETS = ['browser', 'desktop']
 const SUBJECT_PATTERN = /^[A-Za-z_$][\w$]*$/
 const CHECK_FAILED_MARKER = 'pc_codex_run_plan check failed'
-const TAB_GUARD = tabGuardSource()
+// Two fixed guard sources: the user-tabs switch is read for every call, but only its value
+// changes, so building the source once per state keeps the per-call cost constant.
+const TAB_GUARD_USER_TABS_OFF = tabGuardSource(false)
+const TAB_GUARD_USER_TABS_ON = tabGuardSource(true)
 
 /**
  * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean,
@@ -339,6 +348,8 @@ export function apply(ctx, raw = {}) {
     }
     return value
   }
+  /** The user-tabs switch is re-read on every browser call, so changing it is hot. O(1). */
+  const allowUserTabsEnabled = () => unwrapConfigValue(source.allowUserTabs) === true
 
   // Last log write failure, kept for `pc_status.log`; a later successful write marks it
   // recovered instead of dropping the record (feature G chose "keep, mark recovered").
@@ -860,7 +871,11 @@ export function apply(ctx, raw = {}) {
     const identity = callIdentity(turn, exec)
     if (turn !== null) markServerUsed(turn, kind)
     const guarded = kind === 'browser' && method === 'js' && typeof args?.code === 'string'
-      ? { ...args, code: `${TAB_GUARD}\n${args.code}` }
+      ? {
+        ...args,
+        code: `${allowUserTabsEnabled() ? TAB_GUARD_USER_TABS_ON : TAB_GUARD_USER_TABS_OFF}\n`
+          + `${args.code}`,
+      }
       : args
     return renderResult(await active.call(method, guarded, timeoutMs, identity), collector)
   }
@@ -1177,10 +1192,11 @@ export function apply(ctx, raw = {}) {
         '`globalThis.tab = await cua.createBrowserTab(...)`, so later calls and ' +
         '`pc_codex_observe` can use it. `cua.listTabs()` returns only tabs opened by ' +
         'this session via `cua.createBrowserTab`; other user tabs are filtered out, so ' +
-        'check your own tab by id. Do not call `getBrowser(...).user.openTabs()`, ' +
-        '`claimTab` or `history` just to verify; they can touch other user tabs or ' +
-        'history. Use them only when the user explicitly asks. Browser tasks do not need ' +
-        '`pc_codex_docs`. When the tree is available, judge UI state by reading values ' +
+        'check your own tab by id. `browser.user.openTabs()`, `claimTab`, `getTabContext` ' +
+        'and `browser.history()` are blocked by default by the `allowUserTabs` setting; ' +
+        'with that switch on, use them only when the user explicitly asks. Browser tasks ' +
+        'do not need `pc_codex_docs`. When the tree is available, judge UI state by ' +
+        'reading values ' +
         '(button enabled, input value, selected item), not screenshots; if it is not, ' +
         'use a screenshot. After a UI-changing step, read state first and do not reuse ' +
         'old indexes or coordinates. Fallback: use `pc_codex_run_plan` when you need ' +

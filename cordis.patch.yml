@@ -39,6 +39,10 @@
         attachImages: true
         # Keep a second local copy under ~/.dsh/pc-use-images.
         keepImageFiles: false
+        # Let the model read the user's own browser tabs and history through
+        # browser.user.openTabs/claimTab/getTabContext and browser.history. Off by default;
+        # while on, tab titles, URLs, page content and history go to the model provider.
+        allowUserTabs: false
         tools:
           js: true
           reset: true

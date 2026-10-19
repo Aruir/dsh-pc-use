@@ -120,6 +120,8 @@ test('only the hot-updatable fields come back as Volatile', (t) => {
   assert.equal(isVolatile(value.timeoutMs), true)
   assert.equal(isVolatile(value.language), true)
   assert.equal(isVolatile(value.codexHome), true)
+  assert.equal(isVolatile(value.keepImageFiles), true)
+  assert.equal(isVolatile(value.allowUserTabs), true)
   assert.equal(isVolatile(value.enabled), false)
   for (const [key, item] of Object.entries(value.tools)) {
     assert.equal(isVolatile(item), false, `tools.${key} must remount instead of updating`)
@@ -148,6 +150,13 @@ test('autoApprove defaults to false (fail-closed)', (t) => {
   } finally {
     plugin.dispose()
   }
+})
+
+test('allowUserTabs defaults to false and the bundle patch ships the same default', (t) => {
+  if (!canResolve) return t.skip(SKIP)
+  const value = validate({})
+  assert.equal(unwrapConfigValue(value.allowUserTabs), false)
+  assert.match(PATCH, /^\s+allowUserTabs: false$/m)
 })
 
 test('pc_status reports the configured codexHome as a string', async (t) => {

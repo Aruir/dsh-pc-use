@@ -219,6 +219,7 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `timeoutMs` | `120000` | 单次调用超时 |
 | `attachImages` | `true` | 模型声明支持图片输入时把截图作为图片附上；截图会发到模型服务商，按 DSH 0.2.1-rc.2 源码默认经 Files API 上传，有效期 7 天，会话结束时不删除；本机 DSH 附件库另存一份；不想上传就关闭 |
 | `keepImageFiles` | `false` | 附图时同时在本机 `~/.dsh/pc-use-images` 再存一份；默认只由 DSH 附件库保存 |
+| `allowUserTabs` | `false` | 允许读取你自己的浏览器标签页和浏览历史；关闭时这些调用报错 |
 | `tools` | 全开 | `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` 逐项开关 |
 | `tools.desktopJs` | `true` | 注册 `pc_codex_desktop_js`：在桌面 `node_repl` 里执行 JS（需要 `computer: true`） |
 | `tools.desktopReset` | `true` | 注册 `pc_codex_desktop_js_reset`：重置桌面 JS 内核 |
@@ -227,8 +228,13 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `tools.runPlan` | `true` | 注册 `pc_codex_run_plan`：备选；需要逐步状态或失败后自动观察时使用 |
 | `tools.docs` | `true` | 注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档（不需要 Codex 连接） |
 
+`allowUserTabs` 控制 `browser.user.openTabs`、`browser.user.claimTab`、
+`browser.user.getTabContext` 与 `browser.history`。关闭时这些调用会报错并说明原因；
+打开后，标签页标题、网址、页面内容或历史会发给模型服务商，只在用户明确要求时打开。
+
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /
-`codexHome` / `logFile` / `timeoutMs` / `attachImages` / `keepImageFiles` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载
+`codexHome` / `logFile` / `timeoutMs` / `attachImages` / `keepImageFiles` /
+`allowUserTabs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载
 插件。loader 会通知 volatile 写入：关闭 `computer` 时立即停掉桌面服务器，浏览器连接不受影响；
 重新打开后，下一次桌面调用才启动桌面服务器。`codexHome` 改变后，两个服务器各自在下一次调用时重新
 解析并重连。`enabled`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。三个桌面
@@ -269,14 +275,22 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 DSH 设置侧栏的“插件市场”下方有“电脑操控”页（条目 id `pc-use`，只在 Host 提供该条目时显示）。可以改：
 
 - **桌面操控**：`computer`、`rememberDesktopApprovals`；
-- **浏览器**：`autoApprove`；
-- **通用**：`language`、`timeoutMs`（秒，10–3600，按毫秒保存）、`codexHome`、`logFile`。
+- **浏览器**：`autoApprove`、`allowUserTabs`；
+- **通用**：`language`、`timeoutMs`（秒，10–3600，按毫秒保存）、`attachImages`、`keepImageFiles`、
+  `codexHome`、`logFile`。
 
 开关和下拉框改完立即保存，文本框与数字在失焦或回车时保存；每项在改过后出现“恢复默认”。
 `enabled` 与 `tools.*` 不在页面上：启用插件请到“内置插件”或插件管理，工具开关改 profile。三个
 桌面工具开关（`tools.desktopJs`、`tools.desktopReset`、`tools.desktopAddNodeModuleDir`）与其他
 `tools.*` 一样不在页面上。`codexHome` 是 volatile：改完下一次调用会重新解析并换到新的 Codex
 目录，插件不重新挂载。
+
+设置读完前，这一页显示骨架：分组、标题、行和控件外框与读完后相同，读完后只出现控件里的内容，
+布局不跳动。`unavailable` 或读到非法值时显示“读取失败”。
+
+已知局限：`language` 不是 `auto` 时，读完后文字会换成所选语言；某项有用户改过的值时会出现
+“恢复默认”，该行控件区宽度会变化。这两种情况下，读完后行高或控件区宽度可能变化，
+页面会移动。
 
 ## 桌面操控
 
@@ -433,6 +447,11 @@ npm run test:smoke
 - 浏览器 `cua.listTabs()` 受守卫包装：只返回本会话通过 `cua.createBrowserTab` 打开的标签页，
   用户其他标签页会被过滤。守卫只防误用，不是安全边界；重置或服务器重启后不记得先前的
   标签页，前置守卫也会让模型代码报错的行号发生偏移。
+- `allowUserTabs`（默认关闭）会拦截经 `cua.getBrowser` 或
+  `cua.browsers.{get,getDefault,getForUrl}` 得到的 `Browser` 上的
+  `browser.user.openTabs`、`claimTab`、`getTabContext` 与 `browser.history`。
+  它只防误用，不是安全边界：模型代码能改写包装读取的 Symbol，
+  `browser.tabs` 与 `cua.getTab` 未覆盖，对象被冻结时无法包装。
 - 自动审批只认 `Allow Browser use to access <origin>?` 这条文案；Codex 改文案后浏览器授权会被拒绝（fail-closed），被拒绝的原文会写进日志。
 - 桌面授权只认 `Allow Computer Use to use "<名称>"?` 和 `Allow Codex to use <名称>?` 两种文案，
   改文案后会被拒绝；桌面操控默认关闭，是否弹卡片由 DSH 的权限模式决定（“完全权限”直接放行，

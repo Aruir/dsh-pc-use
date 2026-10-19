@@ -295,7 +295,7 @@ test('every configuration field has zh and en descriptions', () => {
   const fields = [
     'enabled', 'autoApprove', 'computer', 'rememberDesktopApprovals',
     'language', 'codexHome', 'logFile', 'timeoutMs', 'attachImages',
-    'keepImageFiles', 'tools',
+    'keepImageFiles', 'allowUserTabs', 'tools',
   ]
   for (const field of fields) {
     descriptionOf(Config.dict[field], field)

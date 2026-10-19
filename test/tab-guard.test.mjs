@@ -233,9 +233,9 @@ test('the browser description documents the guarded listTabs and bypass warning'
     assert.match(description, /only tabs opened by this session via `cua\.createBrowserTab`/)
     assert.match(description, /other user tabs are filtered out/)
     assert.match(description, /check your own tab by id/)
-    assert.match(description, /getBrowser\(\.\.\.\)\.user\.openTabs\(\)/)
-    assert.match(description, /claimTab/)
-    assert.match(description, /history/)
+    assert.match(description, /`browser\.user\.openTabs\(\)`/)
+    assert.match(description, /`claimTab`, `getTabContext` and `browser\.history\(\)`/)
+    assert.match(description, /blocked by default by the `allowUserTabs` setting/)
     assert.match(description, /globalThis\.tab = await cua\.createBrowserTab/)
   } finally {
     assert.equal(await stopServers(context), true)

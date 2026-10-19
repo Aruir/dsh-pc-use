@@ -56,6 +56,10 @@ window.__ModuleLoader__.load({
         + '不想上传就关闭。',
       keepImageFiles: '本机保留附图',
       keepImageFilesDescription: '附图时同时在本机 ~/.dsh/pc-use-images 再存一份；默认只由 DSH 附件库保存。',
+      allowUserTabs: '允许读取用户标签页',
+      allowUserTabsDescription: '允许模型读你自己的浏览器标签页和浏览历史（`browser.user.openTabs`、'
+        + '`claimTab`、`getTabContext`、`browser.history`）。关闭时这些调用会报错。打开后，'
+        + '标签页标题、网址、页面内容或历史会发给模型服务商。',
       timeoutInvalid: '请输入 10 到 3600 之间的整数秒。',
       secondsUnit: '秒',
       codexHome: 'Codex 配置目录',
@@ -105,6 +109,11 @@ window.__ModuleLoader__.load({
       keepImageFiles: 'Keep local image files',
       keepImageFilesDescription: 'Also save attached images under ~/.dsh/pc-use-images; '
         + 'by default only the DSH attachment store keeps them.',
+      allowUserTabs: 'Allow reading user tabs',
+      allowUserTabsDescription: 'Allow the model to read your own browser tabs and browsing '
+        + 'history (`browser.user.openTabs`, `claimTab`, `getTabContext`, `browser.history`). '
+        + 'While off these calls fail. While on, tab titles, URLs, page content or history '
+        + 'are sent to the model provider.',
       timeoutInvalid: 'Enter an integer between 10 and 3600 seconds.',
       secondsUnit: 'seconds',
       codexHome: 'Codex home',
@@ -135,8 +144,8 @@ window.__ModuleLoader__.load({
 
     /** Fields shown on the page, in render order within their groups. O(1). */
     const FIELDS = [
-      'computer', 'rememberDesktopApprovals', 'language',
-      'autoApprove', 'timeoutMs', 'codexHome', 'logFile',
+      'computer', 'rememberDesktopApprovals',
+      'autoApprove', 'allowUserTabs', 'language', 'timeoutMs', 'codexHome', 'logFile',
     ]
 
     /** Initial page state before the first configuration read. O(1). */
@@ -184,6 +193,12 @@ window.__ModuleLoader__.load({
           snapshot = form.getSnapshot()
         } catch {
           snapshot = undefined
+        }
+        // Loading is the first-read state, not a failure: it renders the skeleton page.
+        if (snapshot !== undefined && snapshot.status === 'loading') {
+          state = { ...initialState(), status: 'loading' }
+          emit()
+          return
         }
         if (snapshot === undefined || snapshot.status !== 'ready'
           || typeof snapshot.value !== 'object' || snapshot.value === null) {
@@ -374,6 +389,12 @@ window.__ModuleLoader__.load({
       fontSize: 13,
       minWidth: 160,
     }
+    // Reuse the real input metrics and only swap the paint, so the skeleton box matches.
+    const skeletonInputStyle = {
+      ...controlStyle,
+      background: 'var(--dsw-alias-bg-skeleton)',
+      borderColor: 'transparent',
+    }
     const buttonStyle = {
       color: 'var(--dsw-alias-label-primary)',
       background: 'transparent',
@@ -403,14 +424,20 @@ window.__ModuleLoader__.load({
       + 'background: var(--dsw-alias-interactive-bg-hover); }'
     // The icon component only accepts size/className/strokeWidth, so flex lives in a class.
     const SELECTOR_CHEVRON_CSS = '.pc-use-chevron { flex: none; }'
-    /** Inject the hover rule once; inline styles cannot express `:hover`. O(1). */
+    // Same pulse as the host's ListSkeleton; the class only animates the painted fill.
+    const SKELETON_CSS = '.pc-use-skeleton { animation: pc-use-skeleton 2s '
+      + 'cubic-bezier(0.36, 0, 0.64, 1) infinite; }\n'
+      + '@keyframes pc-use-skeleton { 0% { opacity: 1; } 40% { opacity: 0.6; } '
+      + '80%, 100% { opacity: 1; } }\n'
+      + '@media (prefers-reduced-motion: reduce) { .pc-use-skeleton { animation: none; } }'
+    /** Inject the hover and skeleton rules once; inline styles cannot express them. O(1). */
     function ensureSelectorCss() {
       if (typeof document === 'undefined' || document === null) return
       const selector = `style[data-plugin-css="${SELECTOR_CSS_ID}"]`
       if (document.querySelector(selector) !== null) return
       const style = document.createElement('style')
       style.setAttribute('data-plugin-css', SELECTOR_CSS_ID)
-      style.textContent = `${SELECTOR_HOVER_CSS}\n${SELECTOR_CHEVRON_CSS}`
+      style.textContent = `${SELECTOR_HOVER_CSS}\n${SELECTOR_CHEVRON_CSS}\n${SKELETON_CSS}`
       document.head.appendChild(style)
     }
     const noticeStyle = { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }
@@ -587,6 +614,83 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** 36x20 switch-shaped fill; inert, unfocusable and hidden from assistive tech. O(1). */
+    function SkeletonSwitch({ id }) {
+      return h('span', {
+        id,
+        className: 'pc-use-skeleton',
+        'aria-hidden': 'true',
+        style: {
+          display: 'block',
+          boxSizing: 'border-box',
+          flex: '0 0 auto',
+          width: 36,
+          height: 20,
+          border: 0,
+          borderRadius: 999,
+          background: 'var(--dsw-alias-bg-skeleton)',
+        },
+      })
+    }
+
+    /** Text-input-shaped fill with the real input's metrics and an empty value. O(1). */
+    function SkeletonInput({ id }) {
+      return h('input', {
+        id,
+        type: 'text',
+        readOnly: true,
+        disabled: true,
+        value: '',
+        tabIndex: -1,
+        className: 'pc-use-skeleton',
+        'aria-hidden': 'true',
+        style: skeletonInputStyle,
+      })
+    }
+
+    /**
+     * Language control stand-in. The selected "auto" label and the chevron stay in the flow
+     * (painted transparent) so the skeleton keeps the ready control's width. O(1).
+     */
+    function SkeletonLanguage({ id, label, options, withMenu }) {
+      const autoLabel = options[0][1]
+      if (withMenu !== true) {
+        return h('select', {
+          id,
+          className: 'pc-use-skeleton',
+          'aria-hidden': 'true',
+          'aria-label': label,
+          tabIndex: -1,
+          disabled: true,
+          value: 'auto',
+          style: {
+            ...controlStyle,
+            minWidth: 180,
+            background: 'var(--dsw-alias-bg-skeleton)',
+            borderColor: 'transparent',
+            color: 'transparent',
+          },
+        }, options.map(([value, text]) => h('option', { key: value, value }, text)))
+      }
+      const Icon = primitives.IconChevronDownOutlineRegular
+      return h('span', {
+        id,
+        className: 'pc-use-skeleton',
+        'aria-hidden': 'true',
+        style: { position: 'relative', display: 'inline-flex' },
+      }, h('span', {
+        style: {
+          ...languageSelectorStyle,
+          background: 'var(--dsw-alias-bg-skeleton)',
+          color: 'transparent',
+          cursor: 'default',
+        },
+      }, autoLabel, Icon === undefined ? null : h('span', {
+        key: 'chevron',
+        style: { visibility: 'hidden', display: 'inline-flex' },
+      }, h(Icon, { className: 'pc-use-chevron' }))))
+    }
+
     /**
      * The settings page component. `localeT` follows the DSH interface language; the page
      * picks the zh/en dictionary from the `language` setting (`auto` keeps `localeT`).
@@ -603,17 +707,18 @@ window.__ModuleLoader__.load({
         page.mount()
         return () => page.dispose()
       }, [page])
+      // The skeleton pulse lives in the shared stylesheet, so inject it for the loading page
+      // too; the language picker's own effect only runs after the page is ready.
+      React.useEffect(() => {
+        ensureSelectorCss()
+      }, [])
       const t = translateFor(state.values.language, localeT)
       if (state.status === 'failed') {
         return h('div', { style: pageStyle }, [
           h('p', { key: 'failed', style: noticeStyle }, t('readFailed')),
         ])
       }
-      if (state.status !== 'ready') {
-        return h('div', { style: pageStyle }, [
-          h('p', { key: 'loading', style: noticeStyle }, t('loading')),
-        ])
-      }
+      const loading = state.status === 'loading'
       const disabled = state.writable !== true
       const isReadOnly = (field) => disabled || state.readOnly[field] !== undefined
       // The host writes the base value into the profile when it handles `unset`, so compare
@@ -627,45 +732,69 @@ window.__ModuleLoader__.load({
         label: t(field),
         description: t(`${field}Description`),
         last,
-      }, h(Switch, {
-        id: `pc-use-${field}`,
-        label: t(field),
-        checked: state.values[field] === true,
-        disabled: isReadOnly(field),
-        onChange: (value) => page.setToggle(field, value),
-      }))
+      }, loading
+        ? h(SkeletonSwitch, { id: `pc-use-${field}` })
+        : h(Switch, {
+          id: `pc-use-${field}`,
+          label: t(field),
+          checked: state.values[field] === true,
+          disabled: isReadOnly(field),
+          onChange: (value) => page.setToggle(field, value),
+        }))
       const languageValue = state.values.language ?? 'auto'
       const languageOptions = [
         ['auto', t('languageAuto')],
         ['zh', t('languageZh')],
         ['en', t('languageEn')],
       ]
+      const menuAvailable = primitives !== null && typeof primitives.Menu === 'function'
+      const languageControl = loading
+        ? h(SkeletonLanguage, {
+          id: 'pc-use-language',
+          label: t('language'),
+          options: languageOptions,
+          withMenu: menuAvailable,
+        })
+        : menuAvailable
+          ? h(LanguagePicker, {
+            value: languageValue,
+            items: languageOptions.map(([id, label]) => ({ id, label })),
+            disabled: isReadOnly('language'),
+            label: t('language'),
+            onSelect: (id) => page.setLanguage(id),
+          })
+          : h('select', {
+            id: 'pc-use-language',
+            'aria-label': t('language'),
+            value: languageValue,
+            disabled: isReadOnly('language'),
+            style: { ...controlStyle, minWidth: 180 },
+            onChange: (event) => page.setLanguage(event.target.value),
+          }, languageOptions.map(([value, label]) => h('option', { key: value, value }, label)))
       const languageRow = h(Row, {
         key: 'language',
         id: 'pc-use-language',
         label: t('language'),
         description: t('languageDescription'),
         resetLabel: t('reset'),
-        showReset: changed('language'),
+        showReset: loading !== true && changed('language'),
         onReset: reset('language'),
-      }, primitives !== null && typeof primitives.Menu === 'function'
-        ? h(LanguagePicker, {
-          value: languageValue,
-          items: languageOptions.map(([id, label]) => ({ id, label })),
-          disabled: isReadOnly('language'),
-          label: t('language'),
-          onSelect: (id) => page.setLanguage(id),
-        })
-        : h('select', {
-          id: 'pc-use-language',
-          'aria-label': t('language'),
-          value: languageValue,
-          disabled: isReadOnly('language'),
-          style: { ...controlStyle, minWidth: 180 },
-          onChange: (event) => page.setLanguage(event.target.value),
-        }, languageOptions.map(([value, label]) => h('option', { key: value, value }, label))))
+      }, languageControl)
       const timeoutDraft = state.drafts.timeoutMs
         ?? toSeconds(state.values.timeoutMs)
+      const timeoutControl = loading
+        ? h(SkeletonInput, { id: 'pc-use-timeoutMs' })
+        : h(TextField, {
+          id: 'pc-use-timeoutMs',
+          label: t('timeoutMs'),
+          value: timeoutDraft,
+          inputMode: 'numeric',
+          disabled: isReadOnly('timeoutMs'),
+          onChange: (text) => page.editText('timeoutMs', text),
+          onCommit: () => page.commitText('timeoutMs'),
+          errorText: state.errors.timeoutMs === undefined ? undefined : t('timeoutInvalid'),
+          errorId: 'pc-use-timeoutMs-error',
+        })
       const timeoutRow = h(Row, {
         key: 'timeoutMs',
         id: 'pc-use-timeoutMs',
@@ -673,37 +802,29 @@ window.__ModuleLoader__.load({
         description: `${t('timeoutMsDescription')} (${TIMEOUT_MIN_SECONDS}–${TIMEOUT_MAX_SECONDS} `
           + `${t('secondsUnit')})`,
         resetLabel: t('reset'),
-        showReset: changed('timeoutMs'),
+        showReset: loading !== true && changed('timeoutMs'),
         onReset: reset('timeoutMs'),
-      }, h(TextField, {
-        id: 'pc-use-timeoutMs',
-        label: t('timeoutMs'),
-        value: timeoutDraft,
-        inputMode: 'numeric',
-        disabled: isReadOnly('timeoutMs'),
-        onChange: (text) => page.editText('timeoutMs', text),
-        onCommit: () => page.commitText('timeoutMs'),
-        errorText: state.errors.timeoutMs === undefined ? undefined : t('timeoutInvalid'),
-        errorId: 'pc-use-timeoutMs-error',
-      }))
+      }, timeoutControl)
       const textRow = (field, placeholderKey, last) => h(Row, {
         key: field,
         id: `pc-use-${field}`,
         label: t(field),
         description: t(`${field}Description`),
         resetLabel: t('reset'),
-        showReset: changed(field),
+        showReset: loading !== true && changed(field),
         onReset: reset(field),
         last,
-      }, h(TextField, {
-        id: `pc-use-${field}`,
-        label: t(field),
-        value: state.drafts[field] ?? String(state.values[field] ?? ''),
-        placeholder: t(placeholderKey),
-        disabled: isReadOnly(field),
-        onChange: (text) => page.editText(field, text),
-        onCommit: () => page.commitText(field),
-      }))
+      }, loading
+        ? h(SkeletonInput, { id: `pc-use-${field}` })
+        : h(TextField, {
+          id: `pc-use-${field}`,
+          label: t(field),
+          value: state.drafts[field] ?? String(state.values[field] ?? ''),
+          placeholder: t(placeholderKey),
+          disabled: isReadOnly(field),
+          onChange: (text) => page.editText(field, text),
+          onCommit: () => page.commitText(field),
+        }))
       const group = (key, headingKey, rows) => h('div', {
         key: `group-${key}`,
         style: groupStyle,
@@ -716,7 +837,10 @@ window.__ModuleLoader__.load({
           booleanRow('computer'),
           booleanRow('rememberDesktopApprovals', true),
         ]),
-        group('browser', 'groupBrowser', [booleanRow('autoApprove', true)]),
+        group('browser', 'groupBrowser', [
+          booleanRow('autoApprove'),
+          booleanRow('allowUserTabs', true),
+        ]),
         group('general', 'groupGeneral', [
           languageRow,
           timeoutRow,
@@ -732,14 +856,18 @@ window.__ModuleLoader__.load({
         key: 'notice',
         role: 'status',
         style: visuallyHiddenStyle,
-      }, state.notice === null ? '' : t(state.notice))
-      const conflictNotice = state.notice === 'conflict'
+      }, loading ? t('loading') : (state.notice === null ? '' : t(state.notice)))
+      const conflictNotice = loading !== true && state.notice === 'conflict'
         ? h('p', { key: 'conflict', style: noticeStyle }, t('conflict'))
         : null
-      const readOnlyNotice = Object.keys(state.readOnly).length > 0
+      const readOnlyNotice = loading !== true && Object.keys(state.readOnly).length > 0
         ? h('p', { key: 'readonly', style: noticeStyle }, t('writeRejected'))
         : null
-      return h('div', { style: pageStyle }, [
+      // The loading page keeps the ready page's box structure; only the controls are fills.
+      return h('div', {
+        style: pageStyle,
+        ...(loading ? { 'aria-busy': 'true' } : {}),
+      }, [
         notice,
         conflictNotice,
         readOnlyNotice,

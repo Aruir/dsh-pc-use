@@ -1,5 +1,7 @@
-// Fake cua_repl for tab-guard tests. It executes the plugin's guarded browser program in a
-// persistent environment and can replace cua, start without cua, or omit a created id.
+// Fake cua_repl for tab-guard and user-tabs-guard tests. It executes the plugin's guarded
+// browser program in a persistent environment and can replace cua, start without cua, omit a
+// created id, return Browser objects synchronously, put the user-tab methods on the browser
+// instance, or omit the user-tab entry points.
 import { appendFileSync } from 'node:fs'
 import readline from 'node:readline'
 
@@ -17,7 +19,9 @@ function send(message) {
 function createEnvironment() {
   let output = ''
   let nextId = 1
+  let browser = null
   const ownTabs = []
+  const claimedTabs = []
   const foreignTabs = [
     {
       id: 'FOREIGN-1', title: 'FOREIGN-TITLE-1',
@@ -25,13 +29,98 @@ function createEnvironment() {
     },
     { id: undefined, title: 'FOREIGN-NO-ID', url: 'https://foreign.invalid/no-id' },
   ]
-  const calls = { create: 0, list: 0, listOptions: [] }
+  const calls = {
+    create: 0,
+    list: 0,
+    listOptions: [],
+    user: { openTabs: 0, claimTab: 0, getTabContext: 0, history: 0 },
+  }
   const nodeRepl = {
     write(value) { output += `${String(value)}\n` },
   }
 
-  function makeCua() {
+  // Synthetic user data; every original call is recorded once so a test can prove that a
+  // blocked wrapper never called the real method. O(1) per call.
+  function openTabs() {
+    calls.user.openTabs += 1
+    record({ type: 'userMethod', method: 'openTabs' })
+    return [{ id: 'user-tab-1', title: 'USER-TAB-TITLE-1', url: 'https://user.invalid/1' }]
+  }
+
+  function claimTab() {
+    calls.user.claimTab += 1
+    record({ type: 'userMethod', method: 'claimTab' })
+    const claimed = {
+      id: 'claimed-1',
+      title: 'USER-TAB-TITLE-1',
+      url: 'https://user.invalid/1',
+      async getAXState() { nodeRepl.write('CLAIMED-AX') },
+    }
+    claimedTabs.push(claimed)
+    return claimed
+  }
+
+  function getTabContext() {
+    calls.user.getTabContext += 1
+    record({ type: 'userMethod', method: 'getTabContext' })
     return {
+      id: 'user-tab-1',
+      title: 'USER-TAB-TITLE-1',
+      url: 'https://user.invalid/1',
+      text: 'USER-TAB-TEXT-1',
+    }
+  }
+
+  function history() {
+    calls.user.history += 1
+    record({ type: 'userMethod', method: 'history' })
+    return [{ title: 'HISTORY-TITLE-1', url: 'https://history.invalid/1' }]
+  }
+
+  class StubBrowserUser {
+    async openTabs() { return openTabs() }
+
+    async claimTab() { return claimTab() }
+
+    async getTabContext() { return getTabContext() }
+  }
+
+  class StubBrowser {
+    constructor() {
+      this.id = 'browser-1'
+      this.user = new StubBrowserUser()
+    }
+
+    async history() { return history() }
+  }
+
+  // Shape one Browser for the current mode; fresh objects let each entry point be checked alone.
+  function shapeBrowser() {
+    const created = new StubBrowser()
+    if (mode === 'own-methods') {
+      created.user.openTabs = async () => openTabs()
+      created.user.claimTab = async () => claimTab()
+      created.user.getTabContext = async () => getTabContext()
+      created.history = async () => history()
+    }
+    if (mode === 'no-user') delete created.user
+    return created
+  }
+
+  // cua.getBrowser returns one Browser per environment, so repeated calls prove the guard does
+  // not wrap that object twice.
+  function makeBrowser() {
+    if (browser === null) browser = shapeBrowser()
+    return browser
+  }
+
+  // cua.browsers.* returns a new Browser each time, so a missing entrance wrapper is visible.
+  function freshBrowser() {
+    return shapeBrowser()
+  }
+
+  function makeCua() {
+    const created = {
       async createBrowserTab(_browserId, url) {
         calls.create += 1
         record({ type: 'createBrowserTab' })
@@ -49,7 +138,7 @@ function createEnvironment() {
         calls.list += 1
         calls.listOptions.push(options)
         record({ type: 'listTabs', options })
-        const all = [...ownTabs, ...foreignTabs].map((tab) => ({
+        const all = [...ownTabs, ...claimedTabs, ...foreignTabs].map((tab) => ({
           browserId: 'chrome', id: tab.id, providerTabId: tab.id,
           title: tab.title, url: tab.url,
         }))
@@ -57,6 +146,24 @@ function createEnvironment() {
         return all
       },
     }
+    if (mode !== 'no-get-browser') {
+      if (mode === 'sync-entrance') {
+        created.getBrowser = () => makeBrowser()
+        created.browsers = {
+          get: () => freshBrowser(),
+          getDefault: () => freshBrowser(),
+          getForUrl: () => freshBrowser(),
+        }
+      } else {
+        created.getBrowser = async () => makeBrowser()
+        created.browsers = {
+          async get() { return freshBrowser() },
+          async getDefault() { return freshBrowser() },
+          async getForUrl() { return freshBrowser() },
+        }
+      }
+    }
+    return created
   }
 
   return {
@@ -69,10 +176,13 @@ function createEnvironment() {
     reset() {
       output = ''
       nextId = 1
+      browser = null
       ownTabs.length = 0
+      claimedTabs.length = 0
       calls.create = 0
       calls.list = 0
       calls.listOptions = []
+      calls.user = { openTabs: 0, claimTab: 0, getTabContext: 0, history: 0 }
     },
   }
 }

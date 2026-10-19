@@ -258,6 +258,7 @@ All fields are optional and go in the `config:` block of `cordis.patch.yml`.
 | `timeoutMs` | `120000` | Timeout for one tool call |
 | `attachImages` | `true` | Attach screenshots as images when the model declares image input; screenshots go to the model provider, DSH's default Files API upload expires after 7 days and is not deleted at session end, and the DSH attachment store keeps a local copy; turn off to avoid uploads |
 | `keepImageFiles` | `false` | Also keep attached images under `~/.dsh/pc-use-images`; by default only DSH's attachment store keeps them |
+| `allowUserTabs` | `false` | Allow reading your own tabs and history; off blocks those calls |
 | `tools` | all on | Per-tool switches: `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` |
 | `tools.desktopJs` | `true` | Register `pc_codex_desktop_js`: run JS in the desktop `node_repl` (needs `computer: true`) |
 | `tools.desktopReset` | `true` | Register `pc_codex_desktop_js_reset`: reset the desktop JS kernel |
@@ -266,9 +267,14 @@ All fields are optional and go in the `config:` block of `cordis.patch.yml`.
 | `tools.runPlan` | `true` | Register `pc_codex_run_plan`: fallback for step-by-step status or automatic observation after a failure |
 | `tools.docs` | `true` | Register `pc_codex_docs`: read Codex's bundled Computer Use docs (no Codex connection needed) |
 
+`allowUserTabs` governs `browser.user.openTabs`, `browser.user.claimTab`,
+`browser.user.getTabContext` and `browser.history`. While it is off, those calls fail with an
+explanatory error. While it is on, tab titles, URLs, page content and history are sent to the
+model provider, so turn it on only when the user asked for that.
+
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /
-`codexHome` / `logFile` / `timeoutMs` / `attachImages` / `keepImageFiles` are
-hot-updatable (volatile): a change applies to later calls
+`codexHome` / `logFile` / `timeoutMs` / `attachImages` / `keepImageFiles` /
+`allowUserTabs` are hot-updatable (volatile): a change applies to later calls
 without remounting the plugin. The loader announces volatile writes, so turning `computer` off
 stops the desktop server immediately and leaves the browser connection alone; turning it on starts
 the desktop server on the next desktop call. After `codexHome` changes both servers re-resolve and
@@ -323,9 +329,9 @@ The DSH settings sidebar shows a "PC Use" page right below "Plugin market" (entr
 only appears while the Host serves that entry). It can change:
 
 - **Desktop control**: `computer`, `rememberDesktopApprovals`;
-- **Browser**: `autoApprove`;
-- **General**: `language`, `timeoutMs` (seconds, 10–3600, stored in milliseconds), `codexHome`,
-  `logFile`.
+- **Browser**: `autoApprove`, `allowUserTabs`;
+- **General**: `language`, `timeoutMs` (seconds, 10–3600, stored in milliseconds),
+  `attachImages`, `keepImageFiles`, `codexHome`, `logFile`.
 
 Switches and the language select save immediately; text and number fields save on blur or Enter.
 Every field shows "Restore default" once the user has changed it. `enabled` and `tools.*` are not on
@@ -334,6 +340,15 @@ the profile. The three desktop tool switches (`tools.desktopJs`, `tools.desktopR
 `tools.desktopAddNodeModuleDir`) are not on the page either, like the other `tools.*` switches.
 `codexHome` is volatile: the next call after a change re-resolves and reconnects to the new Codex
 directory without remounting the plugin.
+
+Before the settings finish loading, the section shows a skeleton with the same groups, headings,
+rows and control boxes; only the control contents appear when loading completes, so the layout does
+not jump. `unavailable` or an invalid read shows "Failed to read settings".
+
+Known limitation: when `language` is not `auto`, the text changes to the chosen language after
+loading; and a field with a user override (which adds "Restore default") widens that row's control
+area. In those two cases, line height or control-area width may change after loading, so the
+page moves.
 
 ## Desktop control
 
@@ -523,6 +538,12 @@ the profile as well.
   `cua.createBrowserTab`; other user tabs are filtered out. The guard is misuse protection, not a
   security boundary; a reset or server restart forgets earlier tabs, and the prepended guard
   shifts line numbers in model-code errors.
+- `allowUserTabs` (default off) blocks `browser.user.openTabs`, `claimTab`,
+  `getTabContext` and `browser.history` on Browser objects obtained through
+  `cua.getBrowser` or `cua.browsers.{get,getDefault,getForUrl}`. This is misuse
+  protection, not a security boundary: model code can rewrite the Symbol the wrapper
+  reads, `browser.tabs` and `cua.getTab` are not covered, and a frozen Browser object
+  cannot be wrapped.
 - Automatic approval only recognizes the exact wording `Allow Browser use to access <origin>?`; if
   Codex changes it, browser approvals are declined (fail-closed) and the declined wording is logged.
 - Desktop approvals only recognize `Allow Computer Use to use "<name>"?` and `Allow Codex to use <name>?`;

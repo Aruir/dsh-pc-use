@@ -183,14 +183,19 @@ function loadClient(primitives = null) {
 
 const client = loadClient()
 
-/** Render the settings section; `module` lets a test use a client loaded with primitives. O(n). */
-function renderSection(overrides = {}, module = client) {
-  const context = fakeCtx({ form: readyForm(overrides) })
+/** Render the settings section for one form object. O(n). */
+function renderForm(form, module = client) {
+  const context = fakeCtx({ form })
   context.configForms.setServed(['pc-use'])
   module.apply(context.ctx)
   const entry = context.registrations.find((item) => item.options.name === 'settings.section')
   assert.ok(entry, 'settings.section must be registered')
   return { context, renderer: createRenderer(entry.Component) }
+}
+
+/** Render the settings section; `module` lets a test use a client loaded with primitives. O(n). */
+function renderSection(overrides = {}, module = client) {
+  return renderForm(readyForm(overrides), module)
 }
 
 /** Fake DSH primitives: Menu records its props and renders the anchor; icon is a stub. O(1). */
@@ -262,6 +267,7 @@ class FakeForm {
         language: 'auto',
         autoApprove: false,
         timeoutMs: 120000,
+        allowUserTabs: false,
         codexHome: '',
         logFile: '',
       },
@@ -620,6 +626,29 @@ test('screenshot privacy switches appear in the general group', () => {
   assert.match(text, /本机 DSH 附件库/)
 })
 
+test('the allowUserTabs switch sits after autoApprove in the browser group', () => {
+  const { renderer, context } = renderSection()
+  const tree = renderer.getTree()
+  const control = findNode(tree, (node) => (
+    node.type === 'button' && node.props.role === 'switch'
+    && node.props.id === 'pc-use-allowUserTabs'
+  ))
+  assert.ok(control, 'missing allowUserTabs switch')
+  const groups = groupContainers(tree)
+  assert.deepEqual(rowsOfGroup(groups[1]).map(rowControlId),
+    ['pc-use-autoApprove', 'pc-use-allowUserTabs'])
+  assert.equal(rowsOfGroup(groups[2]).map(rowControlId).includes('pc-use-allowUserTabs'), false)
+  const text = renderedText(tree)
+  assert.match(text, /允许读取用户标签页/)
+  assert.match(text, /browser\.user\.openTabs/)
+  assert.match(text, /发给模型服务商/)
+  context.locale.language = 'en'
+  renderer.render()
+  const enText = renderedText(renderer.getTree())
+  assert.match(enText, /Allow reading user tabs/)
+  assert.match(enText, /sent to the model provider/)
+})
+
 test('a failed read renders readFailed and no controls', () => {
   const { renderer } = renderSection({
     status: 'unavailable',
@@ -629,6 +658,188 @@ test('a failed read renders readFailed and no controls', () => {
   assert.ok(renderedText(renderer.getTree()).includes('读取失败'))
   assert.equal(renderedControls(renderer.getTree()).length, 0)
   assert.equal(findNode(renderer.getTree(), (node) => node.type === 'h2'), undefined)
+})
+
+test('a loading snapshot renders the skeleton page with the ready layout', () => {
+  const ready = renderSection()
+  const { renderer } = renderForm(loadingForm())
+  const tree = renderer.getTree()
+  assert.equal(pageRoot(tree).props['aria-busy'], 'true')
+  assert.deepEqual(pageTextLayout(tree), pageTextLayout(ready.renderer.getTree()))
+  const groups = groupContainers(tree)
+  assert.equal(groups.length, 3)
+  for (const group of groups) {
+    assert.equal(rowsOfGroup(group).at(-1).props.style.borderBottom, 'none')
+  }
+  assert.equal(findNode(tree, (node) => node.type === 'button'), undefined)
+  for (const control of renderedControls(tree)) assert.equal(control.props.disabled, true)
+  const placeholders = skeletonPlaceholders(tree)
+  assert.equal(placeholders.length, 10)
+  for (const placeholder of placeholders) {
+    assert.equal(placeholder.props['aria-hidden'], 'true')
+  }
+  const switches = placeholders.filter((node) => node.props.style?.width === 36)
+  assert.equal(switches.length, 6)
+  for (const node of switches) {
+    assert.equal(node.props.style.height, 20)
+    assert.equal(node.props.style.boxSizing, 'border-box')
+    assert.equal(node.props.style.borderRadius, 999)
+    assert.equal(node.props.style.flex, '0 0 auto')
+    assert.equal(node.props.style.background, 'var(--dsw-alias-bg-skeleton)')
+  }
+  const inputs = placeholders.filter((node) => node.type === 'input')
+  assert.equal(inputs.length, 3)
+  for (const input of inputs) {
+    assert.equal(input.props.type, 'text')
+    assert.equal(input.props.readOnly, true)
+    assert.equal(input.props.disabled, true)
+    assert.equal(input.props.value, '')
+    assert.equal(input.props.placeholder, undefined)
+    assert.equal(input.props.style.background, 'var(--dsw-alias-bg-skeleton)')
+    assert.equal(input.props.style.borderColor, 'transparent')
+    assert.equal(input.props.style.minWidth, 160)
+  }
+  const select = placeholders.find((node) => node.type === 'select')
+  assert.ok(select)
+  assert.equal(select.props.value, 'auto')
+  assert.equal(select.props.disabled, true)
+  assert.equal(select.props.children.length, 3)
+  assert.equal(select.props.style.background, 'var(--dsw-alias-bg-skeleton)')
+  assert.equal(select.props.style.color, 'transparent')
+  const status = statusLines(tree)[0]
+  assert.equal(renderedText(status), '正在读取设置…')
+  assert.equal(status.props.style.position, 'absolute')
+  assert.doesNotMatch(renderedText(tree), /读取失败/)
+})
+
+test('unavailable, unknown, throwing and invalid-ready snapshots show readFailed', () => {
+  const throwing = readyForm({ value: undefined })
+  throwing.getSnapshot = () => {
+    throw new Error('snapshot boom')
+  }
+  const cases = [
+    ['unavailable', readyForm({ status: 'unavailable', value: undefined, revision: undefined })],
+    ['unknown', readyForm({ status: 'weird', value: undefined, revision: undefined })],
+    ['throw', throwing],
+    ['ready null', readyForm({ value: null })],
+  ]
+  for (const [name, form] of cases) {
+    const { renderer } = renderForm(form)
+    const tree = renderer.getTree()
+    assert.ok(renderedText(tree).includes('读取失败'), name)
+    assert.equal(renderedControls(tree).length, 0, name)
+    assert.equal(skeletonPlaceholders(tree).length, 0, name)
+  }
+})
+
+test('loading becomes ready without aria-busy or a skeleton', () => {
+  const form = loadingForm()
+  const { renderer } = renderForm(form)
+  assert.equal(pageRoot(renderer.getTree()).props['aria-busy'], 'true')
+  form.update({
+    status: 'ready',
+    value: { ...PAGE_VALUES },
+    base: {},
+    user: {},
+    revision: 7,
+    writable: true,
+  })
+  renderer.render()
+  const tree = renderer.getTree()
+  assert.equal(pageRoot(tree).props['aria-busy'], undefined)
+  assert.equal(skeletonPlaceholders(tree).length, 0)
+  assert.equal(renderedText(tree).includes('正在读取设置'), false)
+  const controls = renderedControls(tree)
+  assert.equal(controls.length > 0, true)
+  assert.equal(controls.some((control) => control.props.disabled !== true), true)
+})
+
+test('a form that is already ready renders the full page on the first render', () => {
+  const form = readyForm()
+  const page = pageFor(form)
+  assert.equal(page.getSnapshot().status, 'ready')
+  const { renderer } = renderForm(form)
+  const tree = renderer.getTree()
+  assert.equal(pageRoot(tree).props['aria-busy'], undefined)
+  assert.equal(skeletonPlaceholders(tree).length, 0)
+  assert.equal(renderedText(tree).includes('正在读取设置'), false)
+  assert.ok(findNode(tree, (node) => (
+    node.type === 'button' && node.props.role === 'switch'
+  )))
+})
+
+test('ready back to loading clears old values and shows the skeleton', () => {
+  const form = readyForm({ value: { ...PAGE_VALUES, language: 'en', codexHome: 'C:\\old' } })
+  const { renderer } = renderForm(form)
+  assert.equal(renderedText(renderer.getTree()).includes('Desktop control'), true)
+  form.update({
+    status: 'loading',
+    value: undefined,
+    base: undefined,
+    user: undefined,
+    revision: undefined,
+    writable: false,
+  })
+  renderer.render()
+  const tree = renderer.getTree()
+  assert.equal(pageRoot(tree).props['aria-busy'], 'true')
+  assert.equal(skeletonPlaceholders(tree).length, 10)
+  assert.equal(renderedText(tree).includes('C:\\old'), false)
+  for (const control of renderedControls(tree)) {
+    if (control.type === 'input') assert.equal(control.props.value, '')
+    if (control.type === 'select') assert.equal(control.props.value, 'auto')
+  }
+  assert.equal(pageTextLayout(tree)[0].heading, '桌面操控')
+  assert.equal(renderedText(statusLines(tree)[0]), '正在读取设置…')
+})
+
+test('the skeleton page keeps the ready page row ids', () => {
+  const loadingTree = renderForm(loadingForm()).renderer.getTree()
+  const readyTree = renderSection().renderer.getTree()
+  const ids = labelForIds(loadingTree)
+  assert.deepEqual(ids, labelForIds(readyTree))
+  assert.deepEqual(ids, [
+    'pc-use-computer', 'pc-use-rememberDesktopApprovals',
+    'pc-use-autoApprove', 'pc-use-allowUserTabs',
+    'pc-use-language', 'pc-use-timeoutMs', 'pc-use-attachImages',
+    'pc-use-keepImageFiles', 'pc-use-codexHome', 'pc-use-logFile',
+  ])
+})
+
+test('skeleton placeholders have no handlers and never write', () => {
+  const form = loadingForm()
+  const { renderer, context } = renderForm(form)
+  const placeholders = skeletonPlaceholders(renderer.getTree())
+  assert.equal(placeholders.length, 10)
+  for (const node of placeholders) {
+    for (const handler of ['onClick', 'onChange', 'onBlur', 'onKeyDown', 'onCommit']) {
+      assert.equal(node.props[handler], undefined, `${node.type} ${handler}`)
+    }
+    assert.equal(node.props.tabIndex !== undefined && node.props.tabIndex >= 0, false)
+  }
+  assert.equal(context.configForms.get('pc-use').mutations.length, 0)
+})
+
+test('loading with Menu primitives keeps a menu-shaped language placeholder', () => {
+  const { renderer } = renderForm(loadingForm(), loadClient(fakePrimitives()))
+  const tree = renderer.getTree()
+  const placeholder = skeletonPlaceholders(tree).find((node) => (
+    node.type === 'span'
+    && node.props.style?.display === 'inline-flex'
+    && node.props.style?.position === 'relative'
+  ))
+  assert.ok(placeholder)
+  assert.equal(placeholder.props['aria-hidden'], 'true')
+  const inner = elements(placeholder).find((node) => node.props?.style?.height === 36)
+  assert.ok(inner)
+  assert.equal(inner.props.style.padding, '0 14px')
+  assert.equal(inner.props.style.color, 'transparent')
+  assert.ok(renderedText(inner).includes('跟随 DSH 界面语言'))
+  const icon = elements(inner).find((node) => node.type === 'icon')
+  assert.ok(icon)
+  assert.equal(icon.props.className, 'pc-use-chevron')
+  const iconWrap = parentOf(inner, (node) => node.type === 'icon')
+  assert.equal(iconWrap.props.style.visibility, 'hidden')
 })
 
 test('an out-of-range timeout shows the error and aria-invalid on the input', () => {
@@ -666,6 +877,7 @@ const VERIFIED_THEME_VARIABLES = new Set([
   '--dsw-alias-label-secondary',
   '--dsw-radius-md',
   '--dsw-alias-bg-module-platform',
+  '--dsw-alias-bg-skeleton',
   '--dsw-alias-interactive-bg-hover',
 ])
 
@@ -736,6 +948,44 @@ function pageRoot(tree) {
 /** Every `p[role="status"]` in a rendered tree. O(n). */
 function statusLines(tree) {
   return elements(tree).filter((node) => node.type === 'p' && node.props.role === 'status')
+}
+
+/** The skeleton-filled placeholders of the loading page, in render order. O(n). */
+function skeletonPlaceholders(tree) {
+  return elements(tree).filter((node) => (
+    typeof node.props?.className === 'string'
+    && node.props.className.split(' ').includes('pc-use-skeleton')
+  ))
+}
+
+/** Row ids as exposed by their labels, in render order. O(n). */
+function labelForIds(tree) {
+  return elements(tree)
+    .filter((node) => node.type === 'label')
+    .map((node) => node.props.htmlFor)
+}
+
+/** Group headings plus every row's label and description, in render order. O(n). */
+function pageTextLayout(tree) {
+  return groupContainers(tree).map((group) => ({
+    heading: renderedText(group.props.children.find((child) => child && child.type === 'h3')),
+    rows: rowsOfGroup(group).map((row) => {
+      const [label, description] = row.props.children[0].props.children
+      return { label: renderedText(label), description: renderedText(description) }
+    }),
+  }))
+}
+
+/** A form whose first snapshot is the Host's initial loading state. O(1). */
+function loadingForm() {
+  return readyForm({
+    status: 'loading',
+    value: undefined,
+    base: undefined,
+    user: undefined,
+    revision: undefined,
+    writable: false,
+  })
 }
 
 /** The direct parent element of the first child matching `predicate`. O(n). */
@@ -833,6 +1083,7 @@ const PAGE_VALUES = {
   language: 'auto',
   autoApprove: false,
   timeoutMs: 120000,
+  allowUserTabs: false,
   codexHome: '',
   logFile: '',
 }
@@ -1105,7 +1356,7 @@ test('a conflict shows a visible notice before the desktop group', async () => {
   assert.equal(conflictIndex < groupIndex, true)
 })
 
-test('the groups and their rows have the new order', () => {
+test('the browser group lists allowUserTabs right after autoApprove', () => {
   const { renderer } = renderSection()
   const groups = groupContainers(renderer.getTree())
   assert.equal(groups.length, 3)
@@ -1116,7 +1367,7 @@ test('the groups and their rows have the new order', () => {
   const ids = groups.map((group) => rowsOfGroup(group).map(rowControlId))
   assert.deepEqual(ids, [
     ['pc-use-computer', 'pc-use-rememberDesktopApprovals'],
-    ['pc-use-autoApprove'],
+    ['pc-use-autoApprove', 'pc-use-allowUserTabs'],
     ['pc-use-language', 'pc-use-timeoutMs', 'pc-use-attachImages',
       'pc-use-keepImageFiles', 'pc-use-codexHome', 'pc-use-logFile'],
   ])
@@ -1246,6 +1497,24 @@ test('the hover style is injected only once', () => {
     assert.ok(style.textContent.includes('--dsw-alias-interactive-bg-hover'))
     assert.ok(style.textContent.includes('.pc-use-chevron'))
     assert.ok(style.textContent.includes('flex: none'))
+    assert.ok(style.textContent.includes('.pc-use-skeleton {'))
+    assert.ok(style.textContent.includes('@keyframes pc-use-skeleton'))
+    assert.ok(style.textContent.includes('prefers-reduced-motion: reduce'))
+    assert.ok(style.textContent.includes('animation: none'))
+  } finally {
+    delete globalThis.document
+  }
+})
+
+test('the loading page injects the skeleton styles once', () => {
+  const fake = fakeDocument()
+  globalThis.document = fake.document
+  try {
+    renderForm(loadingForm())
+    renderForm(loadingForm())
+    assert.equal(fake.styles.length, 1)
+    assert.ok(fake.styles[0].textContent.includes('.pc-use-skeleton {'))
+    assert.ok(fake.styles[0].textContent.includes('80%, 100% { opacity: 1; }'))
   } finally {
     delete globalThis.document
   }
