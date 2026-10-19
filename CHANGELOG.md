@@ -2,6 +2,12 @@
 
 [中文](CHANGELOG.zh.md) | English
 
+## Unreleased
+
+The settings page now shows the real state of "Attach screenshots" and "Keep local image
+files". Before, both switches always looked off after the page read the settings, although
+screenshots were attached by default.
+
 ## 0.9.0
 
 0.9.0 renames the top-level `pc_status` key `backends` to `providers`; this is a breaking change

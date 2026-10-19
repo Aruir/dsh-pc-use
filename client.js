@@ -151,7 +151,8 @@ window.__ModuleLoader__.load({
     /** Fields shown on the page, in render order within their groups. O(1). */
     const FIELDS = [
       'computer', 'rememberDesktopApprovals',
-      'autoApprove', 'allowUserTabs', 'language', 'timeoutMs', 'codexHome', 'logFile',
+      'autoApprove', 'allowUserTabs',
+      'language', 'timeoutMs', 'attachImages', 'keepImageFiles', 'codexHome', 'logFile',
     ]
 
     /** Initial page state before the first configuration read. O(1). */
