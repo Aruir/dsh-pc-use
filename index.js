@@ -14,13 +14,14 @@
 import { readFileSync, statSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
 import {
   COMPUTER_USE_DOC_TOPICS, defaultCodexHome, resolveBrowserServer, resolveComputerUseDocs,
   resolveDesktopServer, versionFromSource,
 } from './lib/codex-config.js'
+import { SKILL_DSH_NOTES, SKILL_NAME, readCodexSkill } from './lib/codex-skill.js'
 import { unwrapConfigValue } from './lib/config-value.js'
 import { createDesktopApprovals } from './lib/desktop-approvals.js'
 import { fallbackPlaceholders, prepareImageProjection } from './lib/image-projection.js'
@@ -49,6 +50,9 @@ import { createTurnTracker } from './lib/turn-tracker.js'
 
 export const name = 'pc-use'
 export const inject = ['tools']
+
+// r26: provider name in DSH's skill registry; `codex-computer-use` is the skill name.
+const SKILL_PROVIDER_NAME = 'dsh-pc-use'
 
 // Both platform packages are supplied by the running harness. A soft import keeps
 // this module loadable (tools use a JSON Schema adapter) if a future build moves
@@ -387,6 +391,64 @@ export function apply(ctx, raw = {}) {
     browser: targetBridge('browser'),
     desktop: targetBridge('desktop', () => approvals.forgetAll()),
   }
+
+  // r26: the Codex computer-use skill is offered to DSH's skill registry. Every list/get reads
+  // the SKILL.md from the local Codex installation, so the text is never copied into the repo.
+  let skillControl = null
+  /** The version directory the browser server uses; pc_codex_docs resolves docs the same way. */
+  const skillPreferVersion = () => {
+    const spec = servers.browser.spec()
+    return spec.ok === true ? versionFromSource(spec.source) : null
+  }
+  /** True when the skill may be offered: computer on, desktop js on, and not aborted. O(1). */
+  const skillAvailable = (options) => {
+    if (options?.signal?.aborted === true) return false
+    if (computerEnabled() !== true) return false
+    return toolEnabled('desktopJs') === true
+  }
+  /**
+   * Provider-visible fields shared by the candidate and the loaded definition. They are
+   * rebuilt from this read's SKILL.md, so a version change updates `path` and `resourceBase`
+   * together instead of leaving the definition on an old directory. O(1).
+   */
+  const skillSummary = (skill) => ({
+    name: SKILL_NAME,
+    description: skill.description,
+    invocation: { modelInvocable: true, userInvocable: true },
+    provider: SKILL_PROVIDER_NAME,
+    source: 'custom',
+    path: skill.file,
+    resourceBase: { kind: 'directory', path: skill.versionDir.split(sep).join('/') },
+  })
+  /** Read the local SKILL.md and build its candidate, or null. O(file size). */
+  const skillCandidate = () => {
+    const skill = readCodexSkill({ codexHome: codexHome(), preferVersion: skillPreferVersion() })
+    if (skill === null) return null
+    return {
+      ...skillSummary(skill),
+      // DSH's BUNDLED_SKILL_RANK is 600; the plugin cannot reliably import that package, so
+      // the value is repeated here.
+      rank: 600,
+      locator: { file: skill.file },
+    }
+  }
+  /** The provider DSH registers; list and get re-read the file on every call. O(file size). */
+  const skillProvider = () => ({
+    name: SKILL_PROVIDER_NAME,
+    async list(options) {
+      if (!skillAvailable(options)) return []
+      const candidate = skillCandidate()
+      return candidate === null ? [] : [candidate]
+    },
+    async get(candidate, options) {
+      if (!skillAvailable(options)) return undefined
+      const skill = readCodexSkill({ codexHome: codexHome(), preferVersion: skillPreferVersion() })
+      if (skill === null) return undefined
+      // The definition carries this read's `path` and `resourceBase`, never the candidate's
+      // potentially older version directory.
+      return { ...skillSummary(skill), content: `${skill.body}\n\n${SKILL_DSH_NOTES}` }
+    },
+  })
 
 
   // r25: server documentation is cached on disk and registered without waiting for any server.
@@ -1186,6 +1248,8 @@ export function apply(ctx, raw = {}) {
   if (typeof ctx.on === 'function') {
     ctx.effect(() => ctx.on('loader/volatile-update', () => {
       syncComputerSwitch('computer turned off; stopping the desktop server')
+      // r26: the skill catalog depends on `computer` and `tools.desktopJs`.
+      if (skillControl !== null) skillControl.invalidate()
     }), 'dsh-pc-use: computer switch')
   }
 
@@ -1194,6 +1258,22 @@ export function apply(ctx, raw = {}) {
   if (typeof ctx.inject === 'function') {
     ctx.inject(['settings'], (scope) => {
       scope.effect(() => scope.settings.configure({ auto: false }, ctx.fiber))
+    })
+  }
+
+  // r26: DSH's skill registry is optional. `scope.effect` ties the provider to the
+  // injection's lifetime; a missing service or a throwing registerProvider leaves the nine
+  // tools untouched.
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['skills'], (scope) => {
+      try {
+        scope.effect(() => scope.skills.registerProvider((control) => {
+          skillControl = control
+          return skillProvider()
+        }))
+      } catch {
+        log('skill provider registration failed')
+      }
     })
   }
 

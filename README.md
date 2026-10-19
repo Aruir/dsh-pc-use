@@ -202,6 +202,17 @@ servers in the background at startup only when the cache is missing or out of da
 takes effect at the next DSH start. The cache stores only description text and hashes, never
 commands, arguments, environment variables, paths or pipe names.
 
+### The Codex computer-use skill
+
+While `computer` is on and the desktop js tool (`tools.desktopJs`) is enabled, the plugin
+registers the computer-use skill from the local Codex installation in DSH's skill catalog as
+`codex-computer-use`. The body is read from
+`<codexHome>/plugins/cache/openai-bundled/computer-use/<version>/skills/computer-use/SKILL.md`
+when DSH lists or loads the skill, so it is never copied into this repository. The plugin
+appends the DSH notes that name the desktop tools (`pc_codex_desktop_js`,
+`pc_codex_desktop_js_reset`, `pc_codex_desktop_js_add_node_module_dir`) and map the
+documents under `docs/` to `pc_codex_docs` topics.
+
 ## Settings page
 
 The DSH settings sidebar shows a "PC Use" page immediately below "Plugin market" (entry id `pc-use`;

@@ -181,6 +181,16 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 改动在 DSH 下次启动时生效。缓存只保存说明文字与哈希，不保存命令、参数、环境变量、路径或
 管道名。
 
+### Codex computer-use skill
+
+当 `computer` 开启且桌面 js 工具（`tools.desktopJs`）启用时，插件把本机 Codex 安装中的
+computer-use skill 以 `codex-computer-use` 的名字注册进 DSH 的 skill 目录。正文在 DSH
+列出或加载该 skill 时从
+`<codexHome>/plugins/cache/openai-bundled/computer-use/<版本>/skills/computer-use/SKILL.md`
+读取，因此不会复制进本仓库。插件在正文后附加 DSH 说明：列出桌面工具名
+（`pc_codex_desktop_js`、`pc_codex_desktop_js_reset`、`pc_codex_desktop_js_add_node_module_dir`），
+并把 `docs/` 下的文档对应到 `pc_codex_docs` 的主题。
+
 ## 设置页
 
 DSH 设置侧栏的“插件市场”下方有“电脑操控”页（条目 id `pc-use`；仅当 Host 提供该条目时

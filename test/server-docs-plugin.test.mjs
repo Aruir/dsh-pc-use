@@ -458,8 +458,11 @@ test('unloading during the prefetch handshake stops the process', async () => {
   setDocs(OLD)
   const context = setup({ prefetch: true, mode: 'init-delay' })
   try {
+    // Wait for the handshake to actually arrive: the pid is written at startup, and a
+    // dispose racing ahead of `initialize` would test something else.
     assert.equal(await waitFor(() => existsSync(context.serverLog)
-      && /^pid \d+$/m.test(readFileSync(context.serverLog, 'utf8'))), true)
+      && /^pid \d+$/m.test(readFileSync(context.serverLog, 'utf8'))
+      && /^initialize$/m.test(readFileSync(context.serverLog, 'utf8'))), true)
     const pid = Number(readFileSync(context.serverLog, 'utf8').match(/^pid (\d+)$/m)[1])
     context.plugin.dispose()
     // The unload must stop the process that was still handshaking and never cache its docs.

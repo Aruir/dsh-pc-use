@@ -19,6 +19,12 @@ servers in the background only when the cache is missing or out of date, and tak
 next DSH start. The cache stores only description text and hashes, never commands, arguments,
 environment variables, paths or pipe names.
 
+The plugin now registers Codex's computer-use skill in DSH's skill catalog as
+`codex-computer-use` while `computer` is on and the desktop js tool is enabled. The skill
+body is read from the local Codex installation when DSH lists or loads it, so it is never
+copied into the repository; the plugin appends DSH notes that name the desktop tools and map
+the `docs/` files to `pc_codex_docs` topics.
+
 ## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image

@@ -48,6 +48,13 @@ _避免_：服务器文档、服务端说明、服务器描述
 本插件追加在服务器说明后面的文字，说明 DSH 中的工具名与用法约定；两者冲突时以插件规则为准。
 _避免_：插件说明、附加说明、附加文字
 
+## Skill
+
+**Codex computer-use skill**（Codex computer-use skill）：
+Codex 自带的 computer-use skill；本插件把它以 `codex-computer-use` 的名字注册进 DSH 的
+skill 目录。正文在运行时从本机 Codex 安装读取，并在末尾附加 DSH 说明。
+_避免_：Codex skill、computer use skill（单独使用）
+
 ## 标签页
 
 **插件标签页**（plugin tab）：
