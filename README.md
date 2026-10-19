@@ -438,8 +438,8 @@ the profile as well.
   `getTabContext` and `browser.history` on Browser objects obtained through
   `cua.getBrowser` or `cua.browsers.{get,getDefault,getForUrl}`. This is misuse
   protection, not a security boundary: model code can rewrite the Symbol the wrapper
-  reads, `browser.tabs` and `cua.getTab` are not covered, and a frozen Browser object
-  cannot be wrapped.
+  reads, `browser.tabs` and `cua.getTab` are not covered. On a frozen Browser, reading
+  `browser.user` or `browser.history` with the switch off throws the guard error.
 - Automatic approval only recognizes the exact wording `Allow Browser use to access <origin>?`; if
   Codex changes it, browser approvals are declined (fail-closed) and the declined wording is logged.
 - Desktop approvals only recognize `Allow Computer Use to use "<name>"?` and `Allow Codex to use <name>?`;

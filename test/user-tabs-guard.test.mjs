@@ -38,11 +38,21 @@ function runJs(context, code) {
 }
 
 function userCalls(context) {
+  return browserRecords(context, 'userMethod')
+}
+
+function browserRecords(context, type) {
   return readFileSync(context.logs.browser, 'utf8')
     .split('\n')
     .filter((line) => line.trim() !== '')
     .map((line) => JSON.parse(line))
-    .filter((entry) => entry.type === 'userMethod')
+    .filter((entry) => entry.type === type)
+}
+
+/** Reads of the guarded methods recorded by the membrane fixture. O(n), n = log lines. */
+function guardedMethodReads(context) {
+  const names = ['openTabs', 'claimTab', 'getTabContext', 'history']
+  return browserRecords(context, 'membraneGet').filter((entry) => names.includes(entry.key))
 }
 
 function methodCounts(context, method) {
@@ -101,6 +111,35 @@ async function assertAllBlocked(context) {
   assert.doesNotMatch(value, /USER-TAB|user\.invalid|history\.invalid/)
 }
 
+const BROWSERS_ENTRANCES = `
+{
+  const result = {};
+  for (const [name, get] of [
+    ['get', () => cua.browsers.get('chrome')],
+    ['getDefault', () => cua.browsers.getDefault()],
+    ['getForUrl', () => cua.browsers.getForUrl('https://example.invalid/')],
+  ]) {
+    try {
+      const browser = await get();
+      result[name] = await browser.user.openTabs();
+    } catch (error) {
+      result[name] = String(error.message);
+    }
+  }
+  nodeRepl.write(JSON.stringify(result));
+}
+`
+
+async function assertBrowsersEntrancesBlocked(context) {
+  const value = await runJs(context, BROWSERS_ENTRANCES)
+  const result = JSON.parse(value.trim())
+  for (const name of ['get', 'getDefault', 'getForUrl']) {
+    assert.equal(result[name].includes('browser.user.openTabs()'), true, name)
+    assert.equal(result[name].includes('allowUserTabs'), true, name)
+  }
+  assert.equal(userCalls(context).length, 0)
+}
+
 test('default off blocks all four user-tab methods without calling them', async () => {
   const context = browserContext()
   try {
@@ -148,30 +187,26 @@ test('off/on/off takes effect on the same REPL without a reset', async () => {
 test('Browsers.get, getDefault and getForUrl browsers are blocked too', async () => {
   const context = browserContext()
   try {
-    const value = await runJs(context, `
-{
-  const result = {};
-  for (const [name, get] of [
-    ['get', () => cua.browsers.get('chrome')],
-    ['getDefault', () => cua.browsers.getDefault()],
-    ['getForUrl', () => cua.browsers.getForUrl('https://example.invalid/')],
-  ]) {
-    try {
-      const browser = await get();
-      result[name] = await browser.user.openTabs();
-    } catch (error) {
-      result[name] = String(error.message);
-    }
+    await assertBrowsersEntrancesBlocked(context)
+  } finally {
+    assert.equal(await stopServers(context), true)
   }
-  nodeRepl.write(JSON.stringify(result));
-}
+})
+
+test('cua.browsers feature detection sees the three entrances', async () => {
+  const context = browserContext()
+  try {
+    const value = await runJs(context, `
+nodeRepl.write(JSON.stringify({
+  get: 'get' in cua.browsers,
+  getDefault: 'getDefault' in cua.browsers,
+  getForUrl: 'getForUrl' in cua.browsers,
+  missing: 'missing' in cua.browsers,
+}));
 `)
-    const result = JSON.parse(value.trim())
-    for (const name of ['get', 'getDefault', 'getForUrl']) {
-      assert.equal(result[name].includes('browser.user.openTabs()'), true, name)
-      assert.equal(result[name].includes('allowUserTabs'), true, name)
-    }
-    assert.equal(userCalls(context).length, 0)
+    assert.deepEqual(JSON.parse(value.trim()), {
+      get: true, getDefault: true, getForUrl: true, missing: false,
+    })
   } finally {
     assert.equal(await stopServers(context), true)
   }
@@ -194,6 +229,188 @@ test('own user methods still work when the switch is on', async () => {
     const value = await runJs(context, ALLOWED)
     assert.match(value, /USER-TAB-TITLE-1/)
     assert.match(value, /history\.invalid/)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('membrane: cached runtime proxies do not defeat either entrance', async () => {
+  const context = browserContext('membrane')
+  try {
+    await assertAllBlocked(context)
+    await assertBrowsersEntrancesBlocked(context)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('membrane: the switch on passes through the runtime proxies', async () => {
+  const context = browserContext('membrane', { allowUserTabs: true })
+  try {
+    const value = await runJs(context, ALLOWED)
+    assert.match(value, /USER-TAB-TITLE-1/)
+    assert.match(value, /history\.invalid/)
+    for (const method of Object.keys(BLOCKED_LABELS)) {
+      assert.equal(methodCounts(context, method), 1, `${method} must run exactly once`)
+    }
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('membrane: off/on/off still takes effect on the same REPL', async () => {
+  const allowUserTabs = createVolatile(false)
+  const context = browserContext('membrane', { allowUserTabs })
+  const blocked = 'await (await cua.getBrowser("chrome")).user.openTabs();'
+  const allowed = 'nodeRepl.write(JSON.stringify(await (await cua.getBrowser("chrome"))'
+    + '.user.openTabs()));'
+  try {
+    await assert.rejects(runJs(context, blocked), /allowUserTabs/)
+    allowUserTabs[WRITE](true)
+    assert.match(await runJs(context, allowed), /USER-TAB-TITLE-1/)
+    allowUserTabs[WRITE](false)
+    await assert.rejects(runJs(context, blocked), /allowUserTabs/)
+    assert.equal(methodCounts(context, 'openTabs'), 1)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('membrane: the browser and user views keep their identity', async () => {
+  const context = browserContext('membrane')
+  try {
+    const value = await runJs(context, `
+{
+  const b = await cua.getBrowser('chrome');
+  const b2 = await cua.getBrowser('chrome');
+  nodeRepl.write(JSON.stringify({
+    sameBrowser: b === b2,
+    sameUser: b.user === b.user,
+    sameOpenTabs: b.user.openTabs === b.user.openTabs,
+    sameHistory: b.history === b.history,
+  }));
+}
+`)
+    const result = JSON.parse(value.trim())
+    assert.deepEqual(result, {
+      sameBrowser: true, sameUser: true, sameOpenTabs: true, sameHistory: true,
+    })
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('membrane: building the user view does not read the guarded methods', async () => {
+  const context = browserContext('membrane')
+  try {
+    const value = await runJs(context, `
+{
+  const b = await cua.getBrowser('chrome');
+  const user = b.user;
+  nodeRepl.write(typeof user.openTabs);
+}
+`)
+    assert.equal(value.trim(), 'function')
+    assert.equal(guardedMethodReads(context).length, 0)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('frozen-browser: fixed properties throw the guard error instead of TypeError', async () => {
+  const context = browserContext('frozen-browser')
+  try {
+    const value = await runJs(context, `
+{
+  const b = await cua.getBrowser('chrome');
+  const result = {};
+  for (const [name, read] of [['user', () => b.user], ['history', () => b.history]]) {
+    try { read(); result[name] = 'no throw' } catch (e) { result[name] = String(e.message) }
+  }
+  nodeRepl.write(JSON.stringify(result));
+}
+`)
+    const result = JSON.parse(value.trim())
+    assert.match(result.user, /dsh-pc-use blocked browser\.user/)
+    assert.match(result.history, /dsh-pc-use blocked browser\.history/)
+    assert.doesNotMatch(value, /TypeError/)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('frozen-browser: the switch on returns the original values', async () => {
+  const context = browserContext('frozen-browser', { allowUserTabs: true })
+  try {
+    const value = await runJs(context, `
+{
+  const b = await cua.getBrowser('chrome');
+  const tabs = await b.user.openTabs();
+  const entries = await b.history();
+  nodeRepl.write(JSON.stringify({ tabs, entries }));
+}
+`)
+    assert.match(value, /USER-TAB-TITLE-1/)
+    assert.match(value, /history\.invalid/)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('frozen-user: fixed methods throw the guard error or pass through', async () => {
+  const offContext = browserContext('frozen-user')
+  try {
+    const value = await runJs(offContext, `
+{
+  const b = await cua.getBrowser('chrome');
+  try { b.user.openTabs(); nodeRepl.write('no throw') }
+  catch (e) { nodeRepl.write(String(e.message)) }
+}
+`)
+    assert.match(value, /dsh-pc-use blocked browser\.user\.openTabs/)
+    assert.doesNotMatch(value, /TypeError/)
+  } finally {
+    assert.equal(await stopServers(offContext), true)
+  }
+  const onContext = browserContext('frozen-user', { allowUserTabs: true })
+  try {
+    const value = await runJs(onContext, `
+{
+  const b = await cua.getBrowser('chrome');
+  nodeRepl.write(JSON.stringify(await b.user.openTabs()));
+}
+`)
+    assert.match(value, /USER-TAB-TITLE-1/)
+  } finally {
+    assert.equal(await stopServers(onContext), true)
+  }
+})
+
+test('an accessor cua.browsers is wrapped on every read', async () => {
+  const context = browserContext('browsers-accessor')
+  try {
+    const value = await runJs(context, `
+{
+  const result = {};
+  for (const [name, get] of [
+    ['getDefault', () => cua.browsers.getDefault()],
+    ['getForUrl', () => cua.browsers.getForUrl('https://example.invalid/')],
+  ]) {
+    try {
+      const browser = await get();
+      result[name] = await browser.user.openTabs();
+    } catch (error) {
+      result[name] = String(error.message);
+    }
+  }
+  nodeRepl.write(JSON.stringify(result));
+}
+`)
+    const result = JSON.parse(value.trim())
+    for (const name of ['getDefault', 'getForUrl']) {
+      assert.equal(result[name].includes('browser.user.openTabs()'), true, name)
+    }
+    assert.equal(browserRecords(context, 'browsersAccessor').length >= 2, true)
   } finally {
     assert.equal(await stopServers(context), true)
   }

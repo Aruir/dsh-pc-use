@@ -1,7 +1,8 @@
 // Fake cua_repl for tab-guard and user-tabs-guard tests. It executes the plugin's guarded
 // browser program in a persistent environment and can replace cua, start without cua, omit a
 // created id, return Browser objects synchronously, put the user-tab methods on the browser
-// instance, or omit the user-tab entry points.
+// instance, emulate the runtime's cached proxies, freeze the Browser, or make cua.browsers an
+// accessor.
 import { appendFileSync } from 'node:fs'
 import readline from 'node:readline'
 
@@ -20,6 +21,7 @@ function createEnvironment() {
   let output = ''
   let nextId = 1
   let browser = null
+  let membraneCached = null
   const ownTabs = []
   const claimedTabs = []
   const foreignTabs = [
@@ -104,6 +106,12 @@ function createEnvironment() {
       created.history = async () => history()
     }
     if (mode === 'no-user') delete created.user
+    if (mode === 'frozen-user') {
+      created.user.openTabs = async () => openTabs()
+      created.user.claimTab = async () => claimTab()
+      created.user.getTabContext = async () => getTabContext()
+      Object.freeze(created.user)
+    }
     return created
   }
 
@@ -117,6 +125,47 @@ function createEnvironment() {
   // cua.browsers.* returns a new Browser each time, so a missing entrance wrapper is visible.
   function freshBrowser() {
     return shapeBrowser()
+  }
+
+  // Emulate the runtime proxy: a function-valued property is wrapped on first read and the
+  // wrapper is cached by name; defineProperty writes the target but does not refresh the cache.
+  function membrane(target) {
+    const cache = new Map()
+    return new Proxy(target, {
+      get(obj, key, receiver) {
+        const value = Reflect.get(obj, key, receiver)
+        if (typeof value !== 'function') return value
+        record({ type: 'membraneGet', key: String(key) })
+        if (cache.has(key)) return cache.get(key)
+        const wrapped = (...args) => Reflect.apply(value, obj, args)
+        cache.set(key, wrapped)
+        return wrapped
+      },
+    })
+  }
+
+  function membraneBrowser() {
+    const created = shapeBrowser()
+    if (created.user !== undefined) created.user = membrane(created.user)
+    return membrane(created)
+  }
+
+  // A frozen Browser keeps `user` and `history` as fixed own data properties, so a Proxy get
+  // trap must return them unchanged or throw the guard error.
+  function frozenBrowser() {
+    const created = new StubBrowser()
+    created.user.openTabs = async () => openTabs()
+    created.user.claimTab = async () => claimTab()
+    created.user.getTabContext = async () => getTabContext()
+    created.history = async () => history()
+    Object.freeze(created.user)
+    Object.freeze(created)
+    return created
+  }
+
+  function makeMembraneBrowser() {
+    if (membraneCached === null) membraneCached = membraneBrowser()
+    return membraneCached
   }
 
   function makeCua() {
@@ -163,6 +212,34 @@ function createEnvironment() {
         }
       }
     }
+    if (mode === 'membrane') {
+      created.getBrowser = async () => makeMembraneBrowser()
+      created.browsers = membrane({
+        async get() { return membraneBrowser() },
+        async getDefault() { return membraneBrowser() },
+        async getForUrl() { return membraneBrowser() },
+      })
+    } else if (mode === 'frozen-browser') {
+      created.getBrowser = async () => frozenBrowser()
+      created.browsers = {
+        async get() { return frozenBrowser() },
+        async getDefault() { return frozenBrowser() },
+        async getForUrl() { return frozenBrowser() },
+      }
+    } else if (mode === 'browsers-accessor') {
+      const accessorBrowsers = () => ({
+        async get() { return freshBrowser() },
+        async getDefault() { return freshBrowser() },
+        async getForUrl() { return freshBrowser() },
+      })
+      Object.defineProperty(created, 'browsers', {
+        configurable: true,
+        get() {
+          record({ type: 'browsersAccessor' })
+          return accessorBrowsers()
+        },
+      })
+    }
     return created
   }
 
@@ -177,6 +254,7 @@ function createEnvironment() {
       output = ''
       nextId = 1
       browser = null
+      membraneCached = null
       ownTabs.length = 0
       claimedTabs.length = 0
       calls.create = 0
