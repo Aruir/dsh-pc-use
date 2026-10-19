@@ -594,9 +594,8 @@ export function apply(ctx, raw = {}) {
     const active = servers[kind].liveBridge()
     if (active === null) return
     // D16: the identity is a snapshot taken before the turn tracker rotated the turn; call()
-    // fixes its _meta from that snapshot before its first await. metaMode keeps the
-    // turn_ended `_meta` byte for byte as before the r1 meta-fields work (r3
-    // turn-ended-align owns it).
+    // fixes its _meta from that snapshot before its first await. turn_ended uses the native
+    // `_meta` shape (threadId only), like Codex 0.163 does for a finished turn.
     active.call('turn_ended', {
       hook_event_name: hookEventName,
       session_id: identity.sessionId,
@@ -623,12 +622,15 @@ export function apply(ctx, raw = {}) {
       () => log('end_turn failed: connect failed'),
     )
   }
-  /** Report one finished turn to every server it used, then close the desktop overlay. O(1). */
+  /**
+   * Report one finished turn to every server (the connected ones are picked inside
+   * `reportTurnEnded`), then close the desktop overlay only when this turn used it. O(1).
+   */
   const reportEndedTurn = (ended) => {
     for (const kind of ended.kinds) {
       reportTurnEnded(kind, ended.hookEventName, ended.identity)
     }
-    if (ended.kinds.includes('desktop')) closeDesktopTurn(ended.identity)
+    if (ended.closeDesktop === true) closeDesktopTurn(ended.identity)
   }
 
   /**

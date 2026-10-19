@@ -52,23 +52,30 @@ function readLog(context) {
   return readFileSync(context.logFile, 'utf8')
 }
 
-test('a desktop turn sends one end_turn with the call metadata', async () => {
+test('a desktop turn reports to both servers and closes the desktop cursor', async () => {
   const pipe = pipePath()
   const fake = await startFakePipe(pipe, { mode: 'ok' })
   const agents = makeAgents()
   const context = startServers({
-    browser: false,
     desktop: { mode: 'ok', env: { ...DESKTOP_ENV, SKY_CUA_NATIVE_PIPE_DIRECTORY: pipe } },
     config: { computer: true },
     services: { agents },
   })
   const { agent, session } = agents.add('agent-a')
   try {
+    // Both servers must be connected for the native "report every connected server" rule.
+    await context.plugin.tools.get('pc_codex_js').execute({ code: '1', title: 'browser' }, {
+      agent, name: 'pc_codex_js', callId: 'call-b', signal: new AbortController().signal,
+    })
     await context.plugin.tools.get('pc_codex_desktop_js')
       .execute({ code: '1', title: 'turn' }, execFor(agent, 'call-1'))
     const call = context.desktopCalls().at(-1)
     emitTurnEnd(context, session)
     assert.equal(await waitFor(() => fake.frames.length === 1), true)
+    assert.equal(await waitFor(() => (
+      context.browserCalls().some((item) => item.name === 'turn_ended')
+      && context.desktopCalls().some((item) => item.name === 'turn_ended')
+    )), true)
     const request = fake.frames[0]
     assert.equal(request.method, 'request')
     assert.equal(request.params.method, 'end_turn')
@@ -87,23 +94,29 @@ test('a desktop turn sends one end_turn with the call metadata', async () => {
   }
 })
 
-test('a browser-only turn sends no end_turn', async () => {
+test('a browser turn reports to both servers but closes no desktop cursor', async () => {
   const pipe = pipePath()
   const fake = await startFakePipe(pipe, { mode: 'ok' })
   const agents = makeAgents()
   const context = startServers({
-    desktop: false,
-    browser: { mode: 'ok', env: { ...BROWSER_ENV, SKY_CUA_NATIVE_PIPE_DIRECTORY: pipe } },
+    desktop: { mode: 'ok', env: { ...DESKTOP_ENV, SKY_CUA_NATIVE_PIPE_DIRECTORY: pipe } },
     config: { computer: true },
     services: { agents },
   })
   const { agent, session } = agents.add('agent-b')
   try {
+    // Connect the desktop server without using it in this turn.
+    await context.plugin.tools.get('pc_codex_desktop_js')
+      .execute({ code: '0', title: 'connect' }, {})
     const exec = {
       agent, name: 'pc_codex_js', callId: 'call-1', signal: new AbortController().signal,
     }
     await context.plugin.tools.get('pc_codex_js').execute({ code: '1', title: 'browser' }, exec)
     emitTurnEnd(context, session)
+    assert.equal(await waitFor(() => (
+      context.browserCalls().some((item) => item.name === 'turn_ended')
+      && context.desktopCalls().some((item) => item.name === 'turn_ended')
+    )), true)
     await new Promise((done) => setTimeout(done, 150))
     assert.equal(fake.frames.length, 0)
     assert.equal(fake.connections, 0)
@@ -113,7 +126,7 @@ test('a browser-only turn sends no end_turn', async () => {
   }
 })
 
-test('a bridge rebuilt after the call suppresses end_turn for the old turn', async () => {
+test('a rebuilt bridge receives turn_ended but keeps the old turn cursor', async () => {
   const pipe = pipePath()
   const fake = await startFakePipe(pipe, { mode: 'ok' })
   const agents = makeAgents()
@@ -121,9 +134,11 @@ test('a bridge rebuilt after the call suppresses end_turn for the old turn', asy
   const restore = useHome(home)
   const firstHome = join(home, 'codex-1')
   const secondHome = join(home, 'codex-2')
+  const firstLog = join(home, 'one.log')
+  const secondLog = join(home, 'two.log')
   const desktopEnv = { ...DESKTOP_ENV, SKY_CUA_NATIVE_PIPE_DIRECTORY: pipe }
-  writeDesktopSource(firstHome, [DUAL_SERVER, 'desktop', 'ok', join(home, 'one.log')], desktopEnv)
-  writeDesktopSource(secondHome, [DUAL_SERVER, 'desktop', 'ok', join(home, 'two.log')], desktopEnv)
+  writeDesktopSource(firstHome, [DUAL_SERVER, 'desktop', 'ok', firstLog], desktopEnv)
+  writeDesktopSource(secondHome, [DUAL_SERVER, 'desktop', 'ok', secondLog], desktopEnv)
   let current = firstHome
   const codexHome = {
     get: () => current,
@@ -146,8 +161,17 @@ test('a bridge rebuilt after the call suppresses end_turn for the old turn', asy
     await plugin.tools.get('pc_codex_desktop_js')
       .execute({ code: '2', title: 'two' }, execFor(second.agent, 'call-2'))
     emitTurnEnd({ plugin }, first.session)
+    // The rebuilt connection still receives the call for the turn that ended...
+    assert.equal(await waitFor(() => {
+      try {
+        return readFileSync(secondLog, 'utf8').includes('turn_ended')
+      } catch {
+        return false
+      }
+    }), true)
+    // ...but the desktop cursor is not closed for a turn from the old bridge.
     await new Promise((done) => setTimeout(done, 250))
-    assert.equal(fake.frames.length, 0, 'old generation must not send')
+    assert.equal(fake.frames.length, 0, 'old generation must not close the cursor')
   } finally {
     plugin.dispose()
     await fake.close()

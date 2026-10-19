@@ -77,27 +77,43 @@ test('both servers used in one turn each receive turn_ended with the same identi
   }
 })
 
-test('only the used server receives turn_ended', async () => {
+test('both connected servers receive turn_ended when the turn used only one', async () => {
   const agents = makeAgents()
   const context = startServers({ config: { computer: true }, services: { agents } })
   try {
+    // Connect the desktop server without marking it used in this turn.
+    await runDesktop(context, {
+      name: 'pc_codex_desktop_js', signal: new AbortController().signal,
+    })
     const { agent, session } = agents.add('session-browser-only')
     await runBrowser(context, execFor(agent, 'call-browser', 'pc_codex_js'))
+    const browserCall = context.browserCalls().find((call) => call.name === 'js')
     emitTurnEnd(context, session)
-    assert.equal(await waitFor(() => turnEndedCalls(context, 'browser').length === 1), true)
-    assert.deepEqual(turnEndedCalls(context, 'desktop'), [])
+    assert.equal(await waitFor(() => (
+      turnEndedCalls(context, 'browser').length === 1
+      && turnEndedCalls(context, 'desktop').length === 1
+    )), true)
+    const browserReport = turnEndedCalls(context, 'browser')[0]
+    const desktopReport = turnEndedCalls(context, 'desktop')[0]
+    assert.deepEqual(browserReport.arguments, {
+      hook_event_name: 'Stop',
+      session_id: browserCall.session_id,
+      turn_id: browserCall.turn_id,
+    })
+    assert.deepEqual(desktopReport.arguments, browserReport.arguments)
   } finally {
     assert.equal(await stopServers(context), true)
   }
 })
 
-test('a rebuilt desktop bridge does not receive the previous turn', async () => {
+test('a rebuilt desktop bridge still receives the turn that ended', async () => {
   const agents = makeAgents()
   const context = startServers({ config: { computer: true }, services: { agents } })
   try {
     const first = agents.add('session-a')
     const second = agents.add('session-b')
     await runBrowser(context, execFor(first.agent, 'call-a-browser', 'pc_codex_js'))
+    const firstBrowser = context.browserCalls().find((call) => call.name === 'js')
     await runDesktop(context, execFor(first.agent, 'call-a-desktop'))
     assert.equal(context.desktopStart().length, 1)
     assert.equal(context.browserStart().length, 1)
@@ -108,12 +124,18 @@ test('a rebuilt desktop bridge does not receive the previous turn', async () => 
     await runDesktop(context, execFor(second.agent, 'call-b-desktop'))
     assert.equal(await waitFor(() => context.desktopStart().length === 2), true)
     const rebuiltCalls = context.desktopCalls().length
-    // Agent A's turn ends now: its browser bridge is the one it used, so it reports;
-    // its desktop use belongs to the previous bridge, so the new bridge gets nothing.
+    // Agent A's turn ends now: the rebuilt desktop connection still receives the call for
+    // the turn that ended (the cursor is not closed for it; the pipe test sees that).
     emitTurnEnd(context, first.session)
     assert.equal(await waitFor(() => turnEndedCalls(context, 'browser').length === 1), true)
-    assert.equal(turnEndedCalls(context, 'desktop').length, 0)
-    assert.equal(context.desktopCalls().length, rebuiltCalls)
+    assert.equal(await waitFor(() => turnEndedCalls(context, 'desktop').length === 1), true)
+    const report = turnEndedCalls(context, 'desktop')[0]
+    assert.deepEqual(report.arguments, {
+      hook_event_name: 'Stop',
+      session_id: firstBrowser.session_id,
+      turn_id: firstBrowser.turn_id,
+    })
+    assert.equal(context.desktopCalls().length, rebuiltCalls + 1)
   } finally {
     assert.equal(await stopServers(context), true)
   }

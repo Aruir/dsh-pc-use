@@ -310,12 +310,13 @@ the Chinese or English text of the old one-shot card according to its interface 
 
 When each DSH turn ends, the plugin calls `turn_ended` with the Codex `session_id` / `turn_id`
 of the same agent (`Stop` for a normal finish, `Interrupt` when stopped,
-`SubagentStop` for a subagent), once for each server that the turn used and that is still
-connected. This makes Codex clear the
-orange "using your computer" glow and end that turn. The call is not sent to a server that the turn
-did not use, when the bridge of that server is disconnected, or after the plugin is unloaded; after
-a bridge reconnect it starts from a new `turn_id`, and a rebuilt bridge is not told about earlier
-turns.
+`SubagentStop` for a subagent), once for each server that is still connected, whether or not
+the turn used it — native Codex does the same. This makes Codex clear the
+orange "using your computer" glow and end that turn. The call is not sent to a server whose
+bridge is disconnected, no server is started for it, and nothing is sent after the plugin is
+unloaded; after a bridge reconnect the next turn starts from a new `turn_id`, and a rebuilt
+bridge still receives the call for the turn that ended. The desktop cursor is closed only when
+the turn used the desktop bridge and that bridge was not rebuilt since.
 
 ### Read the Codex documentation first: `pc_codex_docs`
 
@@ -406,8 +407,8 @@ particular, `openai/confirmation_policies: {}` would clear the confirmation defa
 server started with, and a filled `codex/sandbox-state` would declare a sandbox state for DSH while
 how the server uses it is unknown.
 
-`turn_ended` keeps the older `_meta`: only `x-codex-turn-metadata` with `session_id` and
-`turn_id`. Aligning it with the native shape is a separate change.
+`turn_ended` uses the native `_meta`: only `threadId` (the agent's Codex session id), with no
+`x-codex-turn-metadata`.
 
 ## Verification
 

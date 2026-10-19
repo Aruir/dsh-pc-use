@@ -271,9 +271,10 @@ Codex 应用一致：
 
 每轮 DSH 轮次结束时，插件使用同一 agent 的 Codex `session_id` / `turn_id` 调用
 `turn_ended`（正常结束为 `Stop`，中途停止为 `Interrupt`，子 agent 为 `SubagentStop`），对
-本轮使用过且仍连接的每个服务器各调用一次。该调用使 Codex 收起屏幕上“正在使用你的电脑”的
-橙色光圈，并结束该轮。本轮未使用的服务器、桥接未连接的服务器或插件已卸载时，不发送该调用；
-桥接重连后，从新的 `turn_id` 开始，重建前的轮次不会补发给新连接。
+每个仍连接的服务器各调用一次，不论本轮是否用过它——原生 Codex 也是如此。该调用使 Codex
+收起屏幕上“正在使用你的电脑”的橙色光圈，并结束该轮。桥接未连接的服务器不发送该调用，也不会
+为它启动服务器；插件卸载后不再发送。桥接重连后，下一轮从新的 `turn_id` 开始；重建的连接仍会
+收到刚结束这一轮的调用。桌面光标只在“本轮用过桌面桥接且该桥接未重建”时关闭。
 
 ### 先读 Codex 自带文档：`pc_codex_docs`
 
@@ -355,8 +356,8 @@ DSH 不询问并直接放行；如需逐次确认，请使用“仅可查看”�
 `openai/confirmation_policies: {}` 会清除服务器启动时的确认策略默认值；填写
 `codex/sandbox-state` 等于替 DSH 声明一个服务器会如何使用并不清楚的沙箱状态。
 
-`turn_ended` 保持旧的 `_meta`：只有 `x-codex-turn-metadata` 的 `session_id` 和 `turn_id`。
-与原生格式保持一致属于另一项改动。
+`turn_ended` 使用原生 `_meta`：只有 `threadId`（该 agent 的 Codex 会话 id），没有
+`x-codex-turn-metadata`。
 
 ## 验证
 

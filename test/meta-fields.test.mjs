@@ -155,6 +155,7 @@ function toolCallsInOrder(file) {
       name: entry.name,
       callId: entry.meta?.callId ?? null,
       turnId: entry.turn_id,
+      arguments: entry.arguments,
     }))
 }
 
@@ -383,7 +384,9 @@ test('a call handed off during a rotation belongs to the new turn and is reporte
     const endedTurns = new Set()
     for (const call of toolCallsInOrder(context.logs.browser)) {
       if (call.name === 'turn_ended') {
-        endedTurns.add(call.turnId)
+        // turn_ended now uses the native `_meta` (threadId only), so its turn id lives in
+        // the call arguments, not in `x-codex-turn-metadata`.
+        endedTurns.add(call.arguments?.turn_id)
         continue
       }
       assert.equal(endedTurns.has(call.turnId), false,
@@ -407,7 +410,10 @@ test('a call handed off during a rotation belongs to the new turn and is reporte
     )), true)
     const ended = toolCallsInOrder(context.logs.browser)
       .filter((call) => call.name === 'turn_ended')
-    assert.equal(ended.filter((call) => call.turnId === second.turnId).length, 1)
+    assert.equal(
+      ended.filter((call) => call.arguments?.turn_id === second.turnId).length,
+      1,
+    )
   } finally {
     assert.equal(await stopServers(context), true)
   }
@@ -458,7 +464,7 @@ test('McpBridge.call fixes the identity snapshot before its first await', async 
   }
 })
 
-test('turn_ended keeps its old _meta byte for byte', async () => {
+test('turn_ended sends the native _meta with only threadId', async () => {
   const home = tempDir('pc-use-meta-ended-')
   const restore = useHome(home)
   const serverLog = join(home, 'server.log')
@@ -480,11 +486,12 @@ test('turn_ended keeps its old _meta byte for byte', async () => {
       type: 'turn/end', seq: 7, data: { turn: 1, reason: { kind: 'completed' } },
     })
     assert.equal(await until(() => prefixed(serverLog, 'turn_ended-meta-raw ').length === 1), true)
-    // The pre-change bytes: one nested object, session_id then turn_id, nothing else.
-    assert.equal(
-      prefixed(serverLog, 'turn_ended-meta-raw ')[0],
-      `{"x-codex-turn-metadata":{"session_id":"${sessionId}","turn_id":"${turnId}"}}`,
-    )
+    const meta = JSON.parse(prefixed(serverLog, 'turn_ended-meta-raw ')[0])
+    assert.deepEqual(meta, { threadId: sessionId })
+    assert.equal('x-codex-turn-metadata' in meta, false)
+    const args = JSON.parse(prefixed(serverLog, 'turn_ended ')[0])
+    assert.equal(args.turn_id, turnId)
+    assert.equal(args.session_id, sessionId)
   } finally {
     plugin.dispose()
     restore()

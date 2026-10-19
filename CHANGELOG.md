@@ -28,6 +28,11 @@ the `docs/` files to `pc_codex_docs` topics.
 The descriptions of the settings page's "Codex home" and "Bridge log" rows now point at
 `pc_status` for the reason when the path cannot be used or the log cannot be written.
 
+The plugin now sends `turn_ended` the way native Codex does: at the end of a turn it calls
+every connected server, whether or not that turn used it, with a `_meta` that contains only
+`threadId`. The desktop cursor is still closed only when the turn used the desktop bridge and
+that bridge was not rebuilt since.
+
 ## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image

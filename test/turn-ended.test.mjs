@@ -64,9 +64,9 @@ function turnEnded(file) {
     .map((line) => JSON.parse(line.slice(prefix.length)))
 }
 
-/** The `_meta["x-codex-turn-metadata"]` of every recorded turn_ended call. O(n). */
+/** The complete `_meta` of every recorded turn_ended call. O(n). */
 function turnEndedMeta(file) {
-  const prefix = 'turn_ended-meta '
+  const prefix = 'turn_ended-meta-raw '
   return readLines(file)
     .filter((line) => line.startsWith(prefix))
     .map((line) => JSON.parse(line.slice(prefix.length)))
@@ -227,7 +227,7 @@ test('a failed turn_ended call is logged and does not throw', async () => {
   }
 })
 
-test('a turn from before a bridge rebuild is not reported on the new bridge', async () => {
+test('a rebuilt bridge still receives the turn that ended', async () => {
   const context = setup()
   try {
     const { agent, session } = context.agents.add('session-reconnect')
@@ -243,23 +243,26 @@ test('a turn from before a bridge rebuild is not reported on the new bridge', as
     await context.plugin.tools.get('pc_codex_js_reset').execute({}, {})
     assert.equal(await waitFor(() => readLines(context.pidFile).length === 2), true)
     emitTurnEnd(context, session)
-    await new Promise((done) => setTimeout(done, 300))
-    assert.deepEqual(turnEnded(context.serverLog), [])
+    // Native Codex reports to the connected server even though the bridge was replaced.
+    assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 1), true)
+    const oldReport = turnEnded(context.serverLog)[0]
+    assert.equal(oldReport.turn_id, oldTurnId)
+    assert.equal(oldReport.session_id, oldCall[2])
     await runJs(context, execFor(agent, 'call-new'))
     assert.equal(await waitFor(() => callLines(context.serverLog).length === 2), true)
     const nextCall = callLines(context.serverLog)[1].split(' ')
     assert.notEqual(nextCall[3], oldTurnId)
     emitTurnEnd(context, session)
-    assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 1), true)
-    const report = turnEnded(context.serverLog)[0]
-    assert.equal(report.turn_id, nextCall[3])
-    assert.equal(report.session_id, nextCall[2])
+    assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 2), true)
+    const nextReport = turnEnded(context.serverLog)[1]
+    assert.equal(nextReport.turn_id, nextCall[3])
+    assert.equal(nextReport.session_id, nextCall[2])
   } finally {
     finish(context)
   }
 })
 
-test('a later turn without pc_codex_js calls sends nothing', async () => {
+test('a later turn still reports on the connected server', async () => {
   const context = setup()
   try {
     const { agent, session } = context.agents.add('session-second-turn')
@@ -267,9 +270,13 @@ test('a later turn without pc_codex_js calls sends nothing', async () => {
     assert.equal(await waitFor(() => callLines(context.serverLog).length === 1), true)
     emitTurnEnd(context, session)
     assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 1), true)
+    const first = turnEnded(context.serverLog)[0]
+    // The next turn makes no tool call, but the native rule still reports it.
     emitTurnEnd(context, session)
-    await new Promise((done) => setTimeout(done, 300))
-    assert.equal(turnEnded(context.serverLog).length, 1)
+    assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 2), true)
+    const second = turnEnded(context.serverLog)[1]
+    assert.notEqual(second.turn_id, first.turn_id)
+    assert.equal(second.session_id, first.session_id)
   } finally {
     finish(context)
   }
@@ -326,7 +333,7 @@ test('a turn that only called reset still reports one turn_ended', async () => {
   }
 })
 
-test('turn_ended uses one turn for both arguments and _meta', async () => {
+test('turn_ended sends the native _meta with only threadId', async () => {
   const context = setup()
   try {
     const { agent, session } = context.agents.add('session-meta')
@@ -338,9 +345,8 @@ test('turn_ended uses one turn for both arguments and _meta', async () => {
       turnEnded(context.serverLog).length === 1 && turnEndedMeta(context.serverLog).length === 1
     )), true)
     const args = turnEnded(context.serverLog)[0]
-    const meta = turnEndedMeta(context.serverLog)[0]
-    assert.equal(args.session_id, meta.session_id)
-    assert.equal(args.turn_id, meta.turn_id)
+    assert.deepEqual(turnEndedMeta(context.serverLog)[0], { threadId: sessionId })
+    assert.equal('x-codex-turn-metadata' in turnEndedMeta(context.serverLog)[0], false)
     assert.equal(args.session_id, sessionId)
     assert.equal(args.turn_id, turnId)
     // The next turn starts from a new turn id.

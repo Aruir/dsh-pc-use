@@ -103,29 +103,37 @@ test('a throwing or empty request header omits model and reasoningEffort', () =>
   assert.equal(blank.reasoningEffort, undefined)
 })
 
-test('turn/end reports used servers in browser then desktop order', () => {
+test('turn/end always reports both servers and says whether to close the desktop', () => {
   const { turns } = makeTracker()
-  const both = makeAgent('session-both')
-  const desktopOnly = makeAgent('session-desktop')
-  const agents = agentsOf(both, desktopOnly)
-  // Desktop is used first: the report order is still browser, desktop.
-  turns.beginCall(execFor(both.agent, 'call-desktop'), 'desktop')
-  turns.beginCall(execFor(both.agent, 'call-browser'), 'browser')
-  assert.deepEqual(end(turns, agents, both.session).kinds, ['browser', 'desktop'])
-  // Unused servers do not appear.
-  turns.beginCall(execFor(desktopOnly.agent, 'call-3'), 'desktop')
-  assert.deepEqual(end(turns, agents, desktopOnly.session).kinds, ['desktop'])
+  const browserOnly = makeAgent('session-browser-only')
+  const desktopOnly = makeAgent('session-desktop-only')
+  const agents = agentsOf(browserOnly, desktopOnly)
+  turns.beginCall(execFor(browserOnly.agent, 'call-b'), 'browser')
+  const browserEnd = end(turns, agents, browserOnly.session)
+  assert.deepEqual(browserEnd.kinds, ['browser', 'desktop'])
+  assert.equal(browserEnd.closeDesktop, false)
+  turns.beginCall(execFor(desktopOnly.agent, 'call-d'), 'desktop')
+  const desktopEnd = end(turns, agents, desktopOnly.session)
+  assert.deepEqual(desktopEnd.kinds, ['browser', 'desktop'])
+  assert.equal(desktopEnd.closeDesktop, true)
 })
 
-test('a server whose generation changed is not reported', () => {
+test('a rebuilt desktop bridge keeps the cursor for the next turn', () => {
   const { turns, generations } = makeTracker()
   const item = makeAgent('session-generation')
   const agents = agentsOf(item)
   turns.beginCall(execFor(item.agent, 'call-browser'), 'browser')
   turns.beginCall(execFor(item.agent, 'call-desktop'), 'desktop')
-  // A bridge rebuilt after the call increments the generation.
+  // A desktop bridge rebuilt after the call increments the desktop generation.
+  generations.desktop += 1
+  const ended = end(turns, agents, item.session)
+  assert.deepEqual(ended.kinds, ['browser', 'desktop'])
+  assert.equal(ended.closeDesktop, false)
+  // A browser generation change does not affect the desktop cursor.
+  turns.beginCall(execFor(item.agent, 'call-browser-2'), 'browser')
+  turns.beginCall(execFor(item.agent, 'call-desktop-2'), 'desktop')
   generations.browser += 1
-  assert.deepEqual(end(turns, agents, item.session).kinds, ['desktop'])
+  assert.equal(end(turns, agents, item.session).closeDesktop, true)
 })
 
 test('turn/end rotates the turn id and start time but keeps the session id', () => {
@@ -143,10 +151,12 @@ test('turn/end rotates the turn id and start time but keeps the session id', () 
   assert.equal(second.turnStartedAtUnixMs, 2000)
   assert.ok(second.turnStartedAtUnixMs > first.turnStartedAtUnixMs)
   const secondEnd = end(turns, agents, item.session)
-  assert.deepEqual(secondEnd.kinds, ['browser'])
-  // A second turn/end without a new call reports no server but still rotates.
+  assert.deepEqual(secondEnd.kinds, ['browser', 'desktop'])
+  // A second turn/end without a new call still reports both servers (connected ones are
+  // filtered by index.js) but closes no desktop cursor, and still rotates.
   const thirdEnd = end(turns, agents, item.session)
-  assert.deepEqual(thirdEnd.kinds, [])
+  assert.deepEqual(thirdEnd.kinds, ['browser', 'desktop'])
+  assert.equal(thirdEnd.closeDesktop, false)
   assert.notEqual(thirdEnd.identity.turnId, secondEnd.identity.turnId)
 })
 
