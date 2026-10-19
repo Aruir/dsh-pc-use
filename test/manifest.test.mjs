@@ -31,6 +31,15 @@ function register() {
   })
 }
 
+function assertChangelogVersion(file, unreleased) {
+  const headings = readFileSync(join(root, file), 'utf8')
+    .split('\n')
+    .filter((line) => line.startsWith('## '))
+  const first = headings[0] === unreleased ? 1 : 0
+  const expected = `## ${packageJson.version}`
+  assert.equal(headings[first], expected, `${file} must open with ${expected}`)
+}
+
 test('locale files are valid JSON with non-empty display metadata', () => {
   for (const locale of ['en', 'zh']) {
     const file = join(root, 'locale', `${locale}.json`)
@@ -71,6 +80,15 @@ test('package exports and files publish the new display assets', () => {
     assert.ok(packageJson.files.includes(entry), `files must include ${entry}`)
   }
   assert.equal(packageJson.name, 'dsh-pc-use')
+})
+
+test('every copy of the version matches package.json', () => {
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/, 'package.json')
+  const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'))
+  assert.equal(lock.version, packageJson.version, 'package-lock.json version')
+  assert.equal(lock.packages[''].version, packageJson.version, 'package-lock.json root package')
+  assertChangelogVersion('CHANGELOG.md', '## Unreleased')
+  assertChangelogVersion('CHANGELOG.zh.md', '## 未发布')
 })
 
 test('the patch insert uses the package name and loads the exported entry', () => {
