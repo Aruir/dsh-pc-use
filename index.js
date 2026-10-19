@@ -27,12 +27,13 @@ import { fallbackPlaceholders, prepareImageProjection } from './lib/image-projec
 import { saveImage } from './lib/images.js'
 import { appendLogLine, checkLogWritable } from './lib/log-file.js'
 import { endTurn } from './lib/native-pipe.js'
+import { readService } from './lib/services.js'
 import { McpBridge } from './lib/mcp-bridge.js'
 import { definePortableTool } from './lib/define-tool.js'
 import { tabGuardSource } from './lib/tab-guard.js'
 import { createTargetBridge } from './lib/target-bridge.js'
 import {
-  CONFIG_I18N, closeAppsNote, declineNote, illegalReturnNote, noAccessibilityTreeNote,
+  CONFIG_I18N, TEXT, closeAppsNote, declineNote, illegalReturnNote, noAccessibilityTreeNote,
   resolveLanguage, systemLocale,
 } from './lib/text.js'
 import { parseObserveArgs, parsePlanArgs } from './lib/tool-args.js'
@@ -69,6 +70,9 @@ try {
  *     docs: boolean, status: boolean}}} Config
  */
 
+/** One tool call's timeout unless the configuration sets another. */
+const DEFAULT_TIMEOUT_MS = 120000
+
 /**
  * The plugin's configuration schema. `autoApprove`, `computer`,
  * `rememberDesktopApprovals`, `language`, `codexHome`, `logFile`
@@ -82,49 +86,39 @@ function buildConfig(schema) {
   try {
     return schema.object({
       enabled: schema.boolean().default(true)
-        .description('注册 Codex 工具。关闭后本插件不提供任何工具（相当于停用）。'),
+        .description(TEXT.zh.config.enabled),
       autoApprove: schema.boolean().default(false)
-        .description('自动接受 Codex 的浏览器访问授权；其他审批请求一律拒绝。每次审批都会记录到日志。')
+        .description(TEXT.zh.config.autoApprove)
         .volatile(),
       computer: schema.boolean().default(false)
-        .description('开启 Windows 桌面应用操控（Codex Computer Use）；桌面授权交给 DSH 的审批策略，'
-          + '“完全权限”下直接放行。')
+        .description(TEXT.zh.config.computer)
         .volatile(),
       rememberDesktopApprovals: schema.boolean().default(true)
-        .description('同一个 DSH 会话里，某个应用经你允许一次后不再询问；拒绝不会被记住。'
-          + '桥接重连或关闭此项后重新询问。')
+        .description(TEXT.zh.config.rememberDesktopApprovals)
         .volatile(),
       language: schema.union(['auto', 'zh', 'en']).default('auto')
-        .description('插件界面文字的语言：auto 跟随 DSH 界面语言，或强制 zh / en。')
+        .description(TEXT.zh.config.language)
         .volatile(),
       codexHome: schema.string().default('')
-        .description('Codex 配置目录；留空表示 %USERPROFILE%\\.codex。')
+        .description(TEXT.zh.config.codexHome)
         .volatile(),
       logFile: schema.string().default('')
-        .description('桥接日志路径；留空则写入 ~/.dsh/pc-use.log。')
+        .description(TEXT.zh.config.logFile)
         .volatile(),
-      timeoutMs: schema.number().default(120000)
-        .description('单次工具调用超时（毫秒）。')
+      timeoutMs: schema.number().default(DEFAULT_TIMEOUT_MS)
+        .description(TEXT.zh.config.timeoutMs)
         .volatile(),
       attachImages: schema.boolean().default(true)
-        .description('把工具返回的截图作为图片附给模型。截图会发到模型服务商；'
-          + '按 DSH 0.2.1-rc.2 源码，默认经 Files API 上传，有效期 7 天，'
-          + '会话结束时不删除；本机另有 DSH 附件库保存。不想上传就关闭。')
+        .description(TEXT.zh.config.attachImages)
         .volatile(),
       keepImageFiles: schema.boolean().default(false)
-        .description('附图时同时在本机 ~/.dsh/pc-use-images 再存一份；'
-          + '默认只由 DSH 附件库保存。')
+        .description(TEXT.zh.config.keepImageFiles)
         .volatile(),
       allowUserTabs: schema.boolean().default(false)
-        .description('允许模型读取用户标签页和浏览历史（`browser.user.openTabs`、'
-          + '`claimTab`、`getTabContext`、`browser.history`、`cua.getTab`、`cua.getState`、'
-          + '`browser.tabs.get`、`browser.tabs.content`）。关闭时前四项直接报错；'
-          + '`cua.getTab`、`browser.tabs.get`、`browser.tabs.content` 只接受插件标签页'
-          + '（经本插件打开或认领的标签页），`cua.getState` 只列出插件标签页。打开后，'
-          + '标签页标题、网址、页面内容或历史会发给模型服务商。')
+        .description(TEXT.zh.config.allowUserTabs)
         .volatile(),
       tools: schema.object({
-        js: schema.boolean().default(true).description('注册 `pc_codex_js`：在持久的 cua_repl 内核中执行 JS。'),
+        js: schema.boolean().default(true).description(TEXT.zh.config.tools.js),
         reset: schema.boolean().default(true).description('注册 `pc_codex_js_reset`：重置浏览器 JS 内核。'),
         desktopJs: schema.boolean().default(true)
           .description('注册 `pc_codex_desktop_js`：在持久的 node_repl 内核中执行 JS。'),
@@ -133,15 +127,14 @@ function buildConfig(schema) {
         desktopAddNodeModuleDir: schema.boolean().default(true)
           .description('注册 `pc_codex_desktop_js_add_node_module_dir`：为 node_repl 增加模块目录。'),
         docs: schema.boolean().default(true)
-          .description('注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档。'),
-        status: schema.boolean().default(true).description('注册 `pc_status`：报告解析结果与连接状态。'),
+          .description(TEXT.zh.config.tools.docs),
+        status: schema.boolean().default(true).description(TEXT.zh.config.tools.status),
         observe: schema.boolean().default(true)
-          .description('注册 `pc_codex_observe`：输出完整无障碍树/文本供了解全貌；'
-            + '例行判断应在 js 代码里读取具体值、只打印需要的部分。'),
+          .description(TEXT.zh.config.tools.observe),
         runPlan: schema.boolean().default(true)
-          .description('注册 `pc_codex_run_plan`：备选；需要逐步状态或失败后自动观察时使用。'),
-      }).description('要注册哪些工具。'),
-    }).description('dsh-pc-use 的功能开关与默认值。')
+          .description(TEXT.zh.config.tools.runPlan),
+      }).description(TEXT.zh.config.tools.description),
+    }).description(TEXT.zh.config.description)
       .i18n(CONFIG_I18N)
   } catch (error) {
     console.warn('dsh-pc-use: building the Config schema failed — running on built-in defaults', error)
@@ -151,32 +144,12 @@ function buildConfig(schema) {
 
 export const Config = buildConfig(Schema)
 
-const DEFAULTS = {
-  enabled: true,
-  autoApprove: false,
-  computer: false,
-  rememberDesktopApprovals: true,
-  language: 'auto',
-  codexHome: '',
-  logFile: '',
-  timeoutMs: 120000,
-  attachImages: true,
-  keepImageFiles: false,
-  allowUserTabs: false,
-  tools: {
-    js: true,
-    reset: true,
-    desktopJs: true,
-    desktopReset: true,
-    desktopAddNodeModuleDir: true,
-    docs: true,
-    status: true,
-    observe: true,
-    runPlan: true,
-  },
-}
-
 const RESOLVERS = { browser: resolveBrowserServer, desktop: resolveDesktopServer }
+
+/** One error's message text; the non-Error fallback matches the old String() coercion. */
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error)
+}
 
 function defaultLogFile() {
   return join(homedir(), '.dsh', 'pc-use.log')
@@ -274,10 +247,11 @@ export function apply(ctx, raw = {}) {
       : defaultCodexHome()
   }
 
+  /** Every tool is on by default; the schema carries the same defaults. O(1). */
   const toolEnabled = (key) => {
     const tools = unwrapConfigValue(source.tools)
     const value = tools === null || tools === undefined ? undefined : unwrapConfigValue(tools[key])
-    return value === undefined ? DEFAULTS.tools[key] : value
+    return value === undefined ? true : value
   }
 
   // Hot-updatable values are read through these getters at every use, never captured.
@@ -307,7 +281,7 @@ export function apply(ctx, raw = {}) {
   const configuredTimeoutMs = () => {
     const value = unwrapConfigValue(source.timeoutMs)
     if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-      return DEFAULTS.timeoutMs
+      return DEFAULT_TIMEOUT_MS
     }
     return value
   }
@@ -337,22 +311,8 @@ export function apply(ctx, raw = {}) {
     }
   }
 
-  const readApprovalService = () => {
-    if (typeof ctx.get !== 'function') return undefined
-    try {
-      return ctx.get('approval')
-    } catch {
-      return undefined
-    }
-  }
-  const readQuestionsService = () => {
-    if (typeof ctx.get !== 'function') return undefined
-    try {
-      return ctx.get('userQuestions')
-    } catch {
-      return undefined
-    }
-  }
+  const readApprovalService = () => readService(ctx, 'approval')
+  const readQuestionsService = () => readService(ctx, 'userQuestions')
 
   // r14: desktop approvals live in their own module; it only receives the DSH services and
   // the current remember/language switches.
@@ -395,22 +355,17 @@ export function apply(ctx, raw = {}) {
 
   // r15: one bridge controller per target; this file only supplies how to build a bridge and
   // what to forget when the desktop one stops (remembered approvals).
+  const targetBridge = (target, onStop) => createTargetBridge({
+    target,
+    resolveSpec: (home) => RESOLVERS[target]({ codexHome: home }),
+    codexHome,
+    createBridge: bridgeFor(target),
+    onStop,
+    log,
+  })
   const servers = {
-    browser: createTargetBridge({
-      target: 'browser',
-      resolveSpec: (home) => RESOLVERS.browser({ codexHome: home }),
-      codexHome,
-      createBridge: bridgeFor('browser'),
-      log,
-    }),
-    desktop: createTargetBridge({
-      target: 'desktop',
-      resolveSpec: (home) => RESOLVERS.desktop({ codexHome: home }),
-      codexHome,
-      createBridge: bridgeFor('desktop'),
-      onStop: () => approvals.forgetAll(),
-      log,
-    }),
+    browser: targetBridge('browser'),
+    desktop: targetBridge('desktop', () => approvals.forgetAll()),
   }
 
   // r13: turn tracking lives in its own module; it only needs each server's generation,
@@ -459,9 +414,14 @@ export function apply(ctx, raw = {}) {
     if (ended.kinds.includes('desktop')) closeDesktopTurn(ended.identity)
   }
 
-  /** The `computer` switch is read on every use: off always stops the desktop server. O(1). */
-  const syncComputerSwitch = () => {
-    if (computerEnabled() !== true && servers.desktop.started()) servers.desktop.stop()
+  /**
+   * The `computer` switch is read on every use: off always stops the desktop server. The
+   * optional log line lets the loader handler explain its stop first. O(1).
+   */
+  const syncComputerSwitch = (logLine = null) => {
+    if (computerEnabled() === true || !servers.desktop.started()) return
+    if (logLine !== null) log(logLine)
+    servers.desktop.stop()
   }
 
   /** Reject a desktop call while `computer` is off, before any process could start. O(1). */
@@ -489,15 +449,23 @@ export function apply(ctx, raw = {}) {
     return renderResult(await active.call(method, guarded, timeoutMs, identity), collector)
   }
 
-  /** Append language-aware hints to a successful tool result. O(1). */
-  const withToolNotes = (text, registration = null, noTreeMarker = null, screenshot = false) => {
+  /**
+   * Take this call's user-caused declined app and clear the registration record, so the note
+   * is shown once. Only a user-caused denial sets it; call-end declines and automatic
+   * approvals leave it null. O(1).
+   */
+  const takeDeclinedApp = (registration) => {
+    const appName = registration?.declinedApp ?? null
+    if (registration) registration.declinedApp = null
+    return appName
+  }
+
+  /** Append the language-aware hints to one result text. O(1). */
+  const appendToolNotes = (text, declinedApp, noTreeMarker = null, screenshot = false) => {
     const language = effectiveLanguage()
     let result = text
-    // Only a user-caused denial sets this on the call's own registration; call-end
-    // declines and automatic approvals leave it null.
-    if (registration?.declinedApp !== undefined && registration?.declinedApp !== null) {
-      result += `\n\n${declineNote(language, registration.declinedApp)}`
-      registration.declinedApp = null
+    if (declinedApp !== null) {
+      result += `\n\n${declineNote(language, declinedApp)}`
     }
     if (text.includes('Illegal return statement')) {
       result += `\n\n${illegalReturnNote(language)}`
@@ -509,23 +477,17 @@ export function apply(ctx, raw = {}) {
     return result
   }
 
+  /** Append language-aware hints to a successful tool result. O(1). */
+  const withToolNotes = (text, registration = null, noTreeMarker = null, screenshot = false) => (
+    appendToolNotes(text, takeDeclinedApp(registration), noTreeMarker, screenshot)
+  )
+
   /** Append the same hints when Codex returned isError (the real rejection path). O(1). */
   const withToolErrorNotes = (error, registration = null, noTreeMarker = null,
     screenshot = false) => {
-    const message = error instanceof Error ? error.message : String(error)
-    const language = effectiveLanguage()
-    let result = message
-    if (registration?.declinedApp !== undefined && registration?.declinedApp !== null) {
-      result += `\n\n${declineNote(language, registration.declinedApp)}`
-      registration.declinedApp = null
-    }
-    if (message.includes('Illegal return statement')) {
-      result += `\n\n${illegalReturnNote(language)}`
-    }
-    if (noTreeMarker !== null && message.includes(noTreeMarker)) {
-      result = result.replaceAll(noTreeMarker, '[no accessibility tree for this window]')
-      result += `\n\n${noAccessibilityTreeNote(language, screenshot)}`
-    }
+    const message = errorMessage(error)
+    const result = appendToolNotes(message, takeDeclinedApp(registration), noTreeMarker,
+      screenshot)
     return result === message ? error : new Error(result)
   }
 
@@ -533,6 +495,33 @@ export function apply(ctx, raw = {}) {
   const jsTimeoutMs = (requested) => {
     const timeoutMs = configuredTimeoutMs()
     return Number.isFinite(requested) ? Math.max(requested + 30_000, timeoutMs) : timeoutMs
+  }
+
+  /**
+   * Run one tool body on its target: the browser runs without a call registration, while the
+   * desktop target requires `computer` and registers the call so approvals reach it. The
+   * switch check stays first, as before. O(1) plus the task.
+   */
+  const onTarget = (target, exec, task) => {
+    syncComputerSwitch()
+    if (target === 'browser') return task(null)
+    requireComputer()
+    return approvals.withCall(exec, task)
+  }
+
+  /** Run one js tool call on one target; `registration` is null for the browser. O(1) + wait. */
+  const runJs = async (target, args, exec, registration) => {
+    const collector = createImageCollector()
+    try {
+      const text = await callOn(target, 'js', {
+        code: args.code,
+        title: args.title,
+        ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
+      }, jsTimeoutMs(args.timeout_ms), exec, collector)
+      return await finishImages(exec, withToolNotes(text, registration), collector)
+    } catch (error) {
+      throw withToolErrorNotes(error, registration)
+    }
   }
 
   /** Fixed observation code for one target; the methods print their own output. O(1). */
@@ -574,11 +563,10 @@ export function apply(ctx, raw = {}) {
     try {
       const text = await callOn(target, 'js', { code, title },
         configuredTimeoutMs(), exec, collector)
-      // Capture the plugin's own decline record before withToolNotes clears it.
+      // Take the plugin's own decline record before the notes use it.
       // Browsers have no per-call decline record; an isError is their only signal.
-      const declined = registration?.declinedApp !== undefined
-        && registration?.declinedApp !== null
-      return { text: withToolNotes(text, registration), declined }
+      const declinedApp = takeDeclinedApp(registration)
+      return { text: appendToolNotes(text, declinedApp), declined: declinedApp !== null }
     } catch (error) {
       throw withToolErrorNotes(error, registration)
     }
@@ -614,14 +602,14 @@ export function apply(ctx, raw = {}) {
             output += `\ncheck: ${checkResult.text}`
             if (checkResult.declined) status = 'check_error'
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
+            const message = errorMessage(error)
             status = message.includes(CHECK_FAILED_MARKER) ? 'check_failed' : 'check_error'
             output += `\n${message}`
           }
         }
       } catch (error) {
         status = 'error'
-        output = error instanceof Error ? error.message : String(error)
+        output = errorMessage(error)
       }
       results.push({ index: index + 1, title: step.title, status, output })
       if (status !== 'ok') {
@@ -756,18 +744,8 @@ export function apply(ctx, raw = {}) {
       output,
       projectContent: projectImageContent,
       async execute(args, exec) {
-        syncComputerSwitch()
-        const collector = createImageCollector()
-        try {
-          const text = await callOn('browser', 'js', {
-            code: args.code,
-            title: args.title,
-            ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
-          }, jsTimeoutMs(args.timeout_ms), exec, collector)
-          return await finishImages(exec, withToolNotes(text), collector)
-        } catch (error) {
-          throw withToolErrorNotes(error)
-        }
+        const run = (registration) => runJs('browser', args, exec, registration)
+        return onTarget('browser', exec, run)
       },
     }),
     reset: () => tool({
@@ -832,22 +810,8 @@ export function apply(ctx, raw = {}) {
       output,
       projectContent: projectImageContent,
       async execute(args, exec) {
-        syncComputerSwitch()
-        requireComputer()
-        // Every desktop call is registered for its whole lifetime so approvals reach it.
-        return approvals.withCall(exec, async (registration) => {
-          const collector = createImageCollector()
-          try {
-            const text = await callOn('desktop', 'js', {
-              code: args.code,
-              title: args.title,
-              ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
-            }, jsTimeoutMs(args.timeout_ms), exec, collector)
-            return await finishImages(exec, withToolNotes(text, registration), collector)
-          } catch (error) {
-            throw withToolErrorNotes(error, registration)
-          }
-        })
+        const run = (registration) => runJs('desktop', args, exec, registration)
+        return onTarget('desktop', exec, run)
       },
     }),
     desktopReset: () => tool({
@@ -876,10 +840,8 @@ export function apply(ctx, raw = {}) {
       },
       output,
       async execute(args, exec) {
-        syncComputerSwitch()
-        requireComputer()
         // It uses the same agent identity as pc_codex_desktop_js and counts as desktop use.
-        return approvals.withCall(exec, async (registration) => {
+        return onTarget('desktop', exec, async (registration) => {
           try {
             const text = await callOn('desktop', 'js_add_node_module_dir', { path: args.path },
               configuredTimeoutMs(), exec)
@@ -930,16 +892,8 @@ export function apply(ctx, raw = {}) {
       projectContent: projectImageContent,
       async execute(args, exec) {
         const { target, subject, screenshot, full, textMode } = parseObserveArgs(args)
-        syncComputerSwitch()
-        if (target === 'desktop') requireComputer()
-        const collector = createImageCollector()
-        if (target === 'browser') {
-          const text = await runObserve(
-            target, subject, screenshot, full, textMode, exec, null, collector,
-          )
-          return await finishImages(exec, text, collector)
-        }
-        return approvals.withCall(exec, async (registration) => {
+        return onTarget(target, exec, async (registration) => {
+          const collector = createImageCollector()
           const text = await runObserve(
             target, subject, screenshot, full, textMode, exec, registration, collector,
           )
@@ -982,10 +936,8 @@ export function apply(ctx, raw = {}) {
       projectContent: projectImageContent,
       async execute(args, exec) {
         const { target, steps, observe } = parsePlanArgs(args)
-        syncComputerSwitch()
-        if (target === 'desktop') requireComputer()
-        const collector = createImageCollector()
         const run = async (registration) => {
+          const collector = createImageCollector()
           const result = await executePlan(
             target, steps, observe, exec, registration, collector,
           )
@@ -993,8 +945,7 @@ export function apply(ctx, raw = {}) {
           if (result.failed) throw new Error(text)
           return text
         }
-        if (target === 'browser') return run(null)
-        return approvals.withCall(exec, run)
+        return onTarget(target, exec, run)
       },
     }),
     docs: () => tool({
@@ -1097,10 +1048,7 @@ export function apply(ctx, raw = {}) {
   // fallback for a host that never emits the event.
   if (typeof ctx.on === 'function') {
     ctx.effect(() => ctx.on('loader/volatile-update', () => {
-      if (computerEnabled() !== true && servers.desktop.started()) {
-        log('computer turned off; stopping the desktop server')
-        servers.desktop.stop()
-      }
+      syncComputerSwitch('computer turned off; stopping the desktop server')
     }), 'dsh-pc-use: computer switch')
   }
 
