@@ -33,6 +33,12 @@
         # console.warn only.
         logFile: ''
         timeoutMs: 120000
+        # Attach screenshots as images when the model declares image input.
+        # They are sent to the model provider; DSH's default Files API upload
+        # expires after 7 days and is not deleted at session end.
+        attachImages: true
+        # Keep a second local copy under ~/.dsh/pc-use-images.
+        keepImageFiles: false
         tools:
           js: true
           reset: true

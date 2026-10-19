@@ -604,6 +604,22 @@ test('"Restore default" only appears when the user value differs from the base',
   assert.deepEqual(rowsWithReset(missingBase.renderer.getTree()), ['pc-use-logFile'])
 })
 
+test('screenshot privacy switches appear in the general group', () => {
+  const { renderer } = renderSection()
+  const tree = renderer.getTree()
+  for (const field of ['attachImages', 'keepImageFiles']) {
+    const control = findNode(tree, (node) => (
+      node.type === 'button' && node.props.role === 'switch'
+      && node.props.id === `pc-use-${field}`
+    ))
+    assert.ok(control, `missing ${field} switch`)
+  }
+  const text = renderedText(tree)
+  assert.match(text, /截图会发到模型服务商/)
+  assert.match(text, /Files API/)
+  assert.match(text, /本机 DSH 附件库/)
+})
+
 test('a failed read renders readFailed and no controls', () => {
   const { renderer } = renderSection({
     status: 'unavailable',
@@ -1101,7 +1117,8 @@ test('the groups and their rows have the new order', () => {
   assert.deepEqual(ids, [
     ['pc-use-computer', 'pc-use-rememberDesktopApprovals'],
     ['pc-use-autoApprove'],
-    ['pc-use-language', 'pc-use-timeoutMs', 'pc-use-codexHome', 'pc-use-logFile'],
+    ['pc-use-language', 'pc-use-timeoutMs', 'pc-use-attachImages',
+      'pc-use-keepImageFiles', 'pc-use-codexHome', 'pc-use-logFile'],
   ])
 })
 

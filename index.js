@@ -15,6 +15,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 import {
   APPROVE, DECLINE, decisionFromHostOutcome, desktopAppKey, wantsSessionApproval,
@@ -24,14 +25,17 @@ import {
   resolveDesktopServer, versionFromSource,
 } from './lib/codex-config.js'
 import { unwrapConfigValue } from './lib/config-value.js'
+import { fallbackPlaceholders, prepareImageProjection } from './lib/image-projection.js'
 import { saveImage } from './lib/images.js'
 import { appendLogLine, checkLogWritable } from './lib/log-file.js'
 import { endTurn } from './lib/native-pipe.js'
 import { McpBridge } from './lib/mcp-bridge.js'
 import { definePortableTool } from './lib/define-tool.js'
+import { tabGuardSource } from './lib/tab-guard.js'
 import {
   CONFIG_I18N, auditReason, choiceDecision, closeAppsNote, declineNote,
-  desktopApprovalQuestion, illegalReturnNote, legacyDisplayReason, resolveLanguage, systemLocale,
+  desktopApprovalQuestion, illegalReturnNote, legacyDisplayReason, noAccessibilityTreeNote,
+  resolveLanguage, systemLocale,
 } from './lib/text.js'
 
 export const name = 'pc-use'
@@ -59,6 +63,7 @@ try {
  * @typedef {{enabled: boolean, autoApprove: boolean, computer: boolean,
  *   rememberDesktopApprovals: boolean, language: string,
  *   codexHome: string, logFile: string, timeoutMs: number,
+ *   attachImages: boolean, keepImageFiles: boolean,
  *   tools: {js: boolean, reset: boolean, desktopJs: boolean, desktopReset: boolean,
  *     desktopAddNodeModuleDir: boolean, observe: boolean, runPlan: boolean,
  *     docs: boolean, status: boolean}}} Config
@@ -101,6 +106,15 @@ function buildConfig(schema) {
       timeoutMs: schema.number().default(120000)
         .description('单次工具调用超时（毫秒）。')
         .volatile(),
+      attachImages: schema.boolean().default(true)
+        .description('把工具返回的截图作为图片附给模型。截图会发到模型服务商；'
+          + '按 DSH 0.2.1-rc.2 源码，默认经 Files API 上传，有效期 7 天，'
+          + '会话结束时不删除；本机另有 DSH 附件库保存。不想上传就关闭。')
+        .volatile(),
+      keepImageFiles: schema.boolean().default(false)
+        .description('附图时同时在本机 ~/.dsh/pc-use-images 再存一份；'
+          + '默认只由 DSH 附件库保存。')
+        .volatile(),
       tools: schema.object({
         js: schema.boolean().default(true).description('注册 `pc_codex_js`：在持久的 cua_repl 内核中执行 JS。'),
         reset: schema.boolean().default(true).description('注册 `pc_codex_js_reset`：重置浏览器 JS 内核。'),
@@ -138,6 +152,8 @@ const DEFAULTS = {
   codexHome: '',
   logFile: '',
   timeoutMs: 120000,
+  attachImages: true,
+  keepImageFiles: false,
   tools: {
     js: true,
     reset: true,
@@ -199,20 +215,37 @@ function imagesDirectory() {
   return join(homedir(), '.dsh', 'pc-use-images')
 }
 
-/** Flatten an MCP tool result into the canonical string value DSH renders for the model. */
-function renderResult(result) {
+/** Replaceable nonce marker for one image collected across a tool call. O(1). */
+function imageMarker(collector, index) {
+  return `\u0000pc-image:${collector.nonce}:${index}\u0000`
+}
+
+/**
+ * Flatten an MCP tool result into the canonical string value DSH renders for the model.
+ * With a collector, images become markers for the execute-time projection decision;
+ * without one (or on an error), they keep the existing local-path fallback. O(content).
+ */
+function renderResult(result, collector = null) {
   const items = Array.isArray(result?.content) ? result.content : []
   const parts = []
   for (const item of items) {
     if (item?.type === 'text' && typeof item.text === 'string') {
       parts.push(item.text)
-    } else if (item?.type === 'image' && typeof item.data === 'string') {
-      // The canonical value is a string, so keep the image reachable instead of dropping it.
-      try {
-        const file = saveImage(item, imagesDirectory())
-        parts.push(`[image saved: ${file}]`)
-      } catch {
-        parts.push('[image could not be saved]')
+    } else if (item?.type === 'image') {
+      if (collector !== null && result?.isError !== true) {
+        const index = collector.images.length
+        collector.images.push(item)
+        parts.push(imageMarker(collector, index))
+      } else if (typeof item.data === 'string') {
+        // The canonical value is a string, so keep the image reachable instead of dropping it.
+        try {
+          const file = saveImage(item, imagesDirectory())
+          parts.push(`[image saved: ${file}]`)
+        } catch {
+          parts.push('[image could not be saved]')
+        }
+      } else {
+        parts.push(JSON.stringify(item))
       }
     } else if (item != null) {
       parts.push(JSON.stringify(item))
@@ -249,6 +282,7 @@ const COMPUTER_OFF = 'dsh-pc-use: computer use is off; '
 const OBSERVE_TARGETS = ['browser', 'desktop']
 const SUBJECT_PATTERN = /^[A-Za-z_$][\w$]*$/
 const CHECK_FAILED_MARKER = 'pc_codex_run_plan check failed'
+const TAB_GUARD = tabGuardSource()
 
 /**
  * @param {{enabled?: boolean, autoApprove?: boolean, computer?: boolean,
@@ -768,15 +802,18 @@ export function apply(ctx, raw = {}) {
   }
 
   /** Run one MCP call on one server with the agent's shared turn identity. O(1). */
-  const callOn = async (kind, method, args, timeoutMs, agent) => {
+  const callOn = async (kind, method, args, timeoutMs, agent, collector = null) => {
     const active = await ensureServer(kind)
     const turn = agent === null || agent === undefined ? null : turnStateFor(agent)
     if (turn !== null) markServerUsed(turn, kind)
-    return renderResult(await active.call(method, args, timeoutMs, turn))
+    const guarded = kind === 'browser' && method === 'js' && typeof args?.code === 'string'
+      ? { ...args, code: `${TAB_GUARD}\n${args.code}` }
+      : args
+    return renderResult(await active.call(method, guarded, timeoutMs, turn), collector)
   }
 
   /** Append language-aware hints to a successful tool result. O(1). */
-  const withToolNotes = (text, registration = null) => {
+  const withToolNotes = (text, registration = null, noTreeMarker = null, screenshot = false) => {
     const language = effectiveLanguage()
     let result = text
     // Only a user-caused denial sets this on the call's own registration; call-end
@@ -788,11 +825,16 @@ export function apply(ctx, raw = {}) {
     if (text.includes('Illegal return statement')) {
       result += `\n\n${illegalReturnNote(language)}`
     }
+    if (noTreeMarker !== null && text.includes(noTreeMarker)) {
+      result = result.replaceAll(noTreeMarker, '[no accessibility tree for this window]')
+      result += `\n\n${noAccessibilityTreeNote(language, screenshot)}`
+    }
     return result
   }
 
   /** Append the same hints when Codex returned isError (the real rejection path). O(1). */
-  const withToolErrorNotes = (error, registration = null) => {
+  const withToolErrorNotes = (error, registration = null, noTreeMarker = null,
+    screenshot = false) => {
     const message = error instanceof Error ? error.message : String(error)
     const language = effectiveLanguage()
     let result = message
@@ -802,6 +844,10 @@ export function apply(ctx, raw = {}) {
     }
     if (message.includes('Illegal return statement')) {
       result += `\n\n${illegalReturnNote(language)}`
+    }
+    if (noTreeMarker !== null && message.includes(noTreeMarker)) {
+      result = result.replaceAll(noTreeMarker, '[no accessibility tree for this window]')
+      result += `\n\n${noAccessibilityTreeNote(language, screenshot)}`
     }
     return result === message ? error : new Error(result)
   }
@@ -870,39 +916,44 @@ export function apply(ctx, raw = {}) {
   }
 
   /** Fixed observation code for one target; the methods print their own output. O(1). */
-  const observeCode = (target, subject, screenshot, full, textMode) => {
+  const observeCode = (target, subject, screenshot, full, textMode, marker) => {
     if (target === 'browser') {
       const method = screenshot ? 'getAXStateAndScreenshot' : 'getAXState'
       return `await ${subject}.${method}({ disableDiffing: ${full} });`
     }
+    const empty = textMode
+      ? `(state.accessibility == null ? ${JSON.stringify(marker)} : '')`
+      : "''"
     return `{
   const { sky } = await import("@oai/sky");
   globalThis.state = await sky.get_window_state({ window: ${subject}, ` +
     `include_screenshot: ${screenshot}, include_text: ${textMode} });
   globalThis.${subject} = state.window;
-  nodeRepl.write(String(state.accessibility?.tree || state.accessibility?.document_text || ''));
+  nodeRepl.write(String(state.accessibility?.tree || ` +
+    `state.accessibility?.document_text || ${empty}));
 }`
   }
 
   /** Run one observation through the normal js path. O(1) plus the wait. */
   const runObserve = async (target, subject, screenshot, full, textMode, exec,
-    registration) => {
+    registration, collector) => {
+    const marker = `\u0000pc-no-tree:${randomUUID()}\u0000`
     try {
       const text = await callOn(target, 'js', {
-        code: observeCode(target, subject, screenshot, full, textMode),
+        code: observeCode(target, subject, screenshot, full, textMode, marker),
         title: `observe ${target}`,
-      }, configuredTimeoutMs(), exec?.agent ?? null)
-      return withToolNotes(text, registration)
+      }, configuredTimeoutMs(), exec?.agent ?? null, collector)
+      return withToolNotes(text, registration, marker, screenshot)
     } catch (error) {
-      throw withToolErrorNotes(error, registration)
+      throw withToolErrorNotes(error, registration, marker, screenshot)
     }
   }
 
   /** Run one descriptor through the normal js path, keeping the desktop registration. O(1). */
-  const runTargetCode = async (target, code, title, exec, registration) => {
+  const runTargetCode = async (target, code, title, exec, registration, collector) => {
     try {
       const text = await callOn(target, 'js', { code, title },
-        configuredTimeoutMs(), exec?.agent ?? null)
+        configuredTimeoutMs(), exec?.agent ?? null, collector)
       // Capture the plugin's own decline record before withToolNotes clears it.
       // Browsers have no per-call decline record; an isError is their only signal.
       const declined = registration?.declinedApp !== undefined
@@ -927,7 +978,7 @@ export function apply(ctx, raw = {}) {
   }
 
   /** Build and run a plan; returns the text plus whether any step failed. O(steps). */
-  const executePlan = async (target, steps, observe, exec, registration) => {
+  const executePlan = async (target, steps, observe, exec, registration, collector) => {
     const results = []
     let stopStatus = null
     let stopIndex = null
@@ -942,7 +993,7 @@ export function apply(ctx, raw = {}) {
       let output = ''
       try {
         const stepResult = await runTargetCode(
-          target, step.code, step.title, exec, registration)
+          target, step.code, step.title, exec, registration, collector)
         output = stepResult.text
         if (stepResult.declined) {
           status = 'error'
@@ -952,7 +1003,7 @@ export function apply(ctx, raw = {}) {
             + `if (!ok) throw new Error('${CHECK_FAILED_MARKER}'); }`
           try {
             const checkResult = await runTargetCode(
-              target, checkCode, `check ${step.title}`, exec, registration)
+              target, checkCode, `check ${step.title}`, exec, registration, collector)
             output += `\ncheck: ${checkResult.text}`
             if (checkResult.declined) status = 'check_error'
           } catch (error) {
@@ -980,7 +1031,7 @@ export function apply(ctx, raw = {}) {
     if (observe !== null && exec?.signal?.aborted !== true) {
       try {
         const text = await runObserve(target, observe.subject, observe.screenshot,
-          false, true, exec, registration)
+          false, true, exec, registration, collector)
         observation = `observation:\n${text}`
       } catch (error) {
         observation = `observation error: ${error instanceof Error ? error.message : error}`
@@ -999,6 +1050,60 @@ export function apply(ctx, raw = {}) {
     return { text, failed: stopStatus !== null }
   }
 
+  const imageProjections = new WeakMap()
+  const createImageCollector = () => ({ images: [], nonce: randomUUID() })
+  const attachImagesEnabled = () => unwrapConfigValue(source.attachImages) !== false
+  const keepImageFilesEnabled = () => unwrapConfigValue(source.keepImageFiles) === true
+  const saveLocalImage = (image) => saveImage(image, imagesDirectory())
+
+  /**
+   * Replace collected image markers with attached/fallback placeholders and, when
+   * possible, prepare the projection for projectContent. O(images).
+   */
+  const finishImages = async (exec, text, collector, forceFallback = false) => {
+    const images = collector?.images ?? []
+    if (images.length === 0) return text
+    if (forceFallback) log('image projection fallback: tool call failed')
+    const prepared = forceFallback
+      ? fallbackPlaceholders(images, saveLocalImage, 'tool call failed')
+      : await prepareImageProjection({
+        ctx,
+        exec,
+        images,
+        attachImages: attachImagesEnabled(),
+        keepImageFiles: keepImageFilesEnabled(),
+        saveLocal: saveLocalImage,
+        log,
+      })
+    let value = text
+    for (let index = 0; index < images.length; index += 1) {
+      value = value.split(imageMarker(collector, index)).join(prepared.placeholders[index])
+    }
+    if (typeof exec !== 'object' || exec === null) return value
+    const attached = prepared.refs.filter((ref) => ref !== null)
+    if (attached.length === 0) return value
+    const content = [{ type: 'text', text: value }]
+    for (const ref of attached) content.push({ type: 'image', attachment: ref })
+    imageProjections.set(exec, {
+      value,
+      fallback: output.render(undefined, value),
+      content,
+    })
+    return value
+  }
+
+  /** Three-check projector: single use, no error result, unchanged value/content. O(1). */
+  const projectImageContent = (exec, result) => {
+    if (typeof exec !== 'object' || exec === null) return undefined
+    const prepared = imageProjections.get(exec)
+    if (prepared === undefined) return undefined
+    imageProjections.delete(exec)
+    if (result?.isError === true) return undefined
+    if (!isDeepStrictEqual(result?.value, prepared.value)) return undefined
+    if (!isDeepStrictEqual(result?.content, prepared.fallback)) return undefined
+    return prepared.content
+  }
+
   const definitions = {
     js: () => tool({
       name: 'pc_codex_js',
@@ -1013,28 +1118,39 @@ export function apply(ctx, raw = {}) {
         'observer methods output themselves. Preferred: put known consecutive steps in one ' +
         'program; use if/loops/assertions for intermediate results and throw with an ' +
         'explanation when a check fails; at the end print only what the next decision ' +
-        'needs with nodeRepl.write(...) or console.log(...). Judge UI state by reading ' +
-        'accessibility-tree values in code (button enabled, input value, selected item), ' +
-        'not screenshots; filter and print only the fields you need. After a UI-changing ' +
-        'step, the next program reads state first; do not reuse old indexes or coordinates. ' +
-        'Fallback: use `pc_codex_run_plan` when you need step-by-step status or automatic ' +
-        'observation after a failure. Use `pc_codex_observe` to see the whole interface. ' +
-        'To operate Windows desktop apps, use `pc_codex_desktop_js`.',
+        'needs with nodeRepl.write(...) or console.log(...). When reading values only, ' +
+        'call `getAXState({ emit: false })` and print only the needed fields. Store ' +
+        '`cua.createBrowserTab(...)` in `globalThis`, for example ' +
+        '`globalThis.tab = await cua.createBrowserTab(...)`, so later calls and ' +
+        '`pc_codex_observe` can use it. `cua.listTabs()` returns only tabs opened by ' +
+        'this session via `cua.createBrowserTab`; other user tabs are filtered out, so ' +
+        'check your own tab by id. Do not call `getBrowser(...).user.openTabs()`, ' +
+        '`claimTab` or `history` just to verify; they can touch other user tabs or ' +
+        'history. Use them only when the user explicitly asks. Browser tasks do not need ' +
+        '`pc_codex_docs`. When the tree is available, judge UI state by reading values ' +
+        '(button enabled, input value, selected item), not screenshots; if it is not, ' +
+        'use a screenshot. After a UI-changing step, read state first and do not reuse ' +
+        'old indexes or coordinates. Fallback: use `pc_codex_run_plan` when you need ' +
+        'step-by-step status or automatic observation after a failure. Use ' +
+        '`pc_codex_observe` to see the whole interface. To operate Windows desktop apps, ' +
+        'use `pc_codex_desktop_js`.',
       parameters: {
         code: { type: 'string', required: true, description: 'JavaScript to run in the persistent cua_repl kernel.' },
         title: { type: 'string', required: true, description: 'Short user-facing description of what the code does.' },
         timeout_ms: { type: 'number', description: 'Execution timeout in milliseconds (default 30000).' },
       },
       output,
+      projectContent: projectImageContent,
       async execute(args, exec) {
         syncComputerSwitch()
+        const collector = createImageCollector()
         try {
           const text = await callOn('browser', 'js', {
             code: args.code,
             title: args.title,
             ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
-          }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null)
-          return withToolNotes(text)
+          }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null, collector)
+          return await finishImages(exec, withToolNotes(text), collector)
         } catch (error) {
           throw withToolErrorNotes(error)
         }
@@ -1065,13 +1181,19 @@ export function apply(ctx, raw = {}) {
         'themselves. Preferred: put known consecutive steps in one program; use ' +
         'if/loops/assertions for intermediate results and throw with an explanation when ' +
         'a check fails; at the end print only what the next decision needs with ' +
-        'nodeRepl.write(...) or console.log(...). Judge UI state by reading ' +
-        'accessibility-tree values in code (button enabled, input value, selected item), ' +
-        'not screenshots; desktop: sky.get_window_state accessibility; browser: ' +
-        'tab.getAXState; filter and print only needed fields. After a UI-changing step, ' +
-        'the next program reads state first; do not reuse old indexes or coordinates. ' +
-        'Fallback: use `pc_codex_run_plan` when you need step-by-step status or automatic ' +
-        'observation after a failure. Use `pc_codex_observe` for the whole interface. ' +
+        'nodeRepl.write(...) or console.log(...). When the tree is available, judge UI ' +
+        'state by reading accessibility-tree values in code (desktop: ' +
+        'sky.get_window_state; button enabled, input value, selected item), not ' +
+        'screenshots. Some apps return `accessibility: null` even with ' +
+        '`include_text: true` (Notepad, Calculator). For those, use a screenshot: if ' +
+        'this result carries one, judge from it; otherwise call `pc_codex_observe` with ' +
+        '`screenshot: true`. Do not use run_plan checks to read UI values for that ' +
+        'window. Do not read logs or configuration files, and do not search the disk ' +
+        'for the reason; if the screenshot is not enough, stop and tell the user. After ' +
+        'a UI-changing step, read state first and do not reuse old indexes or ' +
+        'coordinates. Fallback: use `pc_codex_run_plan` when you need step-by-step ' +
+        'status or automatic observation after a failure. Use `pc_codex_observe` for ' +
+        'the whole interface. ' +
         'Use it to control Windows ' +
         'applications; for browser pages use `pc_codex_js`. Before controlling ' +
         'Windows apps, call `pc_codex_docs` for `skill`, `guidance` and ' +
@@ -1094,6 +1216,7 @@ export function apply(ctx, raw = {}) {
         },
       },
       output,
+      projectContent: projectImageContent,
       async execute(args, exec) {
         syncComputerSwitch()
         requireComputer()
@@ -1101,13 +1224,14 @@ export function apply(ctx, raw = {}) {
         // running, so every desktop call is registered for its whole lifetime.
         const registration = { exec, controller: new AbortController(), declinedApp: null }
         activeCalls.push(registration)
+        const collector = createImageCollector()
         try {
           const text = await callOn('desktop', 'js', {
             code: args.code,
             title: args.title,
             ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
-          }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null)
-          return withToolNotes(text, registration)
+          }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null, collector)
+          return await finishImages(exec, withToolNotes(text, registration), collector)
         } catch (error) {
           throw withToolErrorNotes(error, registration)
         } finally {
@@ -1167,9 +1291,13 @@ export function apply(ctx, raw = {}) {
       description:
         'Read-only observation of the browser or desktop target through the corresponding js ' +
         'kernel. Prints the complete accessibility tree (or text) for understanding the ' +
-        'whole interface. Routine conditional checks should read specific accessibility ' +
-        'values inside js code and print only what they need. screenshot defaults to false; ' +
-        'enable it only when visual information is needed.',
+        'whole interface. Routine checks should read specific accessibility values ' +
+        'inside js code and print only what they need. Some Windows apps return ' +
+        '`accessibility: null` even with `include_text: true` (Notepad, Calculator); for ' +
+        'those use `screenshot: true` and judge from the screenshot. Do not read logs or ' +
+        'configuration files, and do not search the disk; if the screenshot is not ' +
+        'enough, stop and tell the user. screenshot defaults to false; enable it when ' +
+        'visual information is needed.',
       parameters: {
         target: {
           type: 'string',
@@ -1195,6 +1323,7 @@ export function apply(ctx, raw = {}) {
         },
       },
       output,
+      projectContent: projectImageContent,
       async execute(args, exec) {
         const target = parseTarget(args.target)
         const subject = parseSubject(args.subject)
@@ -1203,12 +1332,19 @@ export function apply(ctx, raw = {}) {
         const textMode = parseBoolean(args.text, 'text', true)
         syncComputerSwitch()
         if (target === 'desktop') requireComputer()
+        const collector = createImageCollector()
         if (target === 'browser') {
-          return runObserve(target, subject, screenshot, full, textMode, exec, null)
+          const text = await runObserve(
+            target, subject, screenshot, full, textMode, exec, null, collector,
+          )
+          return await finishImages(exec, text, collector)
         }
-        return withDesktopRegistration(exec, (registration) => (
-          runObserve(target, subject, screenshot, full, textMode, exec, registration)
-        ))
+        return withDesktopRegistration(exec, async (registration) => {
+          const text = await runObserve(
+            target, subject, screenshot, full, textMode, exec, registration, collector,
+          )
+          return await finishImages(exec, text, collector)
+        })
       },
     }),
     runPlan: () => tool({
@@ -1217,8 +1353,11 @@ export function apply(ctx, raw = {}) {
         'Fallback plan runner: use when you need step-by-step status reporting or automatic ' +
         'observation after a failure. Runs 1 to 20 ordered steps through the browser or ' +
         'desktop js kernel, reusing the persistent REPL. Each step code may itself contain ' +
-        'conditions and assertions. Only include steps whose inputs are already known or ' +
-        'whose check verifies the plan; a check failure means the UI and plan differ, so ' +
+        'conditions and assertions. Checks should read accessibility values. When the ' +
+        'target window returns no accessibility tree, do not use checks to read UI ' +
+        'values; observe with a screenshot instead. Only include steps whose inputs are ' +
+        'known or whose check verifies the plan; a check failure means the UI and plan ' +
+        'differ, so ' +
         'observe with `pc_codex_observe` before deciding again. Stops at the first failing ' +
         'step and reports it as an error; each step and each check is bounded by the ' +
         'single-call timeout.',
@@ -1240,16 +1379,21 @@ export function apply(ctx, raw = {}) {
         },
       },
       output,
+      projectContent: projectImageContent,
       async execute(args, exec) {
         const target = parseTarget(args.target)
         const steps = parseSteps(args.steps)
         const observe = parseObserve(args.observe)
         syncComputerSwitch()
         if (target === 'desktop') requireComputer()
+        const collector = createImageCollector()
         const run = async (registration) => {
-          const result = await executePlan(target, steps, observe, exec, registration)
-          if (result.failed) throw new Error(result.text)
-          return result.text
+          const result = await executePlan(
+            target, steps, observe, exec, registration, collector,
+          )
+          const text = await finishImages(exec, result.text, collector, result.failed)
+          if (result.failed) throw new Error(text)
+          return text
         }
         if (target === 'browser') return run(null)
         return withDesktopRegistration(exec, run)

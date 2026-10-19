@@ -2,6 +2,8 @@
 // Any other call returns a normal text result. Used only by the tool-result guidance tests.
 import readline from 'node:readline'
 
+import { tabGuardSource } from '../../lib/tab-guard.js'
+
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`)
 }
@@ -17,7 +19,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     return
   }
   if (message.method !== 'tools/call') return
-  const code = String(message.params?.arguments?.code ?? '')
+  const fullCode = String(message.params?.arguments?.code ?? '')
+  const guard = `${tabGuardSource()}\n`
+  const code = fullCode.startsWith(guard) ? fullCode.slice(guard.length) : fullCode
   if (code.includes('return')) {
     send({
       jsonrpc: '2.0',

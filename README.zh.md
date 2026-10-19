@@ -173,6 +173,8 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `codexHome` | `''` | 空表示 `%USERPROFILE%\.codex` |
 | `logFile` | `''` | 桥接日志路径；空表示 `~/.dsh/pc-use.log` |
 | `timeoutMs` | `120000` | 单次调用超时 |
+| `attachImages` | `true` | 模型声明支持图片输入时把截图作为图片附上；截图会发到模型服务商，按 DSH 0.2.1-rc.2 源码默认经 Files API 上传，有效期 7 天，会话结束时不删除；本机 DSH 附件库另存一份；不想上传就关闭 |
+| `keepImageFiles` | `false` | 附图时同时在本机 `~/.dsh/pc-use-images` 再存一份；默认只由 DSH 附件库保存 |
 | `tools` | 全开 | `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` 逐项开关 |
 | `tools.desktopJs` | `true` | 注册 `pc_codex_desktop_js`：在桌面 `node_repl` 里执行 JS（需要 `computer: true`） |
 | `tools.desktopReset` | `true` | 注册 `pc_codex_desktop_js_reset`：重置桌面 JS 内核 |
@@ -182,7 +184,7 @@ bundle 层已经插入过 `pc-use` 了。在 profile 的 `cordis.patch.yml` 里*
 | `tools.docs` | `true` | 注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档（不需要 Codex 连接） |
 
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /
-`codexHome` / `logFile` / `timeoutMs` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载
+`codexHome` / `logFile` / `timeoutMs` / `attachImages` / `keepImageFiles` 可以热更新（volatile）：改完对之后的调用生效，不会重新挂载
 插件。loader 会通知 volatile 写入：关闭 `computer` 时立即停掉桌面服务器，浏览器连接不受影响；
 重新打开后，下一次桌面调用才启动桌面服务器。`codexHome` 改变后，两个服务器各自在下一次调用时重新
 解析并重连。`enabled`、`tools.*` 不是 volatile，改动会重新挂载插件并按新配置注册工具。三个桌面
@@ -204,6 +206,19 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 - 桌面授权不适用 `autoApprove`：`computer: false` 时一律 decline（`computer use is off`）；`computer: true` 时交给 DSH 审批，结果写进日志（`approved in DSH` / `rejected in DSH` / `approval cancelled` / `approval unavailable`），没有审批服务或没有进行中的 `pc_codex_desktop_js` 调用时 decline。
 
 如果 Codex 改掉授权文案，浏览器授权和桌面授权都会被拒绝——这是安全的失败方式。
+
+## 截图与隐私
+
+只有 `attachImages` 开启且当前模型声明支持图片输入时，Codex 返回的截图才会作为图片附上；
+不满足时退回本机路径文字；`pc_codex_run_plan` 失败后留下的图片也按路径文字保存，原因写
+`tool call failed`。
+
+附图会把截图发到模型服务商。按 DSH 0.2.1-rc.2 源码，默认经 Files API 上传：文件有效期 7 天，
+会话结束时不删除。DSH 本机附件库还会保存一份；保持 `keepImageFiles: false`（默认）可避免在
+`~/.dsh/pc-use-images` 再存第二份。
+
+每张图约 184–1024 个输入 token，历史里的图每轮都会重发。可在 DSH 设置里用 `imagePixelBudget`
+封顶；插件不改这个设置。截图不能离开本机时请关闭 `attachImages`。
 
 ## 设置页（0.4.3）
 
@@ -368,6 +383,12 @@ npm run test:smoke
 
 - 非官方用法，Codex 更新可能改变 `.mcp.json` 或 `config.toml` 结构或管道机制；失效先看
   `pc_status` 和 `logFile`。
+- 部分 Windows 版本上，Codex 对某些应用（例如记事本、计算器）不返回无障碍树，即使
+  `include_text: true` 也一样（openai/codex#52319）。插件会提示改用截图；不要为找原因去读
+  日志、配置或在磁盘上搜索，截图不够时应停下并告诉用户。
+- 浏览器 `cua.listTabs()` 受守卫包装：只返回本会话通过 `cua.createBrowserTab` 打开的标签页，
+  用户其他标签页会被过滤。守卫只防误用，不是安全边界；重置或服务器重启后不记得先前的
+  标签页，前置守卫也会让模型代码报错的行号发生偏移。
 - 自动审批只认 `Allow Browser use to access <origin>?` 这条文案；Codex 改文案后浏览器授权会被拒绝（fail-closed），被拒绝的原文会写进日志。
 - 桌面授权只认 `Allow Computer Use to use "<名称>"?` 和 `Allow Codex to use <名称>?` 两种文案，
   改文案后会被拒绝；桌面操控默认关闭，是否弹卡片由 DSH 的权限模式决定（“完全权限”直接放行，

@@ -44,6 +44,12 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
   }
   // Execute the plugin's check wrapper for real, including thrown errors and syntax errors.
   if (code.includes('const ok = Boolean(await (async () =>')) {
+    // The guarded check starts with the tab guard, which only wraps these stubs.
+    globalThis.cua = {
+      createBrowserTab: async () => ({ id: 'fake-check-tab' }),
+      listTabs: async () => [],
+    }
+    globalThis.nodeRepl = { write() {} }
     try {
       await new AsyncFunction(code)()
       send({

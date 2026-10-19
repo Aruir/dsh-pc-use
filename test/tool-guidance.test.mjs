@@ -78,8 +78,9 @@ test('js descriptions prefer one checked program and accessibility values', () =
       assert.match(description, /Preferred:/)
       assert.match(description, /one program/)
       assert.match(description, /if\/loops\/assertions/)
-      assert.match(description, /accessibility-tree values/)
-      assert.match(description, /print only (the fields|needed fields)/)
+      assert.match(description, /tree is available/)
+      assert.match(description, /screenshot/)
+      assert.match(description, /print only/)
       assert.ok(description.indexOf('Preferred:') < description.indexOf('pc_codex_run_plan'))
       assert.match(description, /pc_codex_observe/)
     }
@@ -97,7 +98,7 @@ test('run_plan is a fallback and observe prints the whole accessibility tree', (
     assert.match(runPlan, /conditions and assertions/)
     const observe = plugin.tools.get('pc_codex_observe').description
     assert.match(observe, /complete accessibility tree/)
-    assert.match(observe, /Routine conditional checks/)
+    assert.match(observe, /Routine checks/)
     assert.match(observe, /screenshot defaults to false/)
   } finally {
     plugin.dispose()

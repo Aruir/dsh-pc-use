@@ -50,6 +50,12 @@ window.__ModuleLoader__.load({
         + '每次审批都会记录到日志。',
       timeoutMs: '调用超时',
       timeoutMsDescription: '单次工具调用超时，单位秒。',
+      attachImages: '附图给模型',
+      attachImagesDescription: '把工具返回的截图作为图片附给模型。截图会发到模型服务商；按 DSH 0.2.1-rc.2 源码默认经 '
+        + 'Files API 上传，有效期 7 天，会话结束时不删除；本机 DSH 附件库另存一份。'
+        + '不想上传就关闭。',
+      keepImageFiles: '本机保留附图',
+      keepImageFilesDescription: '附图时同时在本机 ~/.dsh/pc-use-images 再存一份；默认只由 DSH 附件库保存。',
       timeoutInvalid: '请输入 10 到 3600 之间的整数秒。',
       secondsUnit: '秒',
       codexHome: 'Codex 配置目录',
@@ -90,6 +96,15 @@ window.__ModuleLoader__.load({
         + 'approval requests are declined. Every approval is logged.',
       timeoutMs: 'Call timeout',
       timeoutMsDescription: 'Timeout for one tool call, in seconds.',
+      attachImages: 'Attach screenshots',
+      attachImagesDescription: 'Attach screenshots returned by the tools as images. '
+        + 'Screenshots are sent to the model provider; per DSH 0.2.1-rc.2 source they use '
+        + 'the Files API by default, expire '
+        + 'after 7 days, and are not deleted when the session ends; the local DSH '
+        + 'attachment store also keeps a copy. Turn this off to avoid uploading.',
+      keepImageFiles: 'Keep local image files',
+      keepImageFilesDescription: 'Also save attached images under ~/.dsh/pc-use-images; '
+        + 'by default only the DSH attachment store keeps them.',
       timeoutInvalid: 'Enter an integer between 10 and 3600 seconds.',
       secondsUnit: 'seconds',
       codexHome: 'Codex home',
@@ -705,6 +720,8 @@ window.__ModuleLoader__.load({
         group('general', 'groupGeneral', [
           languageRow,
           timeoutRow,
+          booleanRow('attachImages'),
+          booleanRow('keepImageFiles'),
           textRow('codexHome', 'codexHomePlaceholder'),
           textRow('logFile', 'logFilePlaceholder', true),
         ]),

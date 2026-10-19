@@ -206,6 +206,8 @@ All fields are optional and go in the `config:` block of `cordis.patch.yml`.
 | `codexHome` | `''` | Empty means `%USERPROFILE%\.codex` |
 | `logFile` | `''` | Bridge log path; empty means `~/.dsh/pc-use.log` |
 | `timeoutMs` | `120000` | Timeout for one tool call |
+| `attachImages` | `true` | Attach screenshots as images when the model declares image input; screenshots go to the model provider, DSH's default Files API upload expires after 7 days and is not deleted at session end, and the DSH attachment store keeps a local copy; turn off to avoid uploads |
+| `keepImageFiles` | `false` | Also keep attached images under `~/.dsh/pc-use-images`; by default only DSH's attachment store keeps them |
 | `tools` | all on | Per-tool switches: `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` |
 | `tools.desktopJs` | `true` | Register `pc_codex_desktop_js`: run JS in the desktop `node_repl` (needs `computer: true`) |
 | `tools.desktopReset` | `true` | Register `pc_codex_desktop_js_reset`: reset the desktop JS kernel |
@@ -215,7 +217,8 @@ All fields are optional and go in the `config:` block of `cordis.patch.yml`.
 | `tools.docs` | `true` | Register `pc_codex_docs`: read Codex's bundled Computer Use docs (no Codex connection needed) |
 
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /
-`codexHome` / `logFile` / `timeoutMs` are hot-updatable (volatile): a change applies to later calls
+`codexHome` / `logFile` / `timeoutMs` / `attachImages` / `keepImageFiles` are
+hot-updatable (volatile): a change applies to later calls
 without remounting the plugin. The loader announces volatile writes, so turning `computer` off
 stops the desktop server immediately and leaves the browser connection alone; turning it on starts
 the desktop server on the next desktop call. After `codexHome` changes both servers re-resolve and
@@ -247,6 +250,22 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 
 If Codex changes the approval wording, browser and desktop approvals are both declined — a safe
 failure mode.
+
+## Screenshots and privacy
+
+Screenshots returned by Codex are attached as images only when `attachImages` is on and the
+current model declares image input. If that fails, the plugin falls back to local path text.
+Images from a failed `pc_codex_run_plan` are kept as path text with the reason
+`tool call failed`.
+
+Attaching sends the screenshot to the model provider. Per DSH 0.2.1-rc.2 source, the default
+upload path is the Files API: files expire after 7 days and are not deleted when the session
+ends. DSH's local attachment store keeps another copy; set `keepImageFiles: false` (the default)
+to avoid a second copy in `~/.dsh/pc-use-images`.
+
+Each image costs roughly 184–1024 input tokens, and images in history are resent on every turn.
+To cap image size, use DSH's `imagePixelBudget` setting; the plugin does not change it. Turn
+`attachImages` off if screenshots must not leave the machine.
 
 ## Settings page (0.4.3)
 
@@ -446,6 +465,14 @@ the profile as well.
 
 - Unofficial usage: Codex updates may change the `.mcp.json` or `config.toml` shape or the pipe
   mechanism; on failure check `pc_status` and `logFile` first.
+- Some Windows versions return no accessibility tree for some apps, for example Notepad and
+  Calculator, even with `include_text: true` (openai/codex#52319). The plugin tells the model to
+  use a screenshot in that case; it must not inspect logs, configuration or the disk for the
+  cause, and should stop and tell the user if the screenshot is insufficient.
+- Browser `cua.listTabs()` is guarded: it only returns tabs opened by this session through
+  `cua.createBrowserTab`; other user tabs are filtered out. The guard is misuse protection, not a
+  security boundary; a reset or server restart forgets earlier tabs, and the prepended guard
+  shifts line numbers in model-code errors.
 - Automatic approval only recognizes the exact wording `Allow Browser use to access <origin>?`; if
   Codex changes it, browser approvals are declined (fail-closed) and the declined wording is logged.
 - Desktop approvals only recognize `Allow Computer Use to use "<name>"?` and `Allow Codex to use <name>?`;

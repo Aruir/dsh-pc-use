@@ -32,10 +32,9 @@ test('browser observe sends the fixed read-only calls', async () => {
     await tool.execute({ target: 'browser', subject: 'tab' }, {})
     await tool.execute({ target: 'browser', subject: 'tab', screenshot: true, full: true }, {})
     const codes = calls(context, 'browser').map((item) => item.arguments.code)
-    assert.deepEqual(codes, [
-      'await tab.getAXState({ disableDiffing: false });',
-      'await tab.getAXStateAndScreenshot({ disableDiffing: true });',
-    ])
+    assert.match(codes[0], /await tab\.getAXState\(\{ disableDiffing: false \}\);\s*$/)
+    assert.match(codes[1], /await tab\.getAXStateAndScreenshot\(\{ disableDiffing: true \}\);\s*$/)
+    assert.match(codes[0], /Symbol\.for\('dsh-pc-use\.tabGuard'\)/)
   } finally {
     assert.equal(await stopServers(context), true)
   }
