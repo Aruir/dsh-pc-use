@@ -18,6 +18,15 @@
 0.4.0 新增：改名为 `dsh-pc-use`；新增 `pc_codex_docs` 读取 Codex 自带文档；按包名加载并补上
 显示名与图标；`pc_status` 改为按后端分组（`backends`）。
 
+0.7.0 新增两个工具，各有开关，默认开启：`pc_codex_observe` 一次只读地观察浏览器标签页或
+桌面窗口；`pc_codex_run_plan` 依次运行 1–20 步，每步可带检查，遇到第一个失败就停。js 工具的
+说明改为每次调用写一个带检查的程序；顶层 return 的提示改为“值不会自动返回”。四个写代码的工具
+返回的截图改为以图片交给模型（`attachImages`，默认开启；截图会发到模型服务商）；
+`keepImageFiles`（默认关闭）开启时，另在 `~/.dsh/pc-use-images` 存一份。桌面窗口没有
+无障碍树时，工具会说明这一点，并让模型改看截图。浏览器的每次 js 调用都包住
+`cua.listTabs`，只返回本会话打开的标签页。除 `turn_ended` 以外，每次 `tools/call` 的
+`_meta` 都带上 Codex 的轮次元数据与调用身份（见“工具调用元数据”；依据源码，未经线上核实）。
+
 0.6.0 把“界面文字”的原生下拉框换成 DSH 官方的 primitives Menu（圆角按钮、向下箭头与 hover
 样式，style 只注入一次）；拿不到 primitives/Menu 时退回原生 select。同时删去
 `desktopApprovalChoices` 开关——这是公共配置 API 的不兼容修改——桌面授权固定用三选项卡片，

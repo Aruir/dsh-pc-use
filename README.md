@@ -19,6 +19,18 @@ English | [中文](README.zh.md)
 0.4.0 added: the rename to `dsh-pc-use`; `pc_codex_docs` for Codex's own docs; loading by package
 name with display name and icon; `pc_status` now groups by backend (`backends`).
 
+0.7.0 adds two tools, each with a switch (default on): `pc_codex_observe` reads a browser
+tab or desktop window in one read-only call, and `pc_codex_run_plan` runs 1 to 20 steps with
+optional checks and stops at the first failure. The js tool descriptions now ask for one
+checked program per call, and the top-level return hint now says that values are not
+returned automatically. Screenshots from the four code tools reach the model as images
+(`attachImages`, default on; screenshots go to the model provider); `keepImageFiles`
+(default off) also keeps them under `~/.dsh/pc-use-images`. When a desktop window has no
+accessibility tree, the tools say so and tell the model to judge by screenshot. Every
+browser js call wraps `cua.listTabs` so that it returns only the tabs this session opened.
+Every `tools/call` except `turn_ended` carries Codex turn metadata and call identities in
+`_meta` (see "Tool-call metadata"; derived from source, not verified on the wire).
+
 0.6.0 replaced the language row's native select with DSH's official primitives Menu (rounded
 button, chevron and hover style, injected once through a style element), falling back to the native
 select when the primitives module or Menu is unavailable. It also removed the
