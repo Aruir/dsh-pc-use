@@ -90,6 +90,8 @@ function handleTurnEnded(message, turnMode) {
     record(
       `turn_ended-meta ${JSON.stringify(message.params?._meta?.['x-codex-turn-metadata'] ?? {})}`,
     )
+    // The complete `_meta` as received, for the byte-for-byte turn_ended test.
+    record(`turn_ended-meta-raw ${JSON.stringify(message.params?._meta)}`)
     if (turnMode === 'turn-ended-error') {
       send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'boom' } })
       return

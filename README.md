@@ -158,6 +158,44 @@ server's source before using it. The launch environment is passed through unchan
 server uses the values from `.mcp.json` and the desktop server those from `config.toml`, exactly as
 the Codex app starts them.
 
+## Tool-call metadata
+
+Every `tools/call` except `turn_ended` carries a `_meta` object built only from values DSH can
+truthfully give. The field set follows the Codex 0.163.0-alpha.10.2 source analysis in the r1
+audit; capture-native never recorded a live Codex `tools/call`, so **this is source-derived and
+has not been verified on the wire**:
+
+Fields sent:
+
+- `x-codex-turn-metadata.session_id` / `.thread_id`: the plugin's per-agent UUID (a native root
+  thread has `thread_id == session_id`).
+- `x-codex-turn-metadata.turn_id`: this DSH turn's UUID; it rotates when the DSH turn ends.
+- `x-codex-turn-metadata.turn_started_at_unix_ms`: when that turn identity was created, in Unix
+  ms (an integer). It stays fixed for the turn and grows after a rotation.
+- `x-codex-turn-metadata.auto_review_enabled`, `.node_repl_auto_review_required` and
+  `.node_repl_disabled`: always `false`; DSH has no Guardian review, and a call implies the
+  REPL is enabled.
+- `x-codex-turn-metadata.model`: the DSH agent's current model id, read from the request header
+  the DSH agent loop logged for its latest request; omitted when unavailable.
+- `x-codex-turn-metadata.reasoning_effort`: that header's reasoning effort; omitted when
+  unavailable.
+- `threadId` / `sessionId`: the same agent identity, top level in the native camelCase shape.
+- `callId`: the DSH tool-call id (`exec.callId`); omitted when the execution has none. Every
+  `pc_codex_run_plan` step and its check use the same id.
+
+These are deliberately not sent, because DSH has no honest value for them and inventing one would
+impersonate Codex or clear the server's own defaults: `codex_version`, `sandbox`, `sandbox_mode`,
+`plugin_id`, `windowId`, `itemId`, `forked_from_thread_id`, `parent_thread_id`, `subagent_kind`,
+`thread_source`, `turn_trigger`, `workspaces`, `user_input_requested_during_turn`, `traceparent`,
+`tracestate`, `codex_bridge_mcp_call_id`, `openai/readOnly`, `openai/entitlementContext`,
+`_codex_apps`, `codex/sandbox-launcher`, `openai/confirmation_policies`, `codex/sandbox-state`
+and `codex/sandbox-state-meta`. In particular, `openai/confirmation_policies: {}` would clear the
+confirmation defaults the server started with, and a filled `codex/sandbox-state` would declare a
+sandbox state for DSH while how the server uses it is unknown.
+
+`turn_ended` keeps the older `_meta`: only `x-codex-turn-metadata` with `session_id` and
+`turn_id`. Aligning it with the native shape is a separate change.
+
 ## Installation
 
 Use the official flow ([packaging and installing plugins](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.md)): the package declares `dsh.bundle`, so installing it into a profile with `dsh plugin` is enough.

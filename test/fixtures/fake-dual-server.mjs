@@ -94,14 +94,16 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 
   const name = message.params?.name
   const args = message.params?.arguments ?? {}
-  const meta = message.params?._meta?.['x-codex-turn-metadata'] ?? {}
+  const meta = message.params?._meta ?? null
+  const turnMeta = meta?.['x-codex-turn-metadata'] ?? {}
   record({
     type: 'call',
     pid: process.pid,
     name,
     arguments: args,
-    session_id: meta.session_id ?? null,
-    turn_id: meta.turn_id ?? null,
+    session_id: turnMeta.session_id ?? null,
+    turn_id: turnMeta.turn_id ?? null,
+    meta,
   })
 
   if (name === 'turn_ended') {

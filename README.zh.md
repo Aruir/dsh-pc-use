@@ -129,6 +129,41 @@ Codex 自己的客户端才会做的事，普通 MCP 客户端接不了：
 的来源。启动环境原样传入：浏览器用 `.mcp.json` 里的值，桌面用 `config.toml` 里的值，与 Codex
 应用的启动方式一致。
 
+## 工具调用元数据
+
+每次 `tools/call`（`turn_ended` 除外）都带一个 `_meta`，只填写 DSH 能如实给出的值。字段集合依据
+Codex 0.163.0-alpha.10.2 的源码分析（r1 的 capture-native 没有录到线上 Codex 的
+`tools/call`）：**这些结论来自源码，未经线上核实。**
+
+要发的字段：
+
+- `x-codex-turn-metadata.session_id` / `.thread_id`：插件为每个 agent 生成的 UUID（原生根线程的
+  `thread_id` 等于 `session_id`）。
+- `x-codex-turn-metadata.turn_id`：当前 DSH 轮次的 UUID；DSH 轮次结束时轮换。
+- `x-codex-turn-metadata.turn_started_at_unix_ms`：该 turn 身份创建时刻的 Unix 毫秒（整数）；
+  同一轮内不变，轮换后变大。
+- `x-codex-turn-metadata.auto_review_enabled`、`.node_repl_auto_review_required`、
+  `.node_repl_disabled`：恒为 `false`；DSH 没有 Guardian 审查，能调用到这里就说明没有禁用。
+- `x-codex-turn-metadata.model`：DSH 当前 agent 的模型 id，取 DSH agent 循环为最近一次请求
+  记录的请求头；拿不到就省略。
+- `x-codex-turn-metadata.reasoning_effort`：同一请求头里的推理强度；拿不到就省略。
+- `threadId` / `sessionId`：同一 agent 身份，按原生 camelCase 放在顶层。
+- `callId`：DSH 的工具调用 id（`exec.callId`）；执行上下文没有就省略。`pc_codex_run_plan`
+  的每个步骤和 check 用同一个 id。
+
+以下字段**不发**：DSH 没有可如实填写的值，编造会冒充 Codex，或清掉服务器自己的默认值：
+`codex_version`、`sandbox`、`sandbox_mode`、`plugin_id`、`windowId`、`itemId`、
+`forked_from_thread_id`、`parent_thread_id`、`subagent_kind`、`thread_source`、
+`turn_trigger`、`workspaces`、`user_input_requested_during_turn`、`traceparent`、
+`tracestate`、`codex_bridge_mcp_call_id`、`openai/readOnly`、`openai/entitlementContext`、
+`_codex_apps`、`codex/sandbox-launcher`、`openai/confirmation_policies`、
+`codex/sandbox-state`、`codex/sandbox-state-meta`。其中发 `openai/confirmation_policies: {}`
+会清掉服务器启动时的确认策略默认值；填 `codex/sandbox-state` 则等于替 DSH 声明一个服务器
+会怎样使用并不清楚的沙箱状态。
+
+`turn_ended` 保持旧的 `_meta`：只有 `x-codex-turn-metadata` 的 `session_id` 和 `turn_id`，
+与原生对齐是另一张卡片。
+
 ## 安装
 
 按官方流程（[打包与安装插件](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.zh.md)）：包声明了 `dsh.bundle`，用 `dsh plugin` 装进 profile 即可。

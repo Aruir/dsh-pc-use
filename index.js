@@ -595,6 +595,9 @@ export function apply(ctx, raw = {}) {
   const newTurnState = () => ({
     sessionId: randomUUID(),
     turnId: randomUUID(),
+    // The turn identity's creation time; rotated together with turnId (D16 / meta-fields) so
+    // every call reports the start of the turn it belongs to, not of the next one.
+    startedAtUnixMs: Date.now(),
     used: { browser: false, desktop: false },
     generations: { browser: -1, desktop: -1 },
   })
@@ -607,6 +610,46 @@ export function apply(ctx, raw = {}) {
     }
     return state
   }
+  /**
+   * The model and reasoning effort of the DSH agent running a call, read from the request
+   * header the DSH agent loop logs for its latest request (packages/core/session:
+   * `Session.requestHeader()`, an `EpochHeader` whose `config` is the resolved
+   * `LlmCallConfig`). A tool call only runs after a request, but a missing or throwing
+   * header simply omits both fields instead of failing the call. O(1).
+   */
+  const agentRoute = (agent) => {
+    let config
+    try {
+      config = agent?.session?.requestHeader?.()?.config
+    } catch {
+      return {}
+    }
+    const model = config?.model
+    const reasoningEffort = config?.reasoningEffort
+    return {
+      model: typeof model === 'string' && model !== '' ? model : undefined,
+      reasoningEffort: typeof reasoningEffort === 'string' && reasoningEffort !== ''
+        ? reasoningEffort
+        : undefined,
+    }
+  }
+  /**
+   * One call's `_meta` identity. The per-call values come from the DSH tool execution:
+   * `callId`, and the agent's current route for model/effort. The caller reads it in the
+   * same synchronous block that marks the server used, so `_meta` and the "used" marker
+   * always describe the same turn. O(1).
+   */
+  const callIdentity = (state, exec) => {
+    const route = agentRoute(exec?.agent)
+    return {
+      sessionId: state?.sessionId,
+      turnId: state?.turnId,
+      turnStartedAtUnixMs: state?.startedAtUnixMs,
+      callId: typeof exec?.callId === 'string' && exec.callId !== '' ? exec.callId : undefined,
+      model: route.model,
+      reasoningEffort: route.reasoningEffort,
+    }
+  }
   /** Record that this turn used one server, with that bridge's generation. O(1). */
   const markServerUsed = (state, kind) => {
     state.used[kind] = true
@@ -617,12 +660,13 @@ export function apply(ctx, raw = {}) {
     const active = servers[kind].bridge
     if (active === null || active.alive !== true) return
     // D16: the identity was copied before onSessionEvent rotates it below; call() fixes
-    // its _meta from this snapshot before its first await.
+    // its _meta from this snapshot before its first await. metaMode keeps the turn_ended
+    // `_meta` byte for byte as before the r1 meta-fields work (r3 turn-ended-align owns it).
     active.call('turn_ended', {
       hook_event_name: hookEventName,
       session_id: identity.sessionId,
       turn_id: identity.turnId,
-    }, 10_000, identity).then(
+    }, 10_000, identity, { metaMode: 'turn-ended' }).then(
       () => log(`turn ended (${hookEventName})`),
       (error) => log(`turn_ended failed: ${error.message}`),
     )
@@ -678,6 +722,8 @@ export function apply(ctx, raw = {}) {
       closeDesktopTurn(identity)
     }
     state.turnId = randomUUID()
+    // A rotated turn gets a new start time, so the next call reports a later one.
+    state.startedAtUnixMs = Date.now()
     state.used = { browser: false, desktop: false }
     state.generations = { browser: -1, desktop: -1 }
   }
@@ -801,15 +847,22 @@ export function apply(ctx, raw = {}) {
     if (computerEnabled() !== true) throw new Error(COMPUTER_OFF)
   }
 
-  /** Run one MCP call on one server with the agent's shared turn identity. O(1). */
-  const callOn = async (kind, method, args, timeoutMs, agent, collector = null) => {
+  /**
+   * Run one MCP call on one server with the identity of the turn it belongs to. The turn is
+   * read, snapshotted and marked used in one synchronous block after `ensureServer`, so the
+   * `_meta` turn and the reported-as-used turn are always the same (F1). D16 stays in
+   * `call()`: it fixes the identity snapshot before its own first await. O(1).
+   */
+  const callOn = async (kind, method, args, timeoutMs, exec, collector = null) => {
     const active = await ensureServer(kind)
+    const agent = exec?.agent
     const turn = agent === null || agent === undefined ? null : turnStateFor(agent)
+    const identity = callIdentity(turn, exec)
     if (turn !== null) markServerUsed(turn, kind)
     const guarded = kind === 'browser' && method === 'js' && typeof args?.code === 'string'
       ? { ...args, code: `${TAB_GUARD}\n${args.code}` }
       : args
-    return renderResult(await active.call(method, guarded, timeoutMs, turn), collector)
+    return renderResult(await active.call(method, guarded, timeoutMs, identity), collector)
   }
 
   /** Append language-aware hints to a successful tool result. O(1). */
@@ -942,7 +995,7 @@ export function apply(ctx, raw = {}) {
       const text = await callOn(target, 'js', {
         code: observeCode(target, subject, screenshot, full, textMode, marker),
         title: `observe ${target}`,
-      }, configuredTimeoutMs(), exec?.agent ?? null, collector)
+      }, configuredTimeoutMs(), exec, collector)
       return withToolNotes(text, registration, marker, screenshot)
     } catch (error) {
       throw withToolErrorNotes(error, registration, marker, screenshot)
@@ -953,7 +1006,7 @@ export function apply(ctx, raw = {}) {
   const runTargetCode = async (target, code, title, exec, registration, collector) => {
     try {
       const text = await callOn(target, 'js', { code, title },
-        configuredTimeoutMs(), exec?.agent ?? null, collector)
+        configuredTimeoutMs(), exec, collector)
       // Capture the plugin's own decline record before withToolNotes clears it.
       // Browsers have no per-call decline record; an isError is their only signal.
       const declined = registration?.declinedApp !== undefined
@@ -1149,7 +1202,7 @@ export function apply(ctx, raw = {}) {
             code: args.code,
             title: args.title,
             ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
-          }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null, collector)
+          }, jsTimeoutMs(args.timeout_ms), exec, collector)
           return await finishImages(exec, withToolNotes(text), collector)
         } catch (error) {
           throw withToolErrorNotes(error)
@@ -1165,7 +1218,7 @@ export function apply(ctx, raw = {}) {
       async execute(_args, exec) {
         // Same turn identity as pc_codex_js, so a reset-only turn still reports turn_ended.
         syncComputerSwitch()
-        return callOn('browser', 'js_reset', {}, configuredTimeoutMs(), exec?.agent ?? null)
+        return callOn('browser', 'js_reset', {}, configuredTimeoutMs(), exec)
       },
     }),
     desktopJs: () => tool({
@@ -1230,7 +1283,7 @@ export function apply(ctx, raw = {}) {
             code: args.code,
             title: args.title,
             ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
-          }, jsTimeoutMs(args.timeout_ms), exec?.agent ?? null, collector)
+          }, jsTimeoutMs(args.timeout_ms), exec, collector)
           return await finishImages(exec, withToolNotes(text, registration), collector)
         } catch (error) {
           throw withToolErrorNotes(error, registration)
@@ -1251,7 +1304,7 @@ export function apply(ctx, raw = {}) {
       async execute(_args, exec) {
         syncComputerSwitch()
         requireComputer()
-        return callOn('desktop', 'js_reset', {}, configuredTimeoutMs(), exec?.agent ?? null)
+        return callOn('desktop', 'js_reset', {}, configuredTimeoutMs(), exec)
       },
     }),
     desktopAddNodeModuleDir: () => tool({
@@ -1275,7 +1328,7 @@ export function apply(ctx, raw = {}) {
         activeCalls.push(registration)
         try {
           const text = await callOn('desktop', 'js_add_node_module_dir', { path: args.path },
-            configuredTimeoutMs(), exec?.agent ?? null)
+            configuredTimeoutMs(), exec)
           return withToolNotes(text, registration)
         } catch (error) {
           throw withToolErrorNotes(error, registration)
