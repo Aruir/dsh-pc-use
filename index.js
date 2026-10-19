@@ -30,6 +30,7 @@ import { endTurn } from './lib/native-pipe.js'
 import { McpBridge } from './lib/mcp-bridge.js'
 import { definePortableTool } from './lib/define-tool.js'
 import { tabGuardSource } from './lib/tab-guard.js'
+import { createTargetBridge } from './lib/target-bridge.js'
 import {
   CONFIG_I18N, closeAppsNote, declineNote, illegalReturnNote, noAccessibilityTreeNote,
   resolveLanguage, systemLocale,
@@ -174,38 +175,7 @@ const DEFAULTS = {
   },
 }
 
-const SPEC_FIELDS = ['command', 'args', 'cwd', 'pipeDirectory', 'source']
 const RESOLVERS = { browser: resolveBrowserServer, desktop: resolveDesktopServer }
-
-/** Names of the launch fields that differ between two resolved specs. O(n), n = args. */
-function changedSpecFields(previous, next) {
-  const changed = []
-  for (const field of SPEC_FIELDS) {
-    if (field !== 'args') {
-      if (previous[field] !== next[field]) changed.push(field)
-      continue
-    }
-    const before = Array.isArray(previous.args) ? previous.args : []
-    const after = Array.isArray(next.args) ? next.args : []
-    const same = before.length === after.length
-      && before.every((value, index) => value === after[index])
-    if (!same) changed.push(field)
-  }
-  return changed
-}
-
-/** Trusted service names from a server's own env; null when absent or invalid. O(n). */
-function trustedServiceNames(env) {
-  const raw = env?.NODE_REPL_TRUSTED_SERVICES
-  if (typeof raw !== 'string') return null
-  try {
-    const parsed = JSON.parse(raw)
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-    return Object.keys(parsed)
-  } catch {
-    return null
-  }
-}
 
 function defaultLogFile() {
   return join(homedir(), '.dsh', 'pc-use.log')
@@ -394,26 +364,64 @@ export function apply(ctx, raw = {}) {
     language: effectiveLanguage,
   })
 
-  /** One independently resolved, lazily started MCP server. O(1). */
-  const makeServer = (kind) => ({
-    kind,
-    bridge: null,
-    connecting: null,
-    generation: 0,
-    lastSpec: null,
-    lastSpecHome: null,
-    services: null,
+  /**
+   * Construct one target's bridge from its launch spec. The target decides the parts that
+   * differ between the servers; the rest is shared plugin state. O(1).
+   */
+  const bridgeFor = (target) => (spec) => new McpBridge({
+    command: spec.command,
+    args: spec.args,
+    // The server receives its own copy of its environment, unchanged.
+    env: { ...spec.env },
+    cwd: spec.cwd,
+    // Bridge-level session id for calls without an agent: generated in memory on
+    // every new bridge; no state file is read or written.
+    sessionId: `dsh-pc-${randomUUID()}`,
+    shouldApprove: autoApproveEnabled,
+    isComputerEnabled: () => target === 'desktop' && computerEnabled() === true,
+    // Each server only accepts its own approval kinds; the other kind is declined
+    // and logged with an explicit reason.
+    unexpectedApprovalReason: (approvalKind) => {
+      if (target === 'browser' && approvalKind === 'computer') {
+        return 'unexpected approval for the browser server'
+      }
+      if (target === 'desktop' && approvalKind === 'browser') {
+        return 'unexpected approval for the desktop server'
+      }
+      return null
+    },
+    requestDesktopApproval: approvals.decide,
+    log,
   })
-  const servers = { browser: makeServer('browser'), desktop: makeServer('desktop') }
+
+  // r15: one bridge controller per target; this file only supplies how to build a bridge and
+  // what to forget when the desktop one stops (remembered approvals).
+  const servers = {
+    browser: createTargetBridge({
+      target: 'browser',
+      resolveSpec: (home) => RESOLVERS.browser({ codexHome: home }),
+      codexHome,
+      createBridge: bridgeFor('browser'),
+      log,
+    }),
+    desktop: createTargetBridge({
+      target: 'desktop',
+      resolveSpec: (home) => RESOLVERS.desktop({ codexHome: home }),
+      codexHome,
+      createBridge: bridgeFor('desktop'),
+      onStop: () => approvals.forgetAll(),
+      log,
+    }),
+  }
 
   // r13: turn tracking lives in its own module; it only needs each server's generation,
   // so a bridge rebuilt mid-turn never receives the old turn.
-  const turns = createTurnTracker({ generationOf: (kind) => servers[kind].generation })
+  const turns = createTurnTracker({ generationOf: (kind) => servers[kind].generation() })
 
   /** Send turn_ended on one server's existing connection; never starts one. O(1). */
   const reportTurnEnded = (kind, hookEventName, identity) => {
-    const active = servers[kind].bridge
-    if (active === null || active.alive !== true) return
+    const active = servers[kind].liveBridge()
+    if (active === null) return
     // D16: the identity is a snapshot taken before the turn tracker rotated the turn; call()
     // fixes its _meta from that snapshot before its first await. metaMode keeps the
     // turn_ended `_meta` byte for byte as before the r1 meta-fields work (r3
@@ -433,9 +441,7 @@ export function apply(ctx, raw = {}) {
    * is the only way to make it disappear. One best-effort attempt; failures are logged only. O(1).
    */
   const closeDesktopTurn = (identity) => {
-    const server = servers.desktop
-    if (server.bridge === null || server.bridge.alive !== true) return
-    const pipeDirectory = server.lastSpec?.pipeDirectory
+    const pipeDirectory = servers.desktop.connectedPipe()
     if (typeof pipeDirectory !== 'string' || pipeDirectory === '') return
     endTurn(pipeDirectory, identity).then(
       (result) => {
@@ -454,118 +460,9 @@ export function apply(ctx, raw = {}) {
     if (ended.kinds.includes('desktop')) closeDesktopTurn(ended.identity)
   }
 
-  /** Re-resolve one server's launch spec; never throws. O(file size). */
-  const resolveSpecOrNull = (kind, home) => {
-    try {
-      const spec = RESOLVERS[kind]({ codexHome: home })
-      return spec.ok === true ? spec : null
-    } catch {
-      return null
-    }
-  }
-
-  /** Last resolved spec only while codexHome is unchanged; else re-resolve. O(file size). */
-  const statusSpec = (kind) => {
-    const server = servers[kind]
-    const home = codexHome()
-    if (server.lastSpec !== null && server.lastSpecHome === home) return server.lastSpec
-    try {
-      return RESOLVERS[kind]({ codexHome: home })
-    } catch (error) {
-      return { ok: false, reason: error.message }
-    }
-  }
-
-  /**
-   * Stop one server and forget its live state. A desktop rebuild forgets remembered
-   * approvals; a browser rebuild does not. O(1).
-   */
-  const dropServer = (kind) => {
-    const server = servers[kind]
-    if (server.bridge !== null) server.bridge.stop()
-    server.bridge = null
-    server.services = null
-    if (kind === 'desktop') approvals.forgetAll()
-  }
-
-  /** Lazy start, per-server D15 re-check and codexHome handling. O(file size) per call. */
-  const ensureServer = async (kind) => {
-    const server = servers[kind]
-    if (server.connecting !== null) await server.connecting
-    const home = codexHome()
-    // A changed codexHome belongs to another directory: drop this server first and
-    // resolve below, so a failure never keeps the old connection (0.4.3 behaviour).
-    if (server.lastSpecHome !== null && server.lastSpecHome !== home) {
-      log(`Codex home changed; reconnecting (${kind})`)
-      dropServer(kind)
-    }
-    // D15: Codex rewrites its config on every app start, so re-read this server's
-    // launch spec before reusing its live bridge. Only this server is re-resolved.
-    if (server.bridge !== null && server.bridge.alive) {
-      const fresh = resolveSpecOrNull(kind, home)
-      if (fresh === null) {
-        log('Codex server re-check failed; keeping the current connection')
-        return server.bridge
-      }
-      const changed = server.lastSpec === null ? [] : changedSpecFields(server.lastSpec, fresh)
-      if (changed.length === 0) return server.bridge
-      // Log the field names only: the values contain paths and pipe names.
-      log(`Codex server changed (${changed.join(', ')}); reconnecting (${kind})`)
-      dropServer(kind)
-    }
-    if (server.bridge !== null) dropServer(kind)
-    const spec = RESOLVERS[kind]({ codexHome: home })
-    if (spec.ok !== true) throw new Error(`dsh-pc-use: ${spec.reason}`)
-    const env = { ...spec.env }
-    const created = new McpBridge({
-      command: spec.command,
-      args: spec.args,
-      env,
-      cwd: spec.cwd,
-      // Bridge-level session id for calls without an agent: generated in memory on
-      // every new bridge; no state file is read or written.
-      sessionId: `dsh-pc-${randomUUID()}`,
-      shouldApprove: autoApproveEnabled,
-      isComputerEnabled: () => kind === 'desktop' && computerEnabled() === true,
-      // Each server only accepts its own approval kinds; the other kind is declined
-      // and logged with an explicit reason.
-      unexpectedApprovalReason: (approvalKind) => {
-        if (kind === 'browser' && approvalKind === 'computer') {
-          return 'unexpected approval for the browser server'
-        }
-        if (kind === 'desktop' && approvalKind === 'browser') {
-          return 'unexpected approval for the desktop server'
-        }
-        return null
-      },
-      requestDesktopApproval: approvals.decide,
-      log,
-    })
-    server.lastSpec = spec
-    server.lastSpecHome = home
-    server.bridge = created
-    // One promise for the whole handshake: a second call during the first handshake
-    // reuses this connection instead of spawning another server.
-    server.connecting = created.start().then(
-      () => {
-        server.connecting = null
-        server.generation += 1
-        server.services = trustedServiceNames(spec.env)
-        log(`connected via ${spec.source}`)
-        return created
-      },
-      (error) => {
-        server.connecting = null
-        if (server.bridge === created) server.bridge = null
-        throw error
-      },
-    )
-    return server.connecting
-  }
-
   /** The `computer` switch is read on every use: off always stops the desktop server. O(1). */
   const syncComputerSwitch = () => {
-    if (computerEnabled() !== true && servers.desktop.bridge !== null) dropServer('desktop')
+    if (computerEnabled() !== true && servers.desktop.started()) servers.desktop.stop()
   }
 
   /** Reject a desktop call while `computer` is off, before any process could start. O(1). */
@@ -576,12 +473,12 @@ export function apply(ctx, raw = {}) {
   /**
    * Run one MCP call on one server with the identity of the turn it belongs to. `beginCall`
    * reads the turn, snapshots the identity and marks the server used in one synchronous
-   * block after `ensureServer`, so the `_meta` turn and the reported-as-used turn are always
-   * the same (F1). D16 stays in `call()`: it fixes the identity snapshot before its first
-   * await. O(1).
+   * block after `servers[kind].ensure()`, so the `_meta` turn and the reported-as-used turn
+   * are always the same (F1). D16 stays in `call()`: it fixes the identity snapshot before
+   * its first await. O(1).
    */
   const callOn = async (kind, method, args, timeoutMs, exec, collector = null) => {
-    const active = await ensureServer(kind)
+    const active = await servers[kind].ensure()
     const identity = turns.beginCall(exec, kind)
     const guarded = kind === 'browser' && method === 'js' && typeof args?.code === 'string'
       ? {
@@ -1192,7 +1089,7 @@ export function apply(ctx, raw = {}) {
         }
         // The `unified-computer-use` version lives in the browser source; it selects the
         // matching docs directory.
-        const spec = statusSpec('browser')
+        const spec = servers.browser.spec()
         const preferVersion = spec.ok === true ? versionFromSource(spec.source) : null
         const resolved = resolveComputerUseDocs({ codexHome: codexHome(), preferVersion })
         const file = resolved.files[topic]
@@ -1227,42 +1124,15 @@ export function apply(ctx, raw = {}) {
       output,
       async execute() {
         syncComputerSwitch()
-        /** One server's status section. O(file size). */
-        const sectionFor = (kind) => {
-          const server = servers[kind]
-          let spec
-          try {
-            spec = RESOLVERS[kind]({ codexHome: codexHome() })
-          } catch (error) {
-            spec = { ok: false, reason: error.message }
-          }
-          const resolved = spec.ok === true
-          const connected = server.bridge !== null && server.bridge.alive
-          const changed = connected && resolved && server.lastSpec !== null
-            ? changedSpecFields(server.lastSpec, spec) : []
-          return {
-            resolved,
-            reason: resolved ? null : spec.reason,
-            source: resolved ? spec.source : null,
-            command: resolved ? spec.command : null,
-            cwd: resolved ? spec.cwd : null,
-            nativePipe: resolved ? spec.pipeDirectory : null,
-            connected,
-            services: connected ? server.services : null,
-            // The pipe of the live connection, next to the freshly resolved one.
-            connectedPipe: connected && server.lastSpec !== null
-              ? server.lastSpec.pipeDirectory : null,
-            reconnectPending: connected && (resolved !== true || changed.length > 0),
-          }
-        }
+
         return JSON.stringify({
           providers: {
             codex: {
               codexHome: codexHome(),
               autoApprove: autoApproveEnabled(),
               computer: computerEnabled(),
-              browser: sectionFor('browser'),
-              desktop: sectionFor('desktop'),
+              browser: servers.browser.status(),
+              desktop: servers.desktop.status(),
               log: {
                 path: configuredLogFile(),
                 writable: checkLogWritable(configuredLogFile()),
@@ -1291,9 +1161,9 @@ export function apply(ctx, raw = {}) {
   // fallback for a host that never emits the event.
   if (typeof ctx.on === 'function') {
     ctx.effect(() => ctx.on('loader/volatile-update', () => {
-      if (computerEnabled() !== true && servers.desktop.bridge !== null) {
+      if (computerEnabled() !== true && servers.desktop.started()) {
         log('computer turned off; stopping the desktop server')
-        dropServer('desktop')
+        servers.desktop.stop()
       }
     }), 'dsh-pc-use: computer switch')
   }
@@ -1318,9 +1188,8 @@ export function apply(ctx, raw = {}) {
   }
 
   ctx.effect(() => () => {
-    // Stop both servers; only the desktop stop needs to forget remembered approvals,
-    // which dropServer handles.
-    dropServer('browser')
-    dropServer('desktop')
+    // Stop both servers; only the desktop bridge's onStop forgets remembered approvals.
+    servers.browser.stop()
+    servers.desktop.stop()
   }, 'dsh-pc-use: computer-use bridges')
 }
