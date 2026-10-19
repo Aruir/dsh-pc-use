@@ -2,14 +2,17 @@
 
 [English](CHANGELOG.md) | 中文
 
-## 未发布
+## 0.8.0
 
-- `allowUserTabs` 开关默认关闭，位于设置页“浏览器”组。关闭时，读取用户自己的标签页和浏览历史的
-  调用会报错。打开后，这些调用会把标签页标题、网址、页面内容和历史发给模型服务商。
-- 设置页在读取设置时显示与读完后相同布局的骨架，读完后出现控件里的内容。
-- `initialize` 的取值与原生 Codex 一致：协议版本改为 `2025-06-18`，elicitation 能力同时声明
-  `form` 与 `url`。`url` 形式的请求一律拒绝，日志只记主机名；`clientInfo` 仍为 `dsh-pc-use`
-  与插件版本。
+0.8.0 新增 `allowUserTabs` 开关（默认关闭，修改后对之后的调用生效），并让读取用户标签页与
+浏览历史的全部入口都受它控制：关闭时，`browser.user.openTabs`、`browser.user.claimTab`、
+`browser.user.getTabContext` 与 `browser.history` 报错并说明原因；`cua.getTab`、
+`browser.tabs.get`、`browser.tabs.content` 只接受本会话的标签页；`cua.getState` 只列出
+本会话的标签页。守卫改为返回 Proxy 视图，在调用时读取开关与原方法，因为运行时对象首次
+读取时会缓存方法包装，改写方法在真实服务器上没有效果。设置页在读取设置时显示与读完后
+相同布局的骨架。`initialize` 与原生 Codex 一致：协议版本 `2025-06-18`，elicitation 能力
+同时声明 `form` 与 `url`；`url` 形式的请求在分类前拒绝，日志只记主机名。改用 Apache-2.0
+许可证，新增 SECURITY.md；两份 README 改用书面语言，并修正五处与实现不符的说法。
 
 ## 0.7.0
 

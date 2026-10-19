@@ -1,6 +1,6 @@
 {
   "name": "dsh-pc-use",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "PC Use for DeepSeek Harness: drive the user's real Chrome and Windows desktop apps through Codex Computer Use (cua_repl for the browser, node_repl for the desktop), with Codex's own docs, approvals and turn metadata handled for you.",
   "type": "module",
   "main": "index.js",
@@ -45,7 +45,16 @@
     "cua",
     "chrome"
   ],
+  "homepage": "https://github.com/Aruir/dsh-pc-use#readme",
+  "bugs": {
+    "url": "https://github.com/Aruir/dsh-pc-use/issues"
+  },
   "license": "Apache-2.0",
+  "author": "Aruir",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aruir/dsh-pc-use.git"
+  },
   "files": [
     "index.js",
     "client.js",

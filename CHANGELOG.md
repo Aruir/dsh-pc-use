@@ -2,16 +2,20 @@
 
 [中文](CHANGELOG.zh.md) | English
 
-## Unreleased
+## 0.8.0
 
-- `allowUserTabs` (default off): the switch is in the "Browser" group of the settings
-  page. While it is off, reading the user's own tabs and history fails. While it is on,
-  those calls can send tab titles, URLs, page content and history to the model provider.
-- The settings page shows a skeleton with the same layout while settings load; control
-  contents appear when loading completes.
-- `initialize` matches native Codex: protocol version `2025-06-18` and `form` plus `url`
-  elicitation capabilities. `url`-mode requests are always declined and logged by host
-  name only; `clientInfo` stays `dsh-pc-use` with the plugin version.
+0.8.0 adds the `allowUserTabs` switch (default off; a change applies to later calls) and puts
+every entrance that reads the user's own tabs and history behind it: while the switch is off,
+`browser.user.openTabs`, `browser.user.claimTab`, `browser.user.getTabContext` and
+`browser.history` fail with an explanatory error, `cua.getTab`, `browser.tabs.get` and
+`browser.tabs.content` accept only the tabs of this session, and `cua.getState` lists only those
+tabs. The guard now returns Proxy views and reads the switch and the original method at call
+time, because the runtime objects cache a method wrapper on first read, so redefining the method
+had no effect on a real server. The settings page shows a skeleton with the same layout while
+settings load. `initialize` matches native Codex: protocol version `2025-06-18` and `form` plus
+`url` elicitation capabilities, with `url` requests declined before classification and logged by
+host name only. The package is licensed under Apache-2.0, SECURITY.md is new, and both READMEs use
+formal language and correct five statements that did not match the implementation.
 
 ## 0.7.0
 
