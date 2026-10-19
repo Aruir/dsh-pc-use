@@ -18,13 +18,11 @@ import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
 import {
-  APPROVE, DECLINE, decisionFromHostOutcome, desktopAppKey, wantsSessionApproval,
-} from './lib/approval.js'
-import {
   COMPUTER_USE_DOC_TOPICS, defaultCodexHome, resolveBrowserServer, resolveComputerUseDocs,
   resolveDesktopServer, versionFromSource,
 } from './lib/codex-config.js'
 import { unwrapConfigValue } from './lib/config-value.js'
+import { createDesktopApprovals } from './lib/desktop-approvals.js'
 import { fallbackPlaceholders, prepareImageProjection } from './lib/image-projection.js'
 import { saveImage } from './lib/images.js'
 import { appendLogLine, checkLogWritable } from './lib/log-file.js'
@@ -33,8 +31,7 @@ import { McpBridge } from './lib/mcp-bridge.js'
 import { definePortableTool } from './lib/define-tool.js'
 import { tabGuardSource } from './lib/tab-guard.js'
 import {
-  CONFIG_I18N, auditReason, choiceDecision, closeAppsNote, declineNote,
-  desktopApprovalQuestion, illegalReturnNote, legacyDisplayReason, noAccessibilityTreeNote,
+  CONFIG_I18N, closeAppsNote, declineNote, illegalReturnNote, noAccessibilityTreeNote,
   resolveLanguage, systemLocale,
 } from './lib/text.js'
 import { createTurnTracker } from './lib/turn-tracker.js'
@@ -176,12 +173,6 @@ const DEFAULTS = {
     runPlan: true,
   },
 }
-
-// Marker for "the approving desktop call ended while DSH was still asking".
-const CALL_ENDED = Symbol('pc_codex_desktop_js call ended')
-
-// Marker for "only the one-shot approval card can be used (no top-level agent)".
-const DELEGATED = Symbol('delegated caller')
 
 const SPEC_FIELDS = ['command', 'args', 'cwd', 'pipeDirectory', 'source']
 const RESOLVERS = { browser: resolveBrowserServer, desktop: resolveDesktopServer }
@@ -377,11 +368,6 @@ export function apply(ctx, raw = {}) {
     }
   }
 
-  // An elicitation request carries no tool-call id, so a desktop approval is attributed
-  // to the earliest-started desktop call that is still running; with none it is declined.
-  // Only desktop tools register here. Each registration also owns the app of a user-caused
-  // denial for THIS call, so concurrent calls cannot steal each other's note (feature B).
-  const activeCalls = []
   const readApprovalService = () => {
     if (typeof ctx.get !== 'function') return undefined
     try {
@@ -399,194 +385,14 @@ export function apply(ctx, raw = {}) {
     }
   }
 
-  // Remembered desktop approvals: WeakMap(agent -> Set(appKey)). The agent object is a
-  // process-local object, so entries disappear with the agent; a desktop bridge rebuild
-  // resets it, a browser bridge rebuild does not.
-  let rememberedApps = new WeakMap()
-  /** Forget every remembered desktop approval. O(1). */
-  const resetRemembered = () => {
-    rememberedApps = new WeakMap()
-  }
-  /** True when this agent already allowed this app. O(1). */
-  const wasRemembered = (agent, appKey) => rememberedApps.get(agent)?.has(appKey) === true
-  /** Remember one app for one agent. O(1). */
-  const rememberApp = (agent, appKey) => {
-    let apps = rememberedApps.get(agent)
-    if (apps === undefined) {
-      apps = new Set()
-      rememberedApps.set(agent, apps)
-    }
-    apps.add(appKey)
-  }
-
-  /** Remember a user-caused denial's app on the call registration it belongs to. O(1). */
-  const rememberDecision = (decision, appName) => {
-    const registration = activeCalls[0]
-    // A call that is already ending may surface as "no valid choice"; that is not a user
-    // decision, so it must not get the no-retry note.
-    const callEnded = registration?.exec?.signal?.aborted === true
-    if (callEnded !== true
-      && decision.action === DECLINE
-      && (decision.reason === 'rejected in DSH' || decision.reason === 'no valid choice')) {
-      if (registration !== undefined) registration.declinedApp = appName
-    }
-    return decision
-  }
-
-  /**
-   * Ask DSH to approve one desktop app. The three-option question card is used when
-   * the host allows it; otherwise the 0.4.1 one-shot approval card is used unchanged.
-   * O(1) apart from waiting for the user.
-   */
-  const requestDesktopApproval = async ({ appName, meta }) => {
-    const active = activeCalls[0]
-    if (active === undefined || active.exec === undefined || active.exec === null) {
-      return { action: DECLINE, reason: 'no active pc_codex_desktop_js call' }
-    }
-    const exec = active.exec
-    if (exec.agent === undefined || exec.agent === null) {
-      return { action: DECLINE, reason: 'no agent for this call' }
-    }
-    const remember = rememberEnabled()
-    if (remember !== true) {
-      resetRemembered()
-    }
-    const appKey = desktopAppKey(meta, appName)
-    if (remember === true && appKey !== null && wasRemembered(exec.agent, appKey)) {
-      return { action: APPROVE, reason: 'approved earlier in this DSH session' }
-    }
-    const approval = readApprovalService()
-    if (approval === undefined || approval === null) {
-      return { action: DECLINE, reason: 'no DSH approval service' }
-    }
-    const callSignal = active.controller.signal
-    const signals = [callSignal]
-    if (exec.signal !== undefined && exec.signal !== null) {
-      signals.push(exec.signal)
-    }
-    const signal = signals.length > 1 ? AbortSignal.any(signals) : callSignal
-    const ended = new Promise((resolve) => {
-      if (callSignal.aborted) {
-        resolve(CALL_ENDED)
-        return
-      }
-      callSignal.addEventListener('abort', () => resolve(CALL_ENDED), { once: true })
-    })
-    const sessionOption = remember === true && wantsSessionApproval(meta)
-    const questions = readQuestionsService()
-    const language = effectiveLanguage()
-    if (canUseDesktopChoices(approval, questions, exec.agent)) {
-      const decision = await requestDesktopChoice({
-        questions,
-        agent: exec.agent,
-        appName,
-        language,
-        signal,
-        ended,
-        callSignal,
-        sessionOption,
-        remember,
-        appKey,
-      })
-      if (decision !== DELEGATED) return rememberDecision(decision, appName)
-    }
-    return rememberDecision(await requestLegacyDesktopApproval({
-      approval, exec, appName, language, signal, ended, callSignal, remember, appKey, meta,
-    }), appName)
-  }
-
-  /** True when the three-option question card may be used. O(1). */
-  const canUseDesktopChoices = (approval, questions, agent) => {
-    if (questions === undefined || questions === null) return false
-    try {
-      return approval.effectivePolicy(agent.session) === 'ask'
-    } catch {
-      return false
-    }
-  }
-
-  /**
-   * Show the three-option card and map its answer. Returns DELEGATED when only a
-   * subagent may ask, so the caller falls back to the one-shot card. O(1) + the wait.
-   */
-  const requestDesktopChoice = async ({
-    questions, agent, appName, language, signal, ended, callSignal, sessionOption, remember,
-    appKey,
-  }) => {
-    try {
-      const answer = await Promise.race([
-        questions.ask({
-          questions: [desktopApprovalQuestion(language, appName, sessionOption)],
-          agent,
-          signal,
-        }),
-        ended,
-      ])
-      if (callSignal.aborted || answer === CALL_ENDED) {
-        return { action: DECLINE, reason: 'pc_codex_desktop_js call ended' }
-      }
-      const decision = choiceDecision(answer, language, sessionOption)
-      if (
-        decision.action === APPROVE
-        && decision.reason === 'approved for this DSH session'
-        && remember === true
-        && appKey !== null
-      ) {
-        rememberApp(agent, appKey)
-      }
-      return decision
-    } catch (error) {
-      if (callSignal.aborted) {
-        return { action: DECLINE, reason: 'pc_codex_desktop_js call ended' }
-      }
-      if (error?.code === 'DELEGATED_CALLER') return DELEGATED
-      return { action: DECLINE, reason: 'no valid choice' }
-    }
-  }
-
-  /**
-   * The 0.4.1 one-shot approval path, used whenever the question card does not apply.
-   * O(1) apart from waiting for the user.
-   */
-  const requestLegacyDesktopApproval = async ({
-    approval, exec, appName, language, signal, ended, callSignal, remember, appKey, meta,
-  }) => {
-    try {
-      const outcome = await Promise.race([
-        approval.request({
-          agent: exec.agent,
-          toolName: exec.name,
-          callId: exec.callId,
-          reason: auditReason(language, appName),
-          displayReason: legacyDisplayReason(appName),
-          signal,
-        }),
-        ended,
-      ])
-      // A call that already ended must never approve a stale card, even when the
-      // user answered at the same moment.
-      if (callSignal.aborted || outcome === CALL_ENDED) {
-        return { action: DECLINE, reason: 'pc_codex_desktop_js call ended' }
-      }
-      const decision = decisionFromHostOutcome(outcome)
-      if (
-        remember === true
-        && decision.action === APPROVE
-        && appKey !== null
-        && wantsSessionApproval(meta)
-      ) {
-        rememberApp(exec.agent, appKey)
-      }
-      return decision
-    } catch {
-      // A request that failed because the call ended is a call-end decline, not a
-      // host failure; keep the log reason accurate.
-      if (callSignal.aborted) {
-        return { action: DECLINE, reason: 'pc_codex_desktop_js call ended' }
-      }
-      return { action: DECLINE, reason: 'approval request failed' }
-    }
-  }
+  // r14: desktop approvals live in their own module; it only receives the DSH services and
+  // the current remember/language switches.
+  const approvals = createDesktopApprovals({
+    approvalService: readApprovalService,
+    questionsService: readQuestionsService,
+    rememberEnabled,
+    language: effectiveLanguage,
+  })
 
   /** One independently resolved, lazily started MCP server. O(1). */
   const makeServer = (kind) => ({
@@ -679,7 +485,7 @@ export function apply(ctx, raw = {}) {
     if (server.bridge !== null) server.bridge.stop()
     server.bridge = null
     server.services = null
-    if (kind === 'desktop') resetRemembered()
+    if (kind === 'desktop') approvals.forgetAll()
   }
 
   /** Lazy start, per-server D15 re-check and codexHome handling. O(file size) per call. */
@@ -732,7 +538,7 @@ export function apply(ctx, raw = {}) {
         }
         return null
       },
-      requestDesktopApproval,
+      requestDesktopApproval: approvals.decide,
       log,
     })
     server.lastSpec = spec
@@ -936,19 +742,6 @@ export function apply(ctx, raw = {}) {
       return { text: withToolNotes(text, registration), declined }
     } catch (error) {
       throw withToolErrorNotes(error, registration)
-    }
-  }
-
-  /** Keep a desktop registration for the whole observe/plan call. O(1). */
-  const withDesktopRegistration = async (exec, task) => {
-    const registration = { exec, controller: new AbortController(), declinedApp: null }
-    activeCalls.push(registration)
-    try {
-      return await task(registration)
-    } finally {
-      const position = activeCalls.indexOf(registration)
-      if (position >= 0) activeCalls.splice(position, 1)
-      registration.controller.abort()
     }
   }
 
@@ -1202,26 +995,20 @@ export function apply(ctx, raw = {}) {
       async execute(args, exec) {
         syncComputerSwitch()
         requireComputer()
-        // Desktop approvals are attributed to the earliest-started desktop call still
-        // running, so every desktop call is registered for its whole lifetime.
-        const registration = { exec, controller: new AbortController(), declinedApp: null }
-        activeCalls.push(registration)
-        const collector = createImageCollector()
-        try {
-          const text = await callOn('desktop', 'js', {
-            code: args.code,
-            title: args.title,
-            ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
-          }, jsTimeoutMs(args.timeout_ms), exec, collector)
-          return await finishImages(exec, withToolNotes(text, registration), collector)
-        } catch (error) {
-          throw withToolErrorNotes(error, registration)
-        } finally {
-          const position = activeCalls.indexOf(registration)
-          if (position >= 0) activeCalls.splice(position, 1)
-          // Ending the call must also end its pending desktop approval.
-          registration.controller.abort()
-        }
+        // Every desktop call is registered for its whole lifetime so approvals reach it.
+        return approvals.withCall(exec, async (registration) => {
+          const collector = createImageCollector()
+          try {
+            const text = await callOn('desktop', 'js', {
+              code: args.code,
+              title: args.title,
+              ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
+            }, jsTimeoutMs(args.timeout_ms), exec, collector)
+            return await finishImages(exec, withToolNotes(text, registration), collector)
+          } catch (error) {
+            throw withToolErrorNotes(error, registration)
+          }
+        })
       },
     }),
     desktopReset: () => tool({
@@ -1253,19 +1040,15 @@ export function apply(ctx, raw = {}) {
         syncComputerSwitch()
         requireComputer()
         // It uses the same agent identity as pc_codex_desktop_js and counts as desktop use.
-        const registration = { exec, controller: new AbortController(), declinedApp: null }
-        activeCalls.push(registration)
-        try {
-          const text = await callOn('desktop', 'js_add_node_module_dir', { path: args.path },
-            configuredTimeoutMs(), exec)
-          return withToolNotes(text, registration)
-        } catch (error) {
-          throw withToolErrorNotes(error, registration)
-        } finally {
-          const position = activeCalls.indexOf(registration)
-          if (position >= 0) activeCalls.splice(position, 1)
-          registration.controller.abort()
-        }
+        return approvals.withCall(exec, async (registration) => {
+          try {
+            const text = await callOn('desktop', 'js_add_node_module_dir', { path: args.path },
+              configuredTimeoutMs(), exec)
+            return withToolNotes(text, registration)
+          } catch (error) {
+            throw withToolErrorNotes(error, registration)
+          }
+        })
       },
     }),
     observe: () => tool({
@@ -1321,7 +1104,7 @@ export function apply(ctx, raw = {}) {
           )
           return await finishImages(exec, text, collector)
         }
-        return withDesktopRegistration(exec, async (registration) => {
+        return approvals.withCall(exec, async (registration) => {
           const text = await runObserve(
             target, subject, screenshot, full, textMode, exec, registration, collector,
           )
@@ -1378,7 +1161,7 @@ export function apply(ctx, raw = {}) {
           return text
         }
         if (target === 'browser') return run(null)
-        return withDesktopRegistration(exec, run)
+        return approvals.withCall(exec, run)
       },
     }),
     docs: () => tool({
