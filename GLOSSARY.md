@@ -37,6 +37,17 @@ _避免_：回合、一次调用
 运行 DSH 所用模型的服务方。截图与页面内容会发送给它。
 _避免_：提供方、provider（单独使用）
 
+## 工具说明
+
+**服务器说明**（server docs）：
+一个目标的服务器在 `initialize` 中返回的 `instructions`，加上 `tools/list` 中 `js`、`js_reset`、
+`js_add_node_module_dir` 三个工具的 `description`。
+_避免_：服务器文档、服务端说明、服务器描述
+
+**插件规则**（plugin rules）：
+本插件追加在服务器说明后面的文字，说明 DSH 中的工具名与用法约定；两者冲突时以插件规则为准。
+_避免_：插件说明、附加说明、附加文字
+
 ## 标签页
 
 **插件标签页**（plugin tab）：

@@ -92,6 +92,7 @@ All fields are optional and belong in the `config:` block of `cordis.patch.yml`.
 | `attachImages` | `true` | Attach screenshots as images when the model declares image input; screenshots go to the model provider, the default Files API upload of DSH expires after 7 days and is not deleted at DSH session end, and the DSH attachment store keeps a local copy; turn it off to avoid uploads |
 | `keepImageFiles` | `false` | Also keep attached images under `~/.dsh/pc-use-images`; by default only the DSH attachment store keeps them |
 | `allowUserTabs` | `false` | Allow reading the tabs and history of the user; the covered entrances are listed below |
+| `prefetchServerDocs` | `true` | Prefetch server docs when the cache is stale; next start |
 | `tools` | all on | Per-tool switches: `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` |
 | `tools.desktopJs` | `true` | Register `pc_codex_desktop_js`: run JS in the desktop `node_repl` (needs `computer: true`) |
 | `tools.desktopReset` | `true` | Register `pc_codex_desktop_js_reset`: reset the desktop JS kernel |
@@ -99,6 +100,10 @@ All fields are optional and belong in the `config:` block of `cordis.patch.yml`.
 | `tools.observe` | `true` | Register `pc_codex_observe`: output the complete accessibility tree; routine checks read values in code |
 | `tools.runPlan` | `true` | Register `pc_codex_run_plan`: fallback for step-by-step status or automatic observation after a failure |
 | `tools.docs` | `true` | Register `pc_codex_docs`: read the Computer Use docs bundled with Codex (no Codex connection needed) |
+
+`prefetchServerDocs` connects to the Codex servers in the background at DSH start only when
+the cached tool documentation is missing or out of date; like the settings page switch, it is
+read once at startup, so a change takes effect at the next DSH start.
 
 `allowUserTabs` governs `browser.user.openTabs`, `browser.user.claimTab`,
 `browser.user.getTabContext`, `browser.history`, `cua.getTab`, `cua.getState`,
@@ -181,6 +186,22 @@ After installation, every agent preset automatically has:
    step and each check is bounded by the single-call timeout.
 5. `pc_codex_observe` is used when the whole interface must be inspected.
 
+### Tool descriptions from the Codex servers
+
+The descriptions of the five js tools (`pc_codex_js`, `pc_codex_js_reset`,
+`pc_codex_desktop_js`, `pc_codex_desktop_js_reset` and
+`pc_codex_desktop_js_add_node_module_dir`) come from the Codex servers: the
+`initialize` instructions, the `tools/list` description of the matching server tool, and the
+plugin rules that map the server tools to DSH tool names. The other four tools keep the plugin's
+own descriptions. The plugin caches these texts in `~/.dsh/pc-use-server-docs.json`. When the
+cache is missing or out of date (for example after a Codex update), it starts with the built-in
+descriptions and applies the server ones at the next DSH start. When a connection finds
+different server documentation, each DSH session gets it once, at the end of its next successful
+`pc_codex_js` or `pc_codex_desktop_js` result. `prefetchServerDocs` (default on) connects to the
+servers in the background at startup only when the cache is missing or out of date; a change
+takes effect at the next DSH start. The cache stores only description text and hashes, never
+commands, arguments, environment variables, paths or pipe names.
+
 ## Settings page
 
 The DSH settings sidebar shows a "PC Use" page immediately below "Plugin market" (entry id `pc-use`;
@@ -189,7 +210,7 @@ it appears only while the Host serves that entry). It can change:
 - **Desktop control**: `computer`, `rememberDesktopApprovals`;
 - **Browser**: `autoApprove`, `allowUserTabs`;
 - **General**: `language`, `timeoutMs` (seconds, 10–3600, stored in milliseconds),
-  `attachImages`, `keepImageFiles`, `codexHome`, `logFile`.
+  `attachImages`, `keepImageFiles`, `prefetchServerDocs`, `codexHome`, `logFile`.
 
 Switches and the language select save immediately; text and number fields save on blur or Enter.
 Text and select rows show "Restore default" after the user has changed them: `language`,

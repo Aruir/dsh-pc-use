@@ -684,12 +684,12 @@ test('a loading snapshot renders the skeleton page with the ready layout', () =>
   assert.equal(findNode(tree, (node) => node.type === 'button'), undefined)
   for (const control of renderedControls(tree)) assert.equal(control.props.disabled, true)
   const placeholders = skeletonPlaceholders(tree)
-  assert.equal(placeholders.length, 10)
+  assert.equal(placeholders.length, 11)
   for (const placeholder of placeholders) {
     assert.equal(placeholder.props['aria-hidden'], 'true')
   }
   const switches = placeholders.filter((node) => node.props.style?.width === 36)
-  assert.equal(switches.length, 6)
+  assert.equal(switches.length, 7)
   for (const node of switches) {
     assert.equal(node.props.style.height, 20)
     assert.equal(node.props.style.boxSizing, 'border-box')
@@ -793,7 +793,7 @@ test('ready back to loading clears old values and shows the skeleton', () => {
   renderer.render()
   const tree = renderer.getTree()
   assert.equal(pageRoot(tree).props['aria-busy'], 'true')
-  assert.equal(skeletonPlaceholders(tree).length, 10)
+  assert.equal(skeletonPlaceholders(tree).length, 11)
   assert.equal(renderedText(tree).includes('C:\\old'), false)
   for (const control of renderedControls(tree)) {
     if (control.type === 'input') assert.equal(control.props.value, '')
@@ -812,7 +812,8 @@ test('the skeleton page keeps the ready page row ids', () => {
     'pc-use-computer', 'pc-use-rememberDesktopApprovals',
     'pc-use-autoApprove', 'pc-use-allowUserTabs',
     'pc-use-language', 'pc-use-timeoutMs', 'pc-use-attachImages',
-    'pc-use-keepImageFiles', 'pc-use-codexHome', 'pc-use-logFile',
+    'pc-use-keepImageFiles', 'pc-use-prefetchServerDocs', 'pc-use-codexHome',
+    'pc-use-logFile',
   ])
 })
 
@@ -820,7 +821,7 @@ test('skeleton placeholders have no handlers and never write', () => {
   const form = loadingForm()
   const { renderer, context } = renderForm(form)
   const placeholders = skeletonPlaceholders(renderer.getTree())
-  assert.equal(placeholders.length, 10)
+  assert.equal(placeholders.length, 11)
   for (const node of placeholders) {
     for (const handler of ['onClick', 'onChange', 'onBlur', 'onKeyDown', 'onCommit']) {
       assert.equal(node.props[handler], undefined, `${node.type} ${handler}`)
@@ -1379,7 +1380,8 @@ test('the browser group lists allowUserTabs right after autoApprove', () => {
     ['pc-use-computer', 'pc-use-rememberDesktopApprovals'],
     ['pc-use-autoApprove', 'pc-use-allowUserTabs'],
     ['pc-use-language', 'pc-use-timeoutMs', 'pc-use-attachImages',
-      'pc-use-keepImageFiles', 'pc-use-codexHome', 'pc-use-logFile'],
+      'pc-use-keepImageFiles', 'pc-use-prefetchServerDocs', 'pc-use-codexHome',
+      'pc-use-logFile'],
   ])
 })
 

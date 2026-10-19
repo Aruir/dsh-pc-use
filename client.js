@@ -56,6 +56,9 @@ window.__ModuleLoader__.load({
         + '不想上传就关闭。',
       keepImageFiles: '本机保留附图',
       keepImageFilesDescription: '附图时同时在本机 ~/.dsh/pc-use-images 再存一份；默认只由 DSH 附件库保存。',
+      prefetchServerDocs: '启动时预取工具说明',
+      prefetchServerDocsDescription: 'DSH 启动时，如果本机缓存的 Codex 工具说明缺失或已过期，'
+        + '就在后台提前连接服务器取说明。改动在 DSH 下次启动时生效。',
       allowUserTabs: '允许读取用户标签页',
       allowUserTabsDescription: '允许模型读取用户标签页和浏览历史（`browser.user.openTabs`、'
         + '`claimTab`、`getTabContext`、`browser.history`、`cua.getTab`、`cua.getState`、'
@@ -112,6 +115,10 @@ window.__ModuleLoader__.load({
       keepImageFiles: 'Keep local image files',
       keepImageFilesDescription: 'Also save attached images under ~/.dsh/pc-use-images; '
         + 'by default only the DSH attachment store keeps them.',
+      prefetchServerDocs: 'Prefetch tool docs at startup',
+      prefetchServerDocsDescription: 'When DSH starts and the cached Codex tool '
+        + 'documentation is missing or out of date, connect to the servers in the '
+        + 'background to fetch it. Takes effect at the next DSH start.',
       allowUserTabs: 'Allow reading user tabs',
       allowUserTabsDescription: 'Allow the model to read user tabs and browsing history '
         + '(`browser.user.openTabs`, `claimTab`, `getTabContext`, `browser.history`, '
@@ -152,7 +159,8 @@ window.__ModuleLoader__.load({
     const FIELDS = [
       'computer', 'rememberDesktopApprovals',
       'autoApprove', 'allowUserTabs',
-      'language', 'timeoutMs', 'attachImages', 'keepImageFiles', 'codexHome', 'logFile',
+      'language', 'timeoutMs', 'attachImages', 'keepImageFiles', 'prefetchServerDocs',
+      'codexHome', 'logFile',
     ]
 
     /** Initial page state before the first configuration read. O(1). */
@@ -853,6 +861,7 @@ window.__ModuleLoader__.load({
           timeoutRow,
           booleanRow('attachImages'),
           booleanRow('keepImageFiles'),
+          booleanRow('prefetchServerDocs'),
           textRow('codexHome', 'codexHomePlaceholder'),
           textRow('logFile', 'logFilePlaceholder', true),
         ]),

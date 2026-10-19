@@ -87,6 +87,7 @@ bundle 层已经插入 `pc-use`。在 profile 的 `cordis.patch.yml` 中，**只
 | `attachImages` | `true` | 模型声明支持图片输入时，将截图作为图片附加；截图会发送给模型服务商，按 DSH 0.2.1-rc.2 源码默认经 Files API 上传，有效期为 7 天，DSH 会话结束时不删除；本机 DSH 附件库另存一份；不需要上传时关闭 |
 | `keepImageFiles` | `false` | 附加图片时，同时在本机 `~/.dsh/pc-use-images` 保存一份；默认只由 DSH 附件库保存 |
 | `allowUserTabs` | `false` | 允许读取用户的浏览器标签页与浏览历史；覆盖的入口见下文 |
+| `prefetchServerDocs` | `true` | 缓存缺失或过期时启动后预取说明；下次启动生效 |
 | `tools` | 全开 | `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` 逐项开关 |
 | `tools.desktopJs` | `true` | 注册 `pc_codex_desktop_js`：在桌面 `node_repl` 中执行 JS（需要 `computer: true`） |
 | `tools.desktopReset` | `true` | 注册 `pc_codex_desktop_js_reset`：重置桌面 JS 内核 |
@@ -94,6 +95,9 @@ bundle 层已经插入 `pc-use`。在 profile 的 `cordis.patch.yml` 中，**只
 | `tools.observe` | `true` | 注册 `pc_codex_observe`：输出完整无障碍树；例行判断在代码中取值 |
 | `tools.runPlan` | `true` | 注册 `pc_codex_run_plan`：回退实现；需要逐步状态或失败后自动观察时使用 |
 | `tools.docs` | `true` | 注册 `pc_codex_docs`：读取 Codex 自带的 Computer Use 文档（不需要 Codex 连接） |
+
+`prefetchServerDocs` 只在缓存的工具说明缺失或过期时，于 DSH 启动后在后台连接 Codex 服务器取说明；
+与设置页开关一样只在启动时读取，改动在 DSH 下次启动时生效。
 
 `allowUserTabs` 控制 `browser.user.openTabs`、`browser.user.claimTab`、
 `browser.user.getTabContext`、`browser.history`、`cua.getTab`、`cua.getState`、
@@ -164,6 +168,19 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
    code 也可以包含条件与断言。每一步、每个 check 分别受单次调用超时限制。
 5. 需要查看完整界面时，使用 `pc_codex_observe`。
 
+### 工具说明来自 Codex 服务器
+
+5 个 js 类工具（`pc_codex_js`、`pc_codex_js_reset`、`pc_codex_desktop_js`、
+`pc_codex_desktop_js_reset` 与 `pc_codex_desktop_js_add_node_module_dir`）的说明来自 Codex
+服务器：`initialize` 返回的 `instructions`、`tools/list` 中对应服务器工具的 `description`，
+以及把它们映射为 DSH 工具名的插件规则。其余 4 个工具仍使用插件自己写的说明。插件把这些
+文字缓存在 `~/.dsh/pc-use-server-docs.json`。缓存缺失或已过期（例如 Codex 更新后）时，
+插件先用内置说明启动，服务器说明在 DSH 下次启动时生效。连接后发现服务器说明有变化时，
+每个 DSH 会话在下一次成功的 `pc_codex_js` 或 `pc_codex_desktop_js` 结果末尾收到一次新说明。
+`prefetchServerDocs`（默认开启）只在缓存缺失或过期时，于启动后在后台连接服务器取说明；
+改动在 DSH 下次启动时生效。缓存只保存说明文字与哈希，不保存命令、参数、环境变量、路径或
+管道名。
+
 ## 设置页
 
 DSH 设置侧栏的“插件市场”下方有“电脑操控”页（条目 id `pc-use`；仅当 Host 提供该条目时
@@ -172,7 +189,7 @@ DSH 设置侧栏的“插件市场”下方有“电脑操控”页（条目 id 
 - **桌面操控**：`computer`、`rememberDesktopApprovals`；
 - **浏览器**：`autoApprove`、`allowUserTabs`；
 - **通用**：`language`、`timeoutMs`（秒，10–3600，按毫秒保存）、`attachImages`、
-  `keepImageFiles`、`codexHome`、`logFile`。
+  `keepImageFiles`、`prefetchServerDocs`、`codexHome`、`logFile`。
 
 开关与下拉框修改后立即保存；文本框与数字框在失焦或按回车时保存。文本与下拉行在用户修改后
 显示“恢复默认”：`language`、`timeoutMs`、`codexHome`、`logFile`。开关行不显示该按钮；

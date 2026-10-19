@@ -27,6 +27,9 @@ import { fallbackPlaceholders, prepareImageProjection } from './lib/image-projec
 import { saveImage } from './lib/images.js'
 import { appendLogLine, checkLogWritable } from './lib/log-file.js'
 import { endTurn } from './lib/native-pipe.js'
+import {
+  composeDescription, docsFromServer, readDocsCache, specFingerprint, writeDocsCacheEntry,
+} from './lib/server-docs.js'
 import { readService } from './lib/services.js'
 import { McpBridge } from './lib/mcp-bridge.js'
 import { definePortableTool } from './lib/define-tool.js'
@@ -34,9 +37,14 @@ import { tabGuardSource } from './lib/tab-guard.js'
 import { createTargetBridge } from './lib/target-bridge.js'
 import {
   CONFIG_I18N, TEXT, closeAppsNote, declineNote, illegalReturnNote, noAccessibilityTreeNote,
-  resolveLanguage, systemLocale,
+  resolveLanguage, serverDocsChangedNote, systemLocale,
 } from './lib/text.js'
 import { parseObserveArgs, parsePlanArgs } from './lib/tool-args.js'
+import {
+  BROWSER_JS_DESCRIPTION, BROWSER_JS_RESET_DESCRIPTION, BROWSER_JS_RESET_RULES, BROWSER_JS_RULES,
+  DESKTOP_ADD_NODE_MODULE_DIR_DESCRIPTION, DESKTOP_ADD_NODE_MODULE_DIR_RULES,
+  DESKTOP_JS_DESCRIPTION, DESKTOP_JS_RESET_DESCRIPTION, DESKTOP_JS_RESET_RULES, DESKTOP_JS_RULES,
+} from './lib/tool-docs.js'
 import { createTurnTracker } from './lib/turn-tracker.js'
 
 export const name = 'pc-use'
@@ -116,6 +124,9 @@ function buildConfig(schema) {
         .volatile(),
       allowUserTabs: schema.boolean().default(false)
         .description(TEXT.zh.config.allowUserTabs)
+        .volatile(),
+      prefetchServerDocs: schema.boolean().default(true)
+        .description(TEXT.zh.config.prefetchServerDocs)
         .volatile(),
       tools: schema.object({
         js: schema.boolean().default(true).description(TEXT.zh.config.tools.js),
@@ -291,7 +302,11 @@ export function apply(ctx, raw = {}) {
   // Last log write failure, kept for `pc_status.log`; a later successful write marks it
   // recovered instead of dropping the record (feature G chose "keep, mark recovered").
   let lastLogError = null
+  // r25: also guards background work (prefetch, after-connect fetch) from writing after the
+  // plugin was unloaded; the log directory may already be gone by then.
+  let disposed = false
   const log = (message) => {
+    if (disposed === true) return
     const line = `${new Date().toISOString()} ${message}\n`
     try {
       appendLogLine(configuredLogFile(), line)
@@ -322,6 +337,10 @@ export function apply(ctx, raw = {}) {
     rememberEnabled,
     language: effectiveLanguage,
   })
+
+  // r25: assigned once the server-docs state exists; a bridge cannot connect before apply
+  // returns, so the indirection is safe and keeps the callback out of the servers block.
+  let onServerConnected = () => {}
 
   /**
    * Construct one target's bridge from its launch spec. The target decides the parts that
@@ -360,12 +379,148 @@ export function apply(ctx, raw = {}) {
     resolveSpec: (home) => RESOLVERS[target]({ codexHome: home }),
     codexHome,
     createBridge: bridgeFor(target),
+    onConnected: (bridge, spec) => onServerConnected(target, bridge, spec),
     onStop,
     log,
   })
   const servers = {
     browser: targetBridge('browser'),
     desktop: targetBridge('desktop', () => approvals.forgetAll()),
+  }
+
+
+  // r25: server documentation is cached on disk and registered without waiting for any server.
+  // A cache entry is used only when its launch-spec fingerprint matches the installed Codex;
+  // otherwise the built-in descriptions stay registered and may be prefetched in the background.
+  const TARGETS = ['browser', 'desktop']
+  const docsCacheFile = join(homedir(), '.dsh', 'pc-use-server-docs.json')
+  // Read once: the switch only matters at DSH start.
+  const prefetchDocs = unwrapConfigValue(source.prefetchServerDocs) !== false
+  const cachedDocs = readDocsCache(docsCacheFile)
+  // One fixed receiver for calls without an agent, so they get at most one re-send too.
+  const noAgentReceiver = {}
+  const targetDocs = {}
+  for (const target of TARGETS) {
+    const spec = servers[target].spec()
+    const fingerprint = spec.ok === true ? specFingerprint(spec) : null
+    const cached = cachedDocs[target]
+    const fromCache = cached !== null && fingerprint !== null
+      && cached.fingerprint === fingerprint
+    targetDocs[target] = {
+      spec,
+      fingerprint,
+      cache: fromCache ? cached : null,
+      registered: fromCache ? 'server-cache' : 'built-in',
+      registeredHash: fromCache ? cached.docsHash : null,
+      server: null,
+      lastError: null,
+      reSend: null,
+      sent: new WeakMap(),
+    }
+  }
+  const SERVER_TOOL_KEYS = {
+    js: 'js',
+    reset: 'js_reset',
+    desktopJs: 'js',
+    desktopReset: 'js_reset',
+    desktopAddNodeModuleDir: 'js_add_node_module_dir',
+  }
+  const TOOL_TARGETS = {
+    js: 'browser',
+    reset: 'browser',
+    desktopJs: 'desktop',
+    desktopReset: 'desktop',
+    desktopAddNodeModuleDir: 'desktop',
+  }
+  const BUILTIN_DESCRIPTIONS = {
+    js: BROWSER_JS_DESCRIPTION,
+    reset: BROWSER_JS_RESET_DESCRIPTION,
+    desktopJs: DESKTOP_JS_DESCRIPTION,
+    desktopReset: DESKTOP_JS_RESET_DESCRIPTION,
+    desktopAddNodeModuleDir: DESKTOP_ADD_NODE_MODULE_DIR_DESCRIPTION,
+  }
+  const TOOL_RULES = {
+    js: BROWSER_JS_RULES,
+    reset: BROWSER_JS_RESET_RULES,
+    desktopJs: DESKTOP_JS_RULES,
+    desktopReset: DESKTOP_JS_RESET_RULES,
+    desktopAddNodeModuleDir: DESKTOP_ADD_NODE_MODULE_DIR_RULES,
+  }
+
+  /** Registration-time description for one of the five server-documented tools. O(1). */
+  const toolDescription = (key) => {
+    const cached = targetDocs[TOOL_TARGETS[key]].cache
+    if (cached === null) return BUILTIN_DESCRIPTIONS[key]
+    const composed = composeDescription(cached, SERVER_TOOL_KEYS[key], TOOL_RULES[key])
+    return composed === null ? BUILTIN_DESCRIPTIONS[key] : composed
+  }
+
+  /** One target's `pc_status.serverDocs` section; hashes are shown as 12 hex characters. O(1). */
+  const serverDocsStatus = (target) => {
+    const state = targetDocs[target]
+    const serverHash = state.server === null ? null : state.server.docsHash
+    return {
+      registered: state.registered,
+      registeredHash: state.registeredHash === null
+        ? null
+        : state.registeredHash.slice(0, 12),
+      serverHash: serverHash === null ? null : serverHash.slice(0, 12),
+      listHash: state.server === null ? null : state.server.listHash.slice(0, 12),
+      toolNames: state.server === null ? [] : state.server.toolNames,
+      stale: serverHash === null ? null : serverHash !== state.registeredHash,
+      lastError: state.lastError,
+    }
+  }
+
+  /**
+   * Apply one connection's server documentation: list the tools, cache the result and queue
+   * one re-send when it differs from what was registered. Never throws. O(tools).
+   */
+  onServerConnected = async (target, bridge, spec) => {
+    const state = targetDocs[target]
+    try {
+      const tools = await bridge.listTools(configuredTimeoutMs())
+      const fetched = docsFromServer({ instructions: bridge.instructions, tools })
+      if (fetched === null) {
+        log('server docs: no usable js description')
+        return
+      }
+      state.lastError = null
+      const fingerprint = specFingerprint(spec)
+      const cached = state.cache
+      const needsWrite = cached === null || cached.fingerprint !== fingerprint
+        || cached.docsHash !== fetched.docsHash
+      if (needsWrite) {
+        const written = writeDocsCacheEntry(docsCacheFile, target, {
+          fingerprint,
+          instructions: fetched.instructions,
+          tools: fetched.tools,
+          docsHash: fetched.docsHash,
+          listHash: fetched.listHash,
+          toolNames: fetched.toolNames,
+          fetchedAt: new Date().toISOString(),
+        })
+        if (written.ok !== true) {
+          // The reason is one of our fixed sentences; never a command, args or path.
+          state.lastError = written.reason
+          log('server docs cache write failed')
+        }
+      }
+      state.server = fetched
+      if (fetched.docsHash !== state.registeredHash) {
+        const composed = composeDescription(fetched, 'js', '')
+        // Drop the empty appendix segment composeDescription keeps at the end.
+        const text = composed === null ? null : composed.replace(/\n\n$/, '')
+        state.reSend = text === null ? null : { docsHash: fetched.docsHash, text }
+      } else {
+        // P2-2: back on the registered version, a queued re-send would describe a server
+        // that is no longer current, so drop it.
+        state.reSend = null
+      }
+    } catch {
+      state.lastError = 'server docs fetch failed'
+      log('server docs fetch failed')
+    }
   }
 
   // r13: turn tracking lives in its own module; it only needs each server's generation,
@@ -509,6 +664,19 @@ export function apply(ctx, raw = {}) {
     return approvals.withCall(exec, task)
   }
 
+  /**
+   * Append the one-time server-docs update to a successful js result. The record is per
+   * agent (and per docsHash), so each DSH session gets each changed documentation once. O(1).
+   */
+  const appendServerDocs = (text, target, exec) => {
+    const state = targetDocs[target]
+    if (state.reSend === null) return text
+    const receiver = exec?.agent ?? noAgentReceiver
+    if (state.sent.get(receiver) === state.reSend.docsHash) return text
+    state.sent.set(receiver, state.reSend.docsHash)
+    return `${text}\n\n${serverDocsChangedNote(effectiveLanguage())}\n\n${state.reSend.text}`
+  }
+
   /** Run one js tool call on one target; `registration` is null for the browser. O(1) + wait. */
   const runJs = async (target, args, exec, registration) => {
     const collector = createImageCollector()
@@ -518,7 +686,8 @@ export function apply(ctx, raw = {}) {
         title: args.title,
         ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
       }, jsTimeoutMs(args.timeout_ms), exec, collector)
-      return await finishImages(exec, withToolNotes(text, registration), collector)
+      const noted = withToolNotes(text, registration)
+      return await finishImages(exec, appendServerDocs(noted, target, exec), collector)
     } catch (error) {
       throw withToolErrorNotes(error, registration)
     }
@@ -702,40 +871,7 @@ export function apply(ctx, raw = {}) {
   const definitions = {
     js: () => tool({
       name: 'pc_codex_js',
-      description:
-        'Drive the user\'s real Chrome through Codex Computer Use (cua_repl). Runs JavaScript with the ' +
-        '`cua` API: `cua.listBrowsers()`, `cua.createBrowserTab("chrome", url)`, `cua.getTab(...)`, ' +
-        '`cua.getState()`; tabs expose `getAXState()`, `click(index)`, `getScreenshot()`, `goto()`, ' +
-        '`markDeliverable()`. Use it to open pages, read them, click and type. On the first call of a ' +
-        'session run exactly one API call, then read the returned documentation and UI state. ' +
-        'The code runs as one persistent REPL unit: top-level `await` is allowed, a top-level ' +
-        '`return` is not; print results with `nodeRepl.write(...)` or `console.log(...)`; ' +
-        'observer methods output themselves. Preferred: put known consecutive steps in one ' +
-        'program; use if/loops/assertions for intermediate results and throw with an ' +
-        'explanation when a check fails; at the end print only what the next decision ' +
-        'needs with nodeRepl.write(...) or console.log(...). When reading values only, ' +
-        'call `getAXState({ emit: false })` and print only the needed fields. Store ' +
-        '`cua.createBrowserTab(...)` in `globalThis`, for example ' +
-        '`globalThis.tab = await cua.createBrowserTab(...)`, so later calls and ' +
-        '`pc_codex_observe` can use it. `cua.listTabs()` returns only plugin tabs; other ' +
-        'user tabs are filtered out, so check your own tab by id. A plugin tab is a Chrome ' +
-        'tab opened or claimed through this plugin since the current browser kernel started; ' +
-        'after `pc_codex_js_reset` or a browser reconnect, earlier tabs no longer count, and ' +
-        'all DSH sessions share the same plugin tabs. `cua.getTab(...)` only accepts ids of ' +
-        'plugin tabs, and `cua.getState()` lists only plugin tabs. ' +
-        '`browser.tabs.get` and `browser.tabs.content` follow the same rule; ' +
-        '`browser.tabs.list` and `browser.tabs.selected` cover only plugin tabs. ' +
-        '`browser.user.openTabs()`, `claimTab`, `getTabContext` and `browser.history()` ' +
-        'are blocked by default by the `allowUserTabs` setting; only with that switch on ' +
-        'can you access user tabs, and then only when the user explicitly asks. ' +
-        'Browser tasks do not need `pc_codex_docs`. When the tree is available, judge UI ' +
-        'state by reading values ' +
-        '(button enabled, input value, selected item), not screenshots; if it is not, ' +
-        'use a screenshot. After a UI-changing step, read state first and do not reuse ' +
-        'old indexes or coordinates. Fallback: use `pc_codex_run_plan` when you need ' +
-        'step-by-step status or automatic observation after a failure. Use ' +
-        '`pc_codex_observe` to see the whole interface. To operate Windows desktop apps, ' +
-        'use `pc_codex_desktop_js`.',
+      description: toolDescription('js'),
       parameters: {
         code: { type: 'string', required: true, description: 'JavaScript to run in the persistent cua_repl kernel.' },
         title: { type: 'string', required: true, description: 'Short user-facing description of what the code does.' },
@@ -750,8 +886,7 @@ export function apply(ctx, raw = {}) {
     }),
     reset: () => tool({
       name: 'pc_codex_js_reset',
-      description: 'Reset the persistent cua_repl JavaScript kernel. Bindings are discarded; '
-        + 'browser tabs and apps are not closed.',
+      description: toolDescription('reset'),
       parameters: {},
       output,
       async execute(_args, exec) {
@@ -762,35 +897,7 @@ export function apply(ctx, raw = {}) {
     }),
     desktopJs: () => tool({
       name: 'pc_codex_desktop_js',
-      description:
-        'Drive Windows desktop apps through Codex Computer Use (node_repl). Runs ' +
-        'JavaScript in the persistent node_repl kernel with the `sky` API: ' +
-        '`const { sky } = await import("@oai/sky")`, e.g. `sky.list_windows()` or ' +
-        '`sky.get_window_state({ window: { app, id } })`; the rest of the API is in ' +
-        'the first-call notes. The code runs as one persistent REPL unit: top-level ' +
-        '`await` is allowed, a top-level `return` is not; print results with ' +
-        '`nodeRepl.write(...)` or `console.log(...)`; observer methods output ' +
-        'themselves. Preferred: put known consecutive steps in one program; use ' +
-        'if/loops/assertions for intermediate results and throw with an explanation when ' +
-        'a check fails; at the end print only what the next decision needs with ' +
-        'nodeRepl.write(...) or console.log(...). When the tree is available, judge UI ' +
-        'state by reading accessibility-tree values in code (desktop: ' +
-        'sky.get_window_state; button enabled, input value, selected item), not ' +
-        'screenshots. Some apps return `accessibility: null` even with ' +
-        '`include_text: true` (Notepad, Calculator). For those, use a screenshot: if ' +
-        'this result carries one, judge from it; otherwise call `pc_codex_observe` with ' +
-        '`screenshot: true`. Do not use run_plan checks to read UI values for that ' +
-        'window. Do not read logs or configuration files, and do not search the disk ' +
-        'for the reason; if the screenshot is not enough, stop and tell the user. After ' +
-        'a UI-changing step, read state first and do not reuse old indexes or ' +
-        'coordinates. Fallback: use `pc_codex_run_plan` when you need step-by-step ' +
-        'status or automatic observation after a failure. Use `pc_codex_observe` for ' +
-        'the whole interface. ' +
-        'Use it to control Windows ' +
-        'applications; for browser pages use `pc_codex_js`. Before controlling ' +
-        'Windows apps, call `pc_codex_docs` for `skill`, `guidance` and ' +
-        '`confirmations`; call it for `api` when you need method signatures. ' +
-        closeAppsNote('en'),
+      description: toolDescription('desktopJs'),
       parameters: {
         code: {
           type: 'string',
@@ -816,8 +923,7 @@ export function apply(ctx, raw = {}) {
     }),
     desktopReset: () => tool({
       name: 'pc_codex_desktop_js_reset',
-      description: 'Reset the persistent node_repl JavaScript kernel. Bindings are discarded; '
-        + 'desktop apps are not closed.',
+      description: toolDescription('desktopReset'),
       parameters: {},
       output,
       async execute(_args, exec) {
@@ -828,9 +934,7 @@ export function apply(ctx, raw = {}) {
     }),
     desktopAddNodeModuleDir: () => tool({
       name: 'pc_codex_desktop_js_add_node_module_dir',
-      description:
-        'Add a Node.js module directory to the persistent node_repl kernel so its ' +
-        'packages can be imported. Passes `path` to Codex\'s `js_add_node_module_dir`.',
+      description: toolDescription('desktopAddNodeModuleDir'),
       parameters: {
         path: {
           type: 'string',
@@ -1018,6 +1122,12 @@ export function apply(ctx, raw = {}) {
               codexHome: codexHome(),
               autoApprove: autoApproveEnabled(),
               computer: computerEnabled(),
+              serverDocs: {
+                cacheFile: docsCacheFile,
+                prefetch: prefetchDocs,
+                browser: serverDocsStatus('browser'),
+                desktop: serverDocsStatus('desktop'),
+              },
               browser: servers.browser.status(),
               desktop: servers.desktop.status(),
               log: {
@@ -1040,6 +1150,33 @@ export function apply(ctx, raw = {}) {
     } catch (error) {
       console.error(`dsh-pc-use: registering the ${key} tool failed`, error)
     }
+  }
+
+  // r25: prefetch only when the registered docs are built-in. setImmediate keeps apply fast;
+  // the bridge it connects is the normal one, so the first tool call reuses that handshake.
+  const prefetchTools = {
+    browser: ['js', 'reset'],
+    desktop: ['desktopJs', 'desktopReset', 'desktopAddNodeModuleDir'],
+  }
+  for (const target of TARGETS) {
+    const state = targetDocs[target]
+    if (state.registered !== 'built-in') continue
+    if (state.spec.ok !== true) continue
+    if (prefetchDocs !== true) continue
+    if (target === 'desktop' && computerEnabled() !== true) continue
+    if (!prefetchTools[target].some((key) => toolEnabled(key) === true)) continue
+    setImmediate(() => {
+      if (disposed === true) return
+      servers[target].ensure().then(
+        () => {
+          if (disposed === true) servers[target].stop()
+        },
+        () => {
+          if (disposed === true) return
+          log('server docs prefetch failed')
+        },
+      )
+    })
   }
 
   // S1.4: the loader emits `loader/volatile-update` after writing volatile fields into the
@@ -1072,6 +1209,9 @@ export function apply(ctx, raw = {}) {
   }
 
   ctx.effect(() => () => {
+    // r25: a prefetch still handshaking must not survive unload; its `.then` stops the
+    // fresh connection once the handshake settles.
+    disposed = true
     // Stop both servers; only the desktop bridge's onStop forgets remembered approvals.
     servers.browser.stop()
     servers.desktop.stop()

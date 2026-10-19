@@ -1,9 +1,9 @@
 // Shared fixtures: temp directories, a fake Codex home, a plugin harness and polling
 // helpers. The fake MCP server lives in test/fixtures so the test suite is self-contained.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { after } from 'node:test'
-import { join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { apply } from '../index.js'
@@ -66,6 +66,17 @@ export function useHome(home) {
         process.env[key] = previous[key]
       }
     }
+  }
+}
+
+/**
+ * Throw unless `os.homedir()` is inside `os.tmpdir()`. Cache-writing tests call this before
+ * any plugin work so a forgotten `useHome()` can never touch the user's real home. O(1).
+ */
+export function assertTempHome() {
+  const relativeHome = relative(tmpdir(), homedir())
+  if (relativeHome === '' || relativeHome.startsWith('..') || isAbsolute(relativeHome)) {
+    throw new Error(`test HOME must be inside the OS temp directory; got ${homedir()}`)
   }
 }
 
@@ -138,6 +149,14 @@ export function writeCodexHome(codexHome, args, env = {}, options = {}) {
  * `inject()` and the returned `emit()` let tests drive `session/event` subscriptions.
  */
 export function registerPlugin(config, options = {}) {
+  // r25 P1-1: a test that forgot useHome() must still never write the user's real ~/.dsh
+  // (the plugin writes its server-docs cache under homedir() when it connects).
+  const relativeHome = relative(tmpdir(), homedir())
+  if (relativeHome.startsWith('..') || isAbsolute(relativeHome)) {
+    const guarded = tempDir('pc-use-home-guard-')
+    process.env.HOME = guarded
+    process.env.USERPROFILE = guarded
+  }
   const tools = new Map()
   const disposers = []
   const handlers = []
@@ -193,7 +212,11 @@ export function registerPlugin(config, options = {}) {
       })
     },
   }
-  apply(ctx, config)
+  // r25: existing tests must not pre-connect at apply time; the server-docs tests opt in.
+  const pluginConfig = config === null || typeof config !== 'object'
+    ? config
+    : { prefetchServerDocs: false, ...config }
+  apply(ctx, pluginConfig)
   return {
     tools,
     fiber,

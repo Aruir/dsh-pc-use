@@ -7,6 +7,18 @@
 The plugin description in DSH no longer says which provider is used or that more providers are
 planned.
 
+The five js tools now take their descriptions from the Codex servers: the `initialize`
+instructions, the `tools/list` description of the matching server tool, and the plugin rules
+that map those tools to DSH names. The plugin caches the descriptions in
+`~/.dsh/pc-use-server-docs.json`; when the cache is missing or out of date (for example after a
+Codex update), it uses the built-in descriptions and applies the server ones at the next DSH
+start. If a connection finds changed server documentation, each DSH session receives it once at
+the end of its next successful js tool result, and `pc_status` reports the documentation source,
+hashes and whether it is stale. The new `prefetchServerDocs` switch (default on) connects to the
+servers in the background only when the cache is missing or out of date, and takes effect at the
+next DSH start. The cache stores only description text and hashes, never commands, arguments,
+environment variables, paths or pipe names.
+
 ## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image

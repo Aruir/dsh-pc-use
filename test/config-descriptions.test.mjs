@@ -21,9 +21,10 @@ function toolFields() {
   return Object.keys(Config.dict.tools.dict)
 }
 
-test('the configuration schema keeps 11 fields and 9 tool switches', () => {
+test('the configuration schema keeps 12 fields and 9 tool switches', () => {
   assert.ok(Config, 'the configuration schema must build')
-  assert.equal(topLevelFields().length, 11)
+  // r25 added prefetchServerDocs, so the top-level field count grew from 11 to 12.
+  assert.equal(topLevelFields().length, 12)
   assert.equal(toolFields().length, 9)
 })
 

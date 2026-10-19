@@ -224,7 +224,7 @@ test('pc_status reports null services on both sides while disconnected', async (
     assert.deepEqual(Object.keys(status), ['providers'])
     assert.deepEqual(
       Object.keys(status.providers.codex),
-      ['codexHome', 'autoApprove', 'computer', 'browser', 'desktop', 'log'],
+      ['codexHome', 'autoApprove', 'computer', 'serverDocs', 'browser', 'desktop', 'log'],
     )
     const codex = status.providers.codex
     assert.equal(codex.codexHome, context.codexHome)
