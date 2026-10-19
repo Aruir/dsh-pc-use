@@ -2,12 +2,15 @@
 
 [中文](CHANGELOG.zh.md) | English
 
-## Unreleased
+## 0.9.0
 
-`pc_status` renames its top-level key `backends` to `providers`; this is a breaking change. The
-documentation and the tool descriptions now use the terms of the glossary (provider, plugin tabs,
-DSH session) and state that after a kernel reset or a browser reconnect, earlier tabs no longer
-count as plugin tabs.
+0.9.0 renames the top-level `pc_status` key `backends` to `providers`; this is a breaking change
+for anything that reads `pc_status`. The documentation and the tool descriptions now use the
+terms of the new glossary (provider, plugin tabs, DSH session) and state that after a kernel reset
+or a browser reconnect, earlier tabs no longer count as plugin tabs. Internally, turn tracking,
+desktop approvals, the bridge of each target and the argument parsing of `pc_codex_observe` and
+`pc_codex_run_plan` moved out of `index.js` into their own modules with direct tests; the
+behavior of the plugin does not change.
 
 ## 0.8.0
 
