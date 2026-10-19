@@ -2,125 +2,10 @@
 
 [English](README.md) | 中文
 
-## 改名说明（0.4.0）
-
-- 包名与插件 id：`dsh-codex-cu` → `dsh-pc-use`，`id: codex-cu` → `id: pc-use`；
-- 工具名：`codex_js` / `codex_js_reset` / `codex_js_add_node_module_dir` / `codex_status`
-  改为 `pc_codex_js` / `pc_codex_js_reset` / `pc_codex_js_add_node_module_dir` / `pc_status`，
-  并新增 `pc_codex_docs`；
-- 默认日志 `~/.dsh/codex-cu.log` → `~/.dsh/pc-use.log`，默认截图目录
-  `~/.dsh/codex-cu-images` → `~/.dsh/pc-use-images`；
-- **profile 里的覆盖要改 id：**`- id: codex-cu` 必须改成 `- id: pc-use`，否则不再生效；
-- 0.4.1 起不再使用状态文件；旧日志与截图目录不迁移；
-- 没有采用 `dsh-computer-use`：npm 上已有同名的其他 DSH 插件，插件市场按包名查更新时
-  可能误替换，所以改名为 `dsh-pc-use`。
-
-0.4.0 新增：改名为 `dsh-pc-use`；新增 `pc_codex_docs` 读取 Codex 自带文档；按包名加载并补上
-显示名与图标；`pc_status` 改为按后端分组（`backends`）。
-
-0.7.0 新增两个工具，各有开关，默认开启：`pc_codex_observe` 一次只读地观察浏览器标签页或
-桌面窗口；`pc_codex_run_plan` 依次运行 1–20 步，每步可带检查，遇到第一个失败就停。js 工具的
-说明改为每次调用写一个带检查的程序；顶层 return 的提示改为“值不会自动返回”。四个写代码的工具
-返回的截图改为以图片交给模型（`attachImages`，默认开启；截图会发到模型服务商）；
-`keepImageFiles`（默认关闭）开启时，另在 `~/.dsh/pc-use-images` 存一份。桌面窗口没有
-无障碍树时，工具会说明这一点，并让模型改看截图。浏览器的每次 js 调用都包住
-`cua.listTabs`，只返回本会话打开的标签页。除 `turn_ended` 以外，每次 `tools/call` 的
-`_meta` 都带上 Codex 的轮次元数据与调用身份（见“工具调用元数据”；依据源码，未经线上核实）。
-
-0.6.0 把“界面文字”的原生下拉框换成 DSH 官方的 primitives Menu（圆角按钮、向下箭头与 hover
-样式，style 只注入一次）；拿不到 primitives/Menu 时退回原生 select。同时删去
-`desktopApprovalChoices` 开关——这是公共配置 API 的不兼容修改——桌面授权固定用三选项卡片，
-只保留拿不到提问服务与策略不是 `ask` 的两种降级。仍带旧字段的 profile 照常加载：DSH 的非
-strict schema 会保留这个未知键，插件不再读取它，可以留待以后清理。页面顶部改为照官方“通用”页：
-不再有页标题和说明，“已保存”只留给读屏软件，冲突提示仍然可见。同时修复实测问题：用 Codex
-原生管道结束桌面轮次以收起光圈；补上“不要重试”“去掉顶层 return”“任务结束关闭应用”的提示；
-`pc_status` 每次重读启动配置并给出 `reconnectPending`；记录日志写入失败；设置页跟随“界面文字”；
-“恢复默认”只在值不同时显示；清空文本框提交 `unset`；测试结束删除临时目录。
-
-0.5.5 精简设置页文字：第一行改为“启用桌面操控”，页说明与页脚各留一句；“界面文字”移到最后的
-“通用”组。
-
-0.5.4 把设置页间距对齐 DSH 自带设置页：页标题 16/500/24、说明 14/22、行标题与行说明设行高、
-组间 12 px、行间无空隙、每组最后一行不画分隔线。
-
-0.5.3 去掉四个开关行的“恢复默认”（开关拨回去即可）；开关拨回默认值时改为删除已保存的覆盖，
-而不是再写一条同样的值。
-
-0.5.2 把“已保存”移到设置标题同一行的右侧，把“恢复默认”移到控件左边：提示出现时不再推动
-选项，各行控件的右边缘对齐。
-
-0.5.1 修正设置页开关：滑块改用 DSH 主题里真实存在的变量，开与关清晰可见；开关不再被“恢复默认”
-挤窄。
-
-0.5.0 把浏览器与桌面拆成两个服务器，按 Codex 应用的方式分别启动：浏览器用 `cua_repl`，桌面用
-`node_repl`。新增桌面工具 `pc_codex_desktop_js`、`pc_codex_desktop_js_reset` 与
-`pc_codex_desktop_js_add_node_module_dir`（开关 `tools.desktopJs` / `tools.desktopReset` /
-`tools.desktopAddNodeModuleDir`，默认全开）；`pc_status` 改为分别报告 `browser` 与 `desktop`，
-删除 `servicesFrom`；两个服务器各用自己的启动环境。
-
-0.4.3 新增：DSH 设置侧栏“插件市场”下方的“电脑操控”设置页，可改桌面操控、三选项卡片、记住授权、
-界面文字、浏览器自动授权、调用超时、Codex 配置目录与日志路径；`codexHome` 改为 volatile，改完下一次
-调用即重新解析并换到新目录，插件不重新挂载。
-
-0.4.2：修复三处实测问题——`turn_ended` 的 `_meta` 用了下一轮 turn id、等待授权的时间计入
-调用超时、Codex 重启后仍连着旧桌面助手管道；桌面授权改为三选项卡片（授权策略为“完全权限”时
-沿用原一次性卡片）；加入英文支持（`language` 控制插件
-自己显示的文字，默认 `auto` 跟随 DSH 界面语言）。
-
-0.4.1 修正：删除 `pc_codex_js_add_node_module_dir` 工具、`tools.addNodeModuleDir` 与
-`stateFile` 配置项；桥接级 `session_id` 改为内存随机生成，不再读写状态文件；旧配置里的这些键
-照常加载。
-
-0.3.2 修正：同一 DSH 会话内按应用记住桌面授权（`rememberDesktopApprovals`）；每轮结束通知
-Codex `turn_ended`，收起“正在使用你的电脑”的橙色光圈。
-
-0.3.1 修正：补充桌面授权与 DSH 权限模式的说明；`codex_status`（现为 `pc_status`）增加
-`servicesFrom`；测试夹具移入 `test/fixtures`。
-
-0.3.0 新增：Windows 桌面操控（`computer`，默认关闭；桌面授权交给 DSH 的审批策略）。
-
-0.2.0 修正：
-
-- 参数 schema 兜底：拿不到宿主 `defineTool` 时把参数 DSL 转成对象 JSON Schema，并在执行前校验参数；
-- volatile 配置修复：正确解包加载器传入的 `Volatile` 配置值，`autoApprove` / `logFile` / `timeoutMs` 改完即生效；
-- 审批默认 fail-closed：`autoApprove` 默认 `false`，且只自动接受浏览器访问授权，其他 elicitation 审批一律 decline；
-- 审批日志：每一次审批都记录原始文案、决定（accept/decline）和原因，默认写入 `~/.dsh/pc-use.log`；
-- 截图清理：工具返回的截图保存到 `~/.dsh/pc-use-images`，扩展名按 mimeType 决定，目录只保留最新的 50 个文件；
-- 握手失败清理：initialize 出错、超时或 spawn 失败时结束子进程，不会把没握手的连接当成可用；
-- 客户端版本号取自 `package.json`，不再硬编码。
-
-`npm test` 运行离线回归检查；`npm run test:smoke` 会连接 Codex 并操作浏览器。
-
 把 **Codex Computer Use** 做成 DeepSeek Harness 的原生工具插件：用本机 Codex 通过浏览器服务器
 （`cua_repl`）操作真实的 Chrome，通过桌面服务器（`node_repl`）操作 Windows 桌面应用，不需要任何
 手工 MCP 配置。目前后端是 Codex，以后会增加其他后端（见“后端”一节）。
-
-装好之后，每个 agent preset 自动拥有：
-
-| 工具 | 服务器 | 作用 |
-|---|---|---|
-| `pc_codex_js` | 浏览器 | 首选：在持久 `cua_repl` 内核里执行一段带检查的程序，读无障碍值并用 `cua` API 操作网页 |
-| `pc_codex_js_reset` | 浏览器 | 重置浏览器 JS 内核（不关闭标签页） |
-| `pc_codex_desktop_js` | 桌面 | 首选：在持久 `node_repl` 内核里执行一段带检查的程序，读无障碍值并用 `sky` API 操作桌面应用 |
-| `pc_codex_desktop_js_reset` | 桌面 | 重置桌面 JS 内核（不关闭应用） |
-| `pc_codex_desktop_js_add_node_module_dir` | 桌面 | 把 Node 模块目录加入桌面 `node_repl` |
-| `pc_codex_observe` | 浏览器 / 桌面 | 只读输出完整无障碍树/文本，用于了解全貌；截图默认关闭 |
-| `pc_codex_run_plan` | 浏览器 / 桌面 | 备选：需要逐步状态或失败后自动观察时执行 1–20 步 |
-| `pc_codex_docs` | 无 | 读取本机 Codex 自带的 Computer Use 文档（`skill` / `guidance` / `api` / `confirmations`） |
-| `pc_status` | 无 | 报告两个服务器的解析结果和连接状态；其他工具失败时先看它 |
-
-### 选择工具
-
-1. **首选**：把已知的连续步骤写进 `pc_codex_js` 或 `pc_codex_desktop_js` 的同一段程序；
-   用 `if`、循环和断言检查中间结果，检查不成立就 `throw` 并说明原因；结束时只用
-   `nodeRepl.write(...)` 或 `console.log(...)` 打印下一步决策需要的信息。
-2. 在代码里读无障碍树的值（按钮是否可用、输入框的值、当前选中项等）做判断，不要依赖
-   截图；浏览器用 `tab.getAXState`，桌面用 `sky.get_window_state` 返回的 accessibility
-   数据。在代码里过滤，只打印需要的字段。
-3. 改变界面的步骤之后，下一段代码先重新读取状态，不沿用旧的元素索引或坐标。
-4. `pc_codex_run_plan` 是备选：需要逐步状态报告、或失败后仍自动观察时使用；每步的
-   code 本身也可以包含条件和断言。每一步、每个 check 分别受单次调用超时限制。
-5. 需要看完整界面时用 `pc_codex_observe`。
+截图与页面内容会发给模型服务商。
 
 ## 为什么需要这个插件
 
@@ -138,40 +23,13 @@ Codex 自己的客户端才会做的事，普通 MCP 客户端接不了：
 的来源。启动环境原样传入：浏览器用 `.mcp.json` 里的值，桌面用 `config.toml` 里的值，与 Codex
 应用的启动方式一致。
 
-## 工具调用元数据
+## 前置条件
 
-每次 `tools/call`（`turn_ended` 除外）都带一个 `_meta`，只填写 DSH 能如实给出的值。字段集合依据
-Codex 0.163.0-alpha.10.2 的源码分析（r1 的 capture-native 没有录到线上 Codex 的
-`tools/call`）：**这些结论来自源码，未经线上核实。**
-
-要发的字段：
-
-- `x-codex-turn-metadata.session_id` / `.thread_id`：插件为每个 agent 生成的 UUID（原生根线程的
-  `thread_id` 等于 `session_id`）。
-- `x-codex-turn-metadata.turn_id`：当前 DSH 轮次的 UUID；DSH 轮次结束时轮换。
-- `x-codex-turn-metadata.turn_started_at_unix_ms`：该 turn 身份创建时刻的 Unix 毫秒（整数）；
-  同一轮内不变，轮换后变大。
-- `x-codex-turn-metadata.auto_review_enabled`、`.node_repl_auto_review_required`、
-  `.node_repl_disabled`：恒为 `false`；DSH 没有 Guardian 审查，能调用到这里就说明没有禁用。
-- `x-codex-turn-metadata.model`：DSH 当前 agent 的模型 id，取 DSH agent 循环为最近一次请求
-  记录的请求头；拿不到就省略。
-- `x-codex-turn-metadata.reasoning_effort`：同一请求头里的推理强度；拿不到就省略。
-- `threadId` / `sessionId`：同一 agent 身份，按原生 camelCase 放在顶层。
-- `callId`：DSH 的工具调用 id（`exec.callId`）；执行上下文没有就省略。`pc_codex_run_plan`
-  的每个步骤和 check 用同一个 id。
-
-以下字段**不发**：DSH 没有可如实填写的值，编造会冒充 Codex，或清掉服务器自己的默认值：
-`codex_version`、`sandbox`、`sandbox_mode`、`plugin_id`、`windowId`、`itemId`、
-`forked_from_thread_id`、`parent_thread_id`、`subagent_kind`、`thread_source`、
-`turn_trigger`、`workspaces`、`user_input_requested_during_turn`、`traceparent`、
-`tracestate`、`codex_bridge_mcp_call_id`、`openai/readOnly`、`openai/entitlementContext`、
-`_codex_apps`、`codex/sandbox-launcher`、`openai/confirmation_policies`、
-`codex/sandbox-state`、`codex/sandbox-state-meta`。其中发 `openai/confirmation_policies: {}`
-会清掉服务器启动时的确认策略默认值；填 `codex/sandbox-state` 则等于替 DSH 声明一个服务器
-会怎样使用并不清楚的沙箱状态。
-
-`turn_ended` 保持旧的 `_meta`：只有 `x-codex-turn-metadata` 的 `session_id` 和 `turn_id`，
-与原生对齐是另一张卡片。
+- Codex 桌面应用必须正在运行（两个服务器连的都是它的原生管道）；
+- Chrome 插件已连接，`pc_codex_js` 里 `await cua.listBrowsers()` 能看到 `Chrome / type=extension`；
+- 桌面操控要求 `<codexHome>/config.toml` 里有 `[mcp_servers.node_repl]` 节；缺少时只有桌面工具
+  报错，错误会写出节名；
+- 只在 Windows 上验证过（Codex 的 Computer Use 在 Windows 上走 `sky` 原生管道）。
 
 ## 安装
 
@@ -257,20 +115,36 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 
 如果 Codex 改掉授权文案，浏览器授权和桌面授权都会被拒绝——这是安全的失败方式。
 
-## 截图与隐私
+## 工具与用法
 
-只有 `attachImages` 开启且当前模型声明支持图片输入时，Codex 返回的截图才会作为图片附上；
-不满足时退回本机路径文字；`pc_codex_run_plan` 失败后留下的图片也按路径文字保存，原因写
-`tool call failed`。
+装好之后，每个 agent preset 自动拥有：
 
-附图会把截图发到模型服务商。按 DSH 0.2.1-rc.2 源码，默认经 Files API 上传：文件有效期 7 天，
-会话结束时不删除。DSH 本机附件库还会保存一份；保持 `keepImageFiles: false`（默认）可避免在
-`~/.dsh/pc-use-images` 再存第二份。
+| 工具 | 服务器 | 作用 |
+|---|---|---|
+| `pc_codex_js` | 浏览器 | 首选：在持久 `cua_repl` 内核里执行一段带检查的程序，读无障碍值并用 `cua` API 操作网页 |
+| `pc_codex_js_reset` | 浏览器 | 重置浏览器 JS 内核（不关闭标签页） |
+| `pc_codex_desktop_js` | 桌面 | 首选：在持久 `node_repl` 内核里执行一段带检查的程序，读无障碍值并用 `sky` API 操作桌面应用 |
+| `pc_codex_desktop_js_reset` | 桌面 | 重置桌面 JS 内核（不关闭应用） |
+| `pc_codex_desktop_js_add_node_module_dir` | 桌面 | 把 Node 模块目录加入桌面 `node_repl` |
+| `pc_codex_observe` | 浏览器 / 桌面 | 只读输出完整无障碍树/文本，用于了解全貌；截图默认关闭 |
+| `pc_codex_run_plan` | 浏览器 / 桌面 | 备选：需要逐步状态或失败后自动观察时执行 1–20 步 |
+| `pc_codex_docs` | 无 | 读取本机 Codex 自带的 Computer Use 文档（`skill` / `guidance` / `api` / `confirmations`） |
+| `pc_status` | 无 | 报告两个服务器的解析结果和连接状态；其他工具失败时先看它 |
 
-每张图约 184–1024 个输入 token，历史里的图每轮都会重发。可在 DSH 设置里用 `imagePixelBudget`
-封顶；插件不改这个设置。截图不能离开本机时请关闭 `attachImages`。
+### 选择工具
 
-## 设置页（0.4.3）
+1. **首选**：把已知的连续步骤写进 `pc_codex_js` 或 `pc_codex_desktop_js` 的同一段程序；
+   用 `if`、循环和断言检查中间结果，检查不成立就 `throw` 并说明原因；结束时只用
+   `nodeRepl.write(...)` 或 `console.log(...)` 打印下一步决策需要的信息。
+2. 在代码里读无障碍树的值（按钮是否可用、输入框的值、当前选中项等）做判断，不要依赖
+   截图；浏览器用 `tab.getAXState`，桌面用 `sky.get_window_state` 返回的 accessibility
+   数据。在代码里过滤，只打印需要的字段。
+3. 改变界面的步骤之后，下一段代码先重新读取状态，不沿用旧的元素索引或坐标。
+4. `pc_codex_run_plan` 是备选：需要逐步状态报告、或失败后仍自动观察时使用；每步的
+   code 本身也可以包含条件和断言。每一步、每个 check 分别受单次调用超时限制。
+5. 需要看完整界面时用 `pc_codex_observe`。
+
+## 设置页
 
 DSH 设置侧栏的“插件市场”下方有“电脑操控”页（条目 id `pc-use`，只在 Host 提供该条目时显示）。可以改：
 
@@ -376,6 +250,19 @@ await sky.list_apps();
 DSH 不询问、直接放行；要逐次确认，请使用“仅可查看”或“工作区内修改”。Codex 也可能记住
 以前的授权而不再询问。`autoApprove` 对桌面授权不起作用。
 
+## 截图与隐私
+
+只有 `attachImages` 开启且当前模型声明支持图片输入时，Codex 返回的截图才会作为图片附上；
+不满足时退回本机路径文字；`pc_codex_run_plan` 失败后留下的图片也按路径文字保存，原因写
+`tool call failed`。
+
+附图会把截图发到模型服务商。按 DSH 0.2.1-rc.2 源码，默认经 Files API 上传：文件有效期 7 天，
+会话结束时不删除。DSH 本机附件库还会保存一份；保持 `keepImageFiles: false`（默认）可避免在
+`~/.dsh/pc-use-images` 再存第二份。
+
+每张图约 184–1024 个输入 token，历史里的图每轮都会重发。可在 DSH 设置里用 `imagePixelBudget`
+封顶；插件不改这个设置。截图不能离开本机时请关闭 `attachImages`。
+
 ## 后端
 
 目前只有 Codex 后端：`pc_codex_*` 工具通过本机 Codex 桌面应用执行。命名已为其他后端预留：
@@ -384,13 +271,40 @@ DSH 不询问、直接放行；要逐次确认，请使用“仅可查看”或�
 报告 `browser` 与 `desktop` 两个服务器。配置键暂时保持扁平（`codexHome` 等），等第二个后端有
 具体设计后再决定是否分组。
 
-## 前置条件
+## 工具调用元数据
 
-- Codex 桌面应用必须正在运行（两个服务器连的都是它的原生管道）；
-- Chrome 插件已连接，`pc_codex_js` 里 `await cua.listBrowsers()` 能看到 `Chrome / type=extension`；
-- 桌面操控要求 `<codexHome>/config.toml` 里有 `[mcp_servers.node_repl]` 节；缺少时只有桌面工具
-  报错，错误会写出节名；
-- 只在 Windows 上验证过（Codex 的 Computer Use 在 Windows 上走 `sky` 原生管道）。
+每次 `tools/call`（`turn_ended` 除外）都带一个 `_meta`，只填写 DSH 能如实给出的值。字段集合依据
+Codex 0.163.0-alpha.10.2 的源码分析（r1 的 capture-native 没有录到线上 Codex 的
+`tools/call`）：**这些结论来自源码，未经线上核实。**
+
+要发的字段：
+
+- `x-codex-turn-metadata.session_id` / `.thread_id`：插件为每个 agent 生成的 UUID（原生根线程的
+  `thread_id` 等于 `session_id`）。
+- `x-codex-turn-metadata.turn_id`：当前 DSH 轮次的 UUID；DSH 轮次结束时轮换。
+- `x-codex-turn-metadata.turn_started_at_unix_ms`：该 turn 身份创建时刻的 Unix 毫秒（整数）；
+  同一轮内不变，轮换后变大。
+- `x-codex-turn-metadata.auto_review_enabled`、`.node_repl_auto_review_required`、
+  `.node_repl_disabled`：恒为 `false`；DSH 没有 Guardian 审查，能调用到这里就说明没有禁用。
+- `x-codex-turn-metadata.model`：DSH 当前 agent 的模型 id，取 DSH agent 循环为最近一次请求
+  记录的请求头；拿不到就省略。
+- `x-codex-turn-metadata.reasoning_effort`：同一请求头里的推理强度；拿不到就省略。
+- `threadId` / `sessionId`：同一 agent 身份，按原生 camelCase 放在顶层。
+- `callId`：DSH 的工具调用 id（`exec.callId`）；执行上下文没有就省略。`pc_codex_run_plan`
+  的每个步骤和 check 用同一个 id。
+
+以下字段**不发**：DSH 没有可如实填写的值，编造会冒充 Codex，或清掉服务器自己的默认值：
+`codex_version`、`sandbox`、`sandbox_mode`、`plugin_id`、`windowId`、`itemId`、
+`forked_from_thread_id`、`parent_thread_id`、`subagent_kind`、`thread_source`、
+`turn_trigger`、`workspaces`、`user_input_requested_during_turn`、`traceparent`、
+`tracestate`、`codex_bridge_mcp_call_id`、`openai/readOnly`、`openai/entitlementContext`、
+`_codex_apps`、`codex/sandbox-launcher`、`openai/confirmation_policies`、
+`codex/sandbox-state`、`codex/sandbox-state-meta`。其中发 `openai/confirmation_policies: {}`
+会清掉服务器启动时的确认策略默认值；填 `codex/sandbox-state` 则等于替 DSH 声明一个服务器
+会怎样使用并不清楚的沙箱状态。
+
+`turn_ended` 保持旧的 `_meta`：只有 `x-codex-turn-metadata` 的 `session_id` 和 `turn_id`，
+与原生对齐是另一张卡片。
 
 ## 验证
 
@@ -409,6 +323,8 @@ npm run test:smoke
 ```
 
 冒烟测试会连接 Codex 并操作真实 Chrome。
+
+`npm test` 运行离线回归检查；`npm run test:smoke` 会连接 Codex 并操作浏览器。
 
 ## 实现
 
@@ -458,3 +374,13 @@ npm run test:smoke
   “仅可查看”/“工作区内修改”逐次确认），Codex 也可能记住授权而不再询问。
 - 每个服务器最多维持一个连接（浏览器一个、桌面一个）；插件被卸载或进程退出时两个子进程会一起结束。
 - 兜底分支只支持 `string` / `number` / `boolean` 三种原始参数；需要嵌套对象时必须在宿主里真正拿到 `defineTool`。
+
+## 变更记录
+
+变更记录见 [CHANGELOG.zh.md](CHANGELOG.zh.md)，英文版为 [CHANGELOG.md](CHANGELOG.md)。
+
+## 许可证
+
+Apache-2.0。版权行：Copyright 2026 Aruir。
+
+见 [LICENSE](LICENSE)。

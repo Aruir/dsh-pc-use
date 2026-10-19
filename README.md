@@ -2,154 +2,11 @@
 
 English | [中文](README.zh.md)
 
-## Renaming (0.4.0)
-
-- Package name and plugin id: `dsh-codex-cu` → `dsh-pc-use`, `id: codex-cu` → `id: pc-use`.
-- Tool names: `codex_js` / `codex_js_reset` / `codex_js_add_node_module_dir` / `codex_status`
-  became `pc_codex_js` / `pc_codex_js_reset` / `pc_codex_js_add_node_module_dir` / `pc_status`,
-  and `pc_codex_docs` was added.
-- Default log `~/.dsh/codex-cu.log` → `~/.dsh/pc-use.log`; default screenshot directory
-  `~/.dsh/codex-cu-images` → `~/.dsh/pc-use-images`.
-- **Profile overrides must use the new id:** `- id: codex-cu` has to become `- id: pc-use`,
-  otherwise it no longer applies.
-- State files are no longer used as of 0.4.1; old logs and screenshot directories are not migrated.
-- `dsh-computer-use` was not chosen: another DSH plugin with that name exists on npm, so the
-  marketplace could replace the wrong package when looking updates up by name. Hence `dsh-pc-use`.
-
-0.4.0 added: the rename to `dsh-pc-use`; `pc_codex_docs` for Codex's own docs; loading by package
-name with display name and icon; `pc_status` now groups by backend (`backends`).
-
-0.7.0 adds two tools, each with a switch (default on): `pc_codex_observe` reads a browser
-tab or desktop window in one read-only call, and `pc_codex_run_plan` runs 1 to 20 steps with
-optional checks and stops at the first failure. The js tool descriptions now ask for one
-checked program per call, and the top-level return hint now says that values are not
-returned automatically. Screenshots from the four code tools reach the model as images
-(`attachImages`, default on; screenshots go to the model provider); `keepImageFiles`
-(default off) also keeps them under `~/.dsh/pc-use-images`. When a desktop window has no
-accessibility tree, the tools say so and tell the model to judge by screenshot. Every
-browser js call wraps `cua.listTabs` so that it returns only the tabs this session opened.
-Every `tools/call` except `turn_ended` carries Codex turn metadata and call identities in
-`_meta` (see "Tool-call metadata"; derived from source, not verified on the wire).
-
-0.6.0 replaced the language row's native select with DSH's official primitives Menu (rounded
-button, chevron and hover style, injected once through a style element), falling back to the native
-select when the primitives module or Menu is unavailable. It also removed the
-`desktopApprovalChoices` switch — an incompatible change to the public config API — so desktop
-approvals always use the three-option card; only the missing question service and non-`ask` policy
-fallbacks remain. A profile that still carries the old field keeps loading: DSH's non-strict schema
-passes the unknown key through and the plugin ignores it, so the field can be left for later
-cleanup. The page top now follows the official "General" page: no page title or intro, the saved
-status is only exposed to screen readers, and conflict notices stay visible. It also fixes the
-live-testing issues: closes the desktop turn over Codex's native pipe so the cursor overlay
-disappears, adds no-retry / top-level-return / close-apps guidance, re-reads server config in
-`pc_status` (`reconnectPending`), records log write failures, follows the language setting on the
-settings page, shows "Restore default" only when the value differs, submits `unset` for emptied
-text fields, and removes test temp directories.
-
-0.5.5 shortened the settings page text: the first switch row is "Enable desktop control", the
-intro and footer keep one sentence each, and the interface-language row moved into a new "General"
-group at the end.
-
-0.5.4 aligned the settings page spacing with the built-in DSH settings pages: page title
-16/500/24, intro 14/22, row titles and descriptions with line heights, 12 px between groups, no
-gaps between rows, and no divider under the last row of a group.
-
-0.5.3 removed "Restore default" from the four switch rows (a switch can always be flipped
-back) and made a switch that returns to its default value remove the stored override instead of
-writing it again.
-
-0.5.2 moved "Saved" to the settings title row and "Restore default" to the left of each
-control, so the status text no longer shifts the options and each row's control stays aligned.
-
-0.5.1 fixed the settings page switches: the thumb now uses a real DSH theme token, so on and off
-are visible, and the switch is no longer squeezed by "Restore default".
-
-0.5.0 split the browser and the desktop into two servers, started the way the Codex app starts them:
-`cua_repl` for the browser and `node_repl` for Windows desktop apps. New desktop tools
-`pc_codex_desktop_js`, `pc_codex_desktop_js_reset` and
-`pc_codex_desktop_js_add_node_module_dir` (switches `tools.desktopJs` / `tools.desktopReset` /
-`tools.desktopAddNodeModuleDir`, all on by default); `pc_status` now reports `browser` and `desktop`
-sections and drops `servicesFrom`; each server keeps its own launch environment.
-
-0.4.3 added: a "PC Use" settings page in the DSH settings sidebar right below the plugin market,
-with desktop control, three-option card, remembered approvals, interface text, browser auto-approval,
-call timeout, Codex home and bridge log fields; `codexHome` became volatile, so the next call
-reconnects to the new Codex directory without remounting the plugin.
-
-0.4.2: fixed three issues found in live testing — `turn_ended` `_meta` used the next turn's turn id,
-waiting for an approval counted against the call timeout, and the plugin kept the old desktop helper
-pipe after Codex restarted; desktop approvals now use a three-option card (the approval policy
-"full access" keeps the original one-shot card);
-English support was added (`language` controls the text the plugin shows, `auto` by default
-following the DSH interface language).
-
-0.4.1 fixed: removed the `pc_codex_js_add_node_module_dir` tool, `tools.addNodeModuleDir` and the
-`stateFile` option; the bridge-level `session_id` is now generated randomly in memory and no state
-file is read or written; old profiles with those keys still load.
-
-0.3.2 fixed: desktop approvals are remembered per app within one DSH session
-(`rememberDesktopApprovals`); each finished turn notifies Codex via `turn_ended`, clearing the orange
-"using your computer" glow.
-
-0.3.1 fixed: documented desktop approvals and the DSH permission modes; `codex_status` (now
-`pc_status`) gained `servicesFrom`; test fixtures moved into `test/fixtures`.
-
-0.3.0 added: Windows desktop control (`computer`, off by default; desktop approvals follow DSH's
-approval policy).
-
-0.2.0 fixed:
-
-- Parameter schema fallback: without the host `defineTool`, the parameter DSL becomes an object JSON
-  Schema and arguments are validated before execution.
-- Volatile config fix: values passed by the loader as `Volatile` are unwrapped correctly, so changes
-  to `autoApprove` / `logFile` / `timeoutMs` take effect immediately.
-- Fail-closed approvals: `autoApprove` defaults to `false` and only browser-access approvals are
-  accepted automatically; every other elicitation is declined.
-- Approval log: every approval records the original wording, the decision (accept/decline) and the
-  reason, by default in `~/.dsh/pc-use.log`.
-- Screenshot cleanup: screenshots returned by tools are saved to `~/.dsh/pc-use-images` with an
-  extension chosen from the mimeType, and only the newest 50 files are kept.
-- Handshake failure cleanup: an initialize error, timeout or spawn failure terminates the child
-  process instead of treating an uninitialized connection as usable.
-- The client version is read from `package.json` instead of being hard-coded.
-
-`npm test` runs the offline regression checks; `npm run test:smoke` connects to Codex and drives the
-browser.
-
 This plugin turns **Codex Computer Use** into native DeepSeek Harness tools: it uses the local Codex
 app to drive the real Chrome through the browser server (`cua_repl`) and Windows desktop apps
 through the desktop server (`node_repl`), without any manual MCP configuration. The current backend
 is Codex; more backends will follow (see "Backends").
-
-Once installed, every agent preset automatically has:
-
-| Tool | Server | Purpose |
-|---|---|---|
-| `pc_codex_js` | browser | Preferred: one checked program in the persistent `cua_repl` kernel, using accessibility values and the `cua` API |
-| `pc_codex_js_reset` | browser | Reset the browser JS kernel (tabs stay open) |
-| `pc_codex_desktop_js` | desktop | Preferred: one checked program in the persistent `node_repl` kernel, using accessibility values and the `sky` API |
-| `pc_codex_desktop_js_reset` | desktop | Reset the desktop JS kernel (apps stay open) |
-| `pc_codex_desktop_js_add_node_module_dir` | desktop | Add a Node module directory to the desktop `node_repl` |
-| `pc_codex_observe` | browser / desktop | Read-only full accessibility tree/text for seeing the whole interface; screenshot is opt-in |
-| `pc_codex_run_plan` | browser / desktop | Fallback: 1–20 steps when step-by-step status or automatic observation after failure is needed |
-| `pc_codex_docs` | none | Read the Computer Use docs bundled with the local Codex installation (`skill` / `guidance` / `api` / `confirmations`) |
-| `pc_status` | none | Report the resolved configuration and connection state of both servers; check it first when another tool fails |
-
-### Choosing a tool
-
-1. **Preferred:** put the known consecutive steps in one program in `pc_codex_js` or
-   `pc_codex_desktop_js`; use `if`, loops and assertions, `throw` with an explanation when a
-   check fails, and print only what the next decision needs with `nodeRepl.write(...)` or
-   `console.log(...)`.
-2. Read accessibility-tree values in code (button enabled, input value, selected item) instead
-   of relying on screenshots; browser: `tab.getAXState`, desktop: `sky.get_window_state`
-   accessibility data. Filter and print only the needed fields.
-3. After a UI-changing step, the next program reads state first; do not reuse old element
-   indexes or coordinates.
-4. `pc_codex_run_plan` is the fallback when you need step-by-step status or automatic
-   observation after a failure; each step's code can also contain conditions and assertions.
-   Each step and each check is bounded by the single-call timeout.
-5. Use `pc_codex_observe` when you need to see the whole interface.
+Screenshots and page contents are sent to the model provider.
 
 ## Why this plugin is needed
 
@@ -170,43 +27,14 @@ server's source before using it. The launch environment is passed through unchan
 server uses the values from `.mcp.json` and the desktop server those from `config.toml`, exactly as
 the Codex app starts them.
 
-## Tool-call metadata
+## Prerequisites
 
-Every `tools/call` except `turn_ended` carries a `_meta` object built only from values DSH can
-truthfully give. The field set follows the Codex 0.163.0-alpha.10.2 source analysis in the r1
-audit; capture-native never recorded a live Codex `tools/call`, so **this is source-derived and
-has not been verified on the wire**:
-
-Fields sent:
-
-- `x-codex-turn-metadata.session_id` / `.thread_id`: the plugin's per-agent UUID (a native root
-  thread has `thread_id == session_id`).
-- `x-codex-turn-metadata.turn_id`: this DSH turn's UUID; it rotates when the DSH turn ends.
-- `x-codex-turn-metadata.turn_started_at_unix_ms`: when that turn identity was created, in Unix
-  ms (an integer). It stays fixed for the turn and grows after a rotation.
-- `x-codex-turn-metadata.auto_review_enabled`, `.node_repl_auto_review_required` and
-  `.node_repl_disabled`: always `false`; DSH has no Guardian review, and a call implies the
-  REPL is enabled.
-- `x-codex-turn-metadata.model`: the DSH agent's current model id, read from the request header
-  the DSH agent loop logged for its latest request; omitted when unavailable.
-- `x-codex-turn-metadata.reasoning_effort`: that header's reasoning effort; omitted when
-  unavailable.
-- `threadId` / `sessionId`: the same agent identity, top level in the native camelCase shape.
-- `callId`: the DSH tool-call id (`exec.callId`); omitted when the execution has none. Every
-  `pc_codex_run_plan` step and its check use the same id.
-
-These are deliberately not sent, because DSH has no honest value for them and inventing one would
-impersonate Codex or clear the server's own defaults: `codex_version`, `sandbox`, `sandbox_mode`,
-`plugin_id`, `windowId`, `itemId`, `forked_from_thread_id`, `parent_thread_id`, `subagent_kind`,
-`thread_source`, `turn_trigger`, `workspaces`, `user_input_requested_during_turn`, `traceparent`,
-`tracestate`, `codex_bridge_mcp_call_id`, `openai/readOnly`, `openai/entitlementContext`,
-`_codex_apps`, `codex/sandbox-launcher`, `openai/confirmation_policies`, `codex/sandbox-state`
-and `codex/sandbox-state-meta`. In particular, `openai/confirmation_policies: {}` would clear the
-confirmation defaults the server started with, and a filled `codex/sandbox-state` would declare a
-sandbox state for DSH while how the server uses it is unknown.
-
-`turn_ended` keeps the older `_meta`: only `x-codex-turn-metadata` with `session_id` and
-`turn_id`. Aligning it with the native shape is a separate change.
+- The Codex desktop app must be running (both servers connect to its native pipes);
+- The Chrome extension must be connected, so `await cua.listBrowsers()` inside `pc_codex_js` lists
+  `Chrome / type=extension`;
+- `<codexHome>/config.toml` must have an `[mcp_servers.node_repl]` section for desktop control;
+  when it is missing, only the desktop tools fail, and the error names the section;
+- Only Windows has been verified (Codex's Computer Use uses the `sky` native pipe on Windows).
 
 ## Installation
 
@@ -307,23 +135,39 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 If Codex changes the approval wording, browser and desktop approvals are both declined — a safe
 failure mode.
 
-## Screenshots and privacy
+## Tools and usage
 
-Screenshots returned by Codex are attached as images only when `attachImages` is on and the
-current model declares image input. If that fails, the plugin falls back to local path text.
-Images from a failed `pc_codex_run_plan` are kept as path text with the reason
-`tool call failed`.
+Once installed, every agent preset automatically has:
 
-Attaching sends the screenshot to the model provider. Per DSH 0.2.1-rc.2 source, the default
-upload path is the Files API: files expire after 7 days and are not deleted when the session
-ends. DSH's local attachment store keeps another copy; set `keepImageFiles: false` (the default)
-to avoid a second copy in `~/.dsh/pc-use-images`.
+| Tool | Server | Purpose |
+|---|---|---|
+| `pc_codex_js` | browser | Preferred: one checked program in the persistent `cua_repl` kernel, using accessibility values and the `cua` API |
+| `pc_codex_js_reset` | browser | Reset the browser JS kernel (tabs stay open) |
+| `pc_codex_desktop_js` | desktop | Preferred: one checked program in the persistent `node_repl` kernel, using accessibility values and the `sky` API |
+| `pc_codex_desktop_js_reset` | desktop | Reset the desktop JS kernel (apps stay open) |
+| `pc_codex_desktop_js_add_node_module_dir` | desktop | Add a Node module directory to the desktop `node_repl` |
+| `pc_codex_observe` | browser / desktop | Read-only full accessibility tree/text for seeing the whole interface; screenshot is opt-in |
+| `pc_codex_run_plan` | browser / desktop | Fallback: 1–20 steps when step-by-step status or automatic observation after failure is needed |
+| `pc_codex_docs` | none | Read the Computer Use docs bundled with the local Codex installation (`skill` / `guidance` / `api` / `confirmations`) |
+| `pc_status` | none | Report the resolved configuration and connection state of both servers; check it first when another tool fails |
 
-Each image costs roughly 184–1024 input tokens, and images in history are resent on every turn.
-To cap image size, use DSH's `imagePixelBudget` setting; the plugin does not change it. Turn
-`attachImages` off if screenshots must not leave the machine.
+### Choosing a tool
 
-## Settings page (0.4.3)
+1. **Preferred:** put the known consecutive steps in one program in `pc_codex_js` or
+   `pc_codex_desktop_js`; use `if`, loops and assertions, `throw` with an explanation when a
+   check fails, and print only what the next decision needs with `nodeRepl.write(...)` or
+   `console.log(...)`.
+2. Read accessibility-tree values in code (button enabled, input value, selected item) instead
+   of relying on screenshots; browser: `tab.getAXState`, desktop: `sky.get_window_state`
+   accessibility data. Filter and print only the needed fields.
+3. After a UI-changing step, the next program reads state first; do not reuse old element
+   indexes or coordinates.
+4. `pc_codex_run_plan` is the fallback when you need step-by-step status or automatic
+   observation after a failure; each step's code can also contain conditions and assertions.
+   Each step and each check is bounded by the single-call timeout.
+5. Use `pc_codex_observe` when you need to see the whole interface.
+
+## Settings page
 
 The DSH settings sidebar shows a "PC Use" page right below "Plugin market" (entry id `pc-use`; it
 only appears while the Host serves that entry). It can change:
@@ -449,6 +293,22 @@ approvals follow DSH's approval policy: under "full access" DSH does not ask and
 to confirm every time, use "read only" or "workspace write". Codex may also remember earlier grants
 and stop asking. `autoApprove` does not apply to desktop approvals.
 
+## Screenshots and privacy
+
+Screenshots returned by Codex are attached as images only when `attachImages` is on and the
+current model declares image input. If that fails, the plugin falls back to local path text.
+Images from a failed `pc_codex_run_plan` are kept as path text with the reason
+`tool call failed`.
+
+Attaching sends the screenshot to the model provider. Per DSH 0.2.1-rc.2 source, the default
+upload path is the Files API: files expire after 7 days and are not deleted when the session
+ends. DSH's local attachment store keeps another copy; set `keepImageFiles: false` (the default)
+to avoid a second copy in `~/.dsh/pc-use-images`.
+
+Each image costs roughly 184–1024 input tokens, and images in history are resent on every turn.
+To cap image size, use DSH's `imagePixelBudget` setting; the plugin does not change it. Turn
+`attachImages` off if screenshots must not leave the machine.
+
 ## Backends
 
 Only the Codex backend exists today: the `pc_codex_*` tools run through the local Codex desktop app.
@@ -458,14 +318,43 @@ groups by `backends`, currently only `backends.codex`, which reports its `browse
 servers separately. Config keys stay flat for now (`codexHome` etc.); whether to group them will be
 decided once a second backend has a concrete design.
 
-## Prerequisites
+## Tool-call metadata
 
-- The Codex desktop app must be running (both servers connect to its native pipes);
-- The Chrome extension must be connected, so `await cua.listBrowsers()` inside `pc_codex_js` lists
-  `Chrome / type=extension`;
-- `<codexHome>/config.toml` must have an `[mcp_servers.node_repl]` section for desktop control;
-  when it is missing, only the desktop tools fail, and the error names the section;
-- Only Windows has been verified (Codex's Computer Use uses the `sky` native pipe on Windows).
+Every `tools/call` except `turn_ended` carries a `_meta` object built only from values DSH can
+truthfully give. The field set follows the Codex 0.163.0-alpha.10.2 source analysis in the r1
+audit; capture-native never recorded a live Codex `tools/call`, so **this is source-derived and
+has not been verified on the wire**:
+
+Fields sent:
+
+- `x-codex-turn-metadata.session_id` / `.thread_id`: the plugin's per-agent UUID (a native root
+  thread has `thread_id == session_id`).
+- `x-codex-turn-metadata.turn_id`: this DSH turn's UUID; it rotates when the DSH turn ends.
+- `x-codex-turn-metadata.turn_started_at_unix_ms`: when that turn identity was created, in Unix
+  ms (an integer). It stays fixed for the turn and grows after a rotation.
+- `x-codex-turn-metadata.auto_review_enabled`, `.node_repl_auto_review_required` and
+  `.node_repl_disabled`: always `false`; DSH has no Guardian review, and a call implies the
+  REPL is enabled.
+- `x-codex-turn-metadata.model`: the DSH agent's current model id, read from the request header
+  the DSH agent loop logged for its latest request; omitted when unavailable.
+- `x-codex-turn-metadata.reasoning_effort`: that header's reasoning effort; omitted when
+  unavailable.
+- `threadId` / `sessionId`: the same agent identity, top level in the native camelCase shape.
+- `callId`: the DSH tool-call id (`exec.callId`); omitted when the execution has none. Every
+  `pc_codex_run_plan` step and its check use the same id.
+
+These are deliberately not sent, because DSH has no honest value for them and inventing one would
+impersonate Codex or clear the server's own defaults: `codex_version`, `sandbox`, `sandbox_mode`,
+`plugin_id`, `windowId`, `itemId`, `forked_from_thread_id`, `parent_thread_id`, `subagent_kind`,
+`thread_source`, `turn_trigger`, `workspaces`, `user_input_requested_during_turn`, `traceparent`,
+`tracestate`, `codex_bridge_mcp_call_id`, `openai/readOnly`, `openai/entitlementContext`,
+`_codex_apps`, `codex/sandbox-launcher`, `openai/confirmation_policies`, `codex/sandbox-state`
+and `codex/sandbox-state-meta`. In particular, `openai/confirmation_policies: {}` would clear the
+confirmation defaults the server started with, and a filled `codex/sandbox-state` would declare a
+sandbox state for DSH while how the server uses it is unknown.
+
+`turn_ended` keeps the older `_meta`: only `x-codex-turn-metadata` with `session_id` and
+`turn_id`. Aligning it with the native shape is a separate change.
 
 ## Verification
 
@@ -485,6 +374,9 @@ npm run test:smoke
 ```
 
 The smoke test connects to Codex and drives the real Chrome.
+
+`npm test` runs the offline regression checks; `npm run test:smoke` connects to Codex and drives the
+browser.
 
 ## Implementation
 
@@ -554,3 +446,14 @@ the profile as well.
   exiting the process terminates both child processes.
 - The fallback only supports the `string` / `number` / `boolean` primitive parameters; nested objects
   require the host's real `defineTool`.
+
+## Changelog
+
+Release history: [CHANGELOG.md](CHANGELOG.md) (Chinese:
+[CHANGELOG.zh.md](CHANGELOG.zh.md)).
+
+## License
+
+Apache-2.0. Copyright 2026 Aruir.
+
+See [LICENSE](LICENSE).

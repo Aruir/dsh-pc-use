@@ -45,7 +45,7 @@
     "cua",
     "chrome"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "files": [
     "index.js",
     "client.js",
@@ -53,6 +53,9 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CHANGELOG.zh.md",
     "README.md",
     "README.zh.md"
   ],

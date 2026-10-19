@@ -194,7 +194,8 @@ test('the package ships the browser client and settings manifest', () => {
   ].sort())
   for (const entry of [
     'client.js', 'index.js', 'lib', 'cordis.patch.yml', 'locale/*.json',
-    'icon.svg', 'README.md', 'README.zh.md',
+    'icon.svg', 'LICENSE', 'CHANGELOG.md', 'CHANGELOG.zh.md', 'README.md',
+    'README.zh.md',
   ]) {
     assert.ok(pkg.files.includes(entry), `files must include ${entry}`)
   }
@@ -209,7 +210,8 @@ test('the package ships the browser client and settings manifest', () => {
   const packed = JSON.parse(result.stdout.slice(start))[0].files.map((file) => file.path)
   for (const entry of [
     'client.js', 'index.js', 'lib/text.js', 'lib/mcp-bridge.js', 'cordis.patch.yml',
-    'locale/en.json', 'locale/zh.json', 'icon.svg', 'README.md', 'README.zh.md',
+    'locale/en.json', 'locale/zh.json', 'icon.svg', 'LICENSE', 'CHANGELOG.md',
+    'CHANGELOG.zh.md', 'README.md', 'README.zh.md',
   ]) {
     assert.ok(packed.includes(entry), `npm pack must ship ${entry}`)
   }
