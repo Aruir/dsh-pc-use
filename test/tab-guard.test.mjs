@@ -230,7 +230,7 @@ test('the browser description documents the guarded listTabs and bypass warning'
   const context = browserContext()
   try {
     const description = context.plugin.tools.get('pc_codex_js').description
-    assert.match(description, /only tabs opened by this session via `cua\.createBrowserTab`/)
+    assert.match(description, /`cua\.listTabs\(\)` returns only plugin tabs/)
     assert.match(description, /other user tabs are filtered out/)
     assert.match(description, /check your own tab by id/)
     assert.match(description, /`browser\.user\.openTabs\(\)`/)

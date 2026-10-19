@@ -207,11 +207,11 @@ test('a missing node_repl section only breaks desktop', async () => {
       },
     )
     const status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    assert.equal(status.backends.codex.browser.resolved, true)
-    assert.equal(status.backends.codex.desktop.resolved, false)
-    assert.match(status.backends.codex.desktop.reason, /mcp_servers\.node_repl/)
-    assert.equal(status.backends.codex.desktop.connected, false)
-    assert.equal(status.backends.codex.desktop.services, null)
+    assert.equal(status.providers.codex.browser.resolved, true)
+    assert.equal(status.providers.codex.desktop.resolved, false)
+    assert.match(status.providers.codex.desktop.reason, /mcp_servers\.node_repl/)
+    assert.equal(status.providers.codex.desktop.connected, false)
+    assert.equal(status.providers.codex.desktop.services, null)
   } finally {
     assert.equal(await stopServers(context), true)
   }
@@ -221,28 +221,28 @@ test('pc_status reports null services on both sides while disconnected', async (
   const context = startServers()
   try {
     const status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    assert.deepEqual(Object.keys(status), ['backends'])
+    assert.deepEqual(Object.keys(status), ['providers'])
     assert.deepEqual(
-      Object.keys(status.backends.codex),
+      Object.keys(status.providers.codex),
       ['codexHome', 'autoApprove', 'computer', 'browser', 'desktop', 'log'],
     )
-    const codex = status.backends.codex
+    const codex = status.providers.codex
     assert.equal(codex.codexHome, context.codexHome)
     assert.equal(codex.autoApprove, false)
     assert.equal(codex.computer, false)
     for (const side of ['browser', 'desktop']) {
-      const backend = codex[side]
-      assert.deepEqual(Object.keys(backend), [
+      const server = codex[side]
+      assert.deepEqual(Object.keys(server), [
         'resolved', 'reason', 'source', 'command', 'cwd', 'nativePipe', 'connected', 'services',
         'connectedPipe', 'reconnectPending',
       ], side)
-      assert.equal(backend.resolved, true, side)
-      assert.equal(backend.connected, false, side)
-      assert.equal(backend.services, null, side)
-      assert.equal(backend.nativePipe, side === 'browser' ? 'pipe-browser' : null, side)
-      assert.equal(typeof backend.source, 'string', side)
-      assert.equal(backend.command, process.execPath, side)
-      assert.equal(backend.cwd, context.home, side)
+      assert.equal(server.resolved, true, side)
+      assert.equal(server.connected, false, side)
+      assert.equal(server.services, null, side)
+      assert.equal(server.nativePipe, side === 'browser' ? 'pipe-browser' : null, side)
+      assert.equal(typeof server.source, 'string', side)
+      assert.equal(server.command, process.execPath, side)
+      assert.equal(server.cwd, context.home, side)
     }
     assert.equal(codex.browser.source, join(
       context.codexHome, 'plugins', 'cache', 'openai-bundled', 'unified-computer-use',

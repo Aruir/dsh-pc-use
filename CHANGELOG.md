@@ -2,6 +2,13 @@
 
 [中文](CHANGELOG.zh.md) | English
 
+## Unreleased
+
+`pc_status` renames its top-level key `backends` to `providers`; this is a breaking change. The
+documentation and the tool descriptions now use the terms of the glossary (provider, plugin tabs,
+DSH session) and state that after a kernel reset or a browser reconnect, earlier tabs no longer
+count as plugin tabs.
+
 ## 0.8.0
 
 0.8.0 adds the `allowUserTabs` switch (default off; a change applies to later calls) and puts

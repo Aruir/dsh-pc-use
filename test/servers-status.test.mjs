@@ -35,7 +35,7 @@ test('pc_status reports each connected server with its own services and native p
     await runBrowser(context)
     await runDesktop(context)
     const status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    const codex = status.backends.codex
+    const codex = status.providers.codex
     assert.equal(codex.computer, true)
     assert.equal(codex.autoApprove, false)
     for (const side of ['browser', 'desktop']) {
@@ -59,7 +59,7 @@ test('turning computer off stops the desktop server and clears its status only',
     await runDesktop(context)
     computer[WRITE](false)
     const status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    const codex = status.backends.codex
+    const codex = status.providers.codex
     assert.equal(codex.computer, false)
     assert.equal(codex.browser.connected, true)
     assert.equal(codex.desktop.connected, false)
@@ -77,12 +77,12 @@ test('a browser source that does not resolve leaves the desktop side intact', as
   try {
     await runDesktop(context)
     const status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    assert.equal(status.backends.codex.browser.resolved, false)
-    assert.equal(typeof status.backends.codex.browser.reason, 'string')
-    assert.equal(status.backends.codex.browser.connected, false)
-    assert.equal(status.backends.codex.desktop.resolved, true)
-    assert.equal(status.backends.codex.desktop.connected, true)
-    assert.deepEqual(status.backends.codex.desktop.services, ['sky'])
+    assert.equal(status.providers.codex.browser.resolved, false)
+    assert.equal(typeof status.providers.codex.browser.reason, 'string')
+    assert.equal(status.providers.codex.browser.connected, false)
+    assert.equal(status.providers.codex.desktop.resolved, true)
+    assert.equal(status.providers.codex.desktop.connected, true)
+    assert.deepEqual(status.providers.codex.desktop.services, ['sky'])
   } finally {
     assert.equal(await stopServers(context), true)
   }
@@ -100,14 +100,14 @@ test('pc_status re-reads config and flags a pending reconnect', async () => {
       { ...DESKTOP_ENV, SKY_CUA_NATIVE_PIPE_DIRECTORY: 'pipe-desktop-new' },
     )
     let status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    assert.equal(status.backends.codex.desktop.nativePipe, 'pipe-desktop-new')
-    assert.equal(status.backends.codex.desktop.connectedPipe, null)
-    assert.equal(status.backends.codex.desktop.reconnectPending, true)
+    assert.equal(status.providers.codex.desktop.nativePipe, 'pipe-desktop-new')
+    assert.equal(status.providers.codex.desktop.connectedPipe, null)
+    assert.equal(status.providers.codex.desktop.reconnectPending, true)
     await runDesktop(context)
     status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    assert.equal(status.backends.codex.desktop.nativePipe, 'pipe-desktop-new')
-    assert.equal(status.backends.codex.desktop.connectedPipe, 'pipe-desktop-new')
-    assert.equal(status.backends.codex.desktop.reconnectPending, false)
+    assert.equal(status.providers.codex.desktop.nativePipe, 'pipe-desktop-new')
+    assert.equal(status.providers.codex.desktop.connectedPipe, 'pipe-desktop-new')
+    assert.equal(status.providers.codex.desktop.reconnectPending, false)
   } finally {
     assert.equal(await stopServers(context), true)
   }

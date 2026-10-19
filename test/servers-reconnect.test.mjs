@@ -99,8 +99,8 @@ test('an unreadable desktop config keeps the desktop connection', async () => {
       /Codex server re-check failed; keeping the current connection/,
     )
     const status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    assert.equal(status.backends.codex.desktop.connected, true)
-    assert.deepEqual(status.backends.codex.desktop.services, ['sky'])
+    assert.equal(status.providers.codex.desktop.connected, true)
+    assert.deepEqual(status.providers.codex.desktop.services, ['sky'])
     assert.equal(await stopServers(context), true)
   } finally {
     await stopServers(context)
@@ -125,12 +125,12 @@ test('codexHome change fails both tools and reports both unresolved', async () =
     await assert.rejects(() => runDesktop(context), /dsh-pc-use: cannot read/)
     assert.equal(await waitFor(() => !isRunning(browserPid) && !isRunning(desktopPid)), true)
     const status = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    assert.equal(status.backends.codex.codexHome, missing)
+    assert.equal(status.providers.codex.codexHome, missing)
     for (const side of ['browser', 'desktop']) {
-      assert.equal(status.backends.codex[side].resolved, false, side)
-      assert.equal(typeof status.backends.codex[side].reason, 'string', side)
-      assert.equal(status.backends.codex[side].connected, false, side)
-      assert.equal(status.backends.codex[side].services, null, side)
+      assert.equal(status.providers.codex[side].resolved, false, side)
+      assert.equal(typeof status.providers.codex[side].reason, 'string', side)
+      assert.equal(status.providers.codex[side].connected, false, side)
+      assert.equal(status.providers.codex[side].services, null, side)
     }
     const log = readLog(context)
     assert.match(log, /Codex home changed; reconnecting \(browser\)/)
@@ -143,10 +143,10 @@ test('codexHome change fails both tools and reports both unresolved', async () =
     assert.equal(await waitFor(() => context.browserStart().length === 2), true)
     assert.equal(await waitFor(() => context.desktopStart().length === 2), true)
     const repaired = JSON.parse(await context.plugin.tools.get('pc_status').execute({}, {}))
-    assert.equal(repaired.backends.codex.browser.resolved, true)
-    assert.equal(repaired.backends.codex.desktop.resolved, true)
-    assert.equal(repaired.backends.codex.browser.connected, true)
-    assert.equal(repaired.backends.codex.desktop.connected, true)
+    assert.equal(repaired.providers.codex.browser.resolved, true)
+    assert.equal(repaired.providers.codex.desktop.resolved, true)
+    assert.equal(repaired.providers.codex.browser.connected, true)
+    assert.equal(repaired.providers.codex.desktop.connected, true)
     assert.equal(await stopServers(context), true)
   } finally {
     await stopServers(context)

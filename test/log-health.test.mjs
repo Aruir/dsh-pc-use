@@ -43,15 +43,15 @@ test('a failed log write is reported and a later success marks it recovered', as
     // Any tool call writes the connection log line, which fails on the blocked path.
     await plugin.tools.get('pc_codex_js').execute({ code: '1', title: 'health' }, {})
     let report = await status(plugin)
-    assert.equal(report.backends.codex.log.path, join(badPath, 'bridge.log'))
-    assert.equal(report.backends.codex.log.writable, false)
-    assert.equal(typeof report.backends.codex.log.lastError.kind, 'string')
+    assert.equal(report.providers.codex.log.path, join(badPath, 'bridge.log'))
+    assert.equal(report.providers.codex.log.writable, false)
+    assert.equal(typeof report.providers.codex.log.lastError.kind, 'string')
     logFile[WRITE](goodPath)
     await plugin.tools.get('pc_codex_js').execute({ code: '2', title: 'health' }, {})
     report = await status(plugin)
-    assert.equal(report.backends.codex.log.path, goodPath)
-    assert.equal(report.backends.codex.log.writable, true)
-    assert.equal(report.backends.codex.log.lastError.recovered, true)
+    assert.equal(report.providers.codex.log.path, goodPath)
+    assert.equal(report.providers.codex.log.writable, true)
+    assert.equal(report.providers.codex.log.lastError.recovered, true)
   } finally {
     plugin.dispose()
     void home

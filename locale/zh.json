@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "电脑操控",
-    "description": "通过本机 Codex 操作真实的 Chrome 与 Windows 桌面应用；目前后端为 Codex，需要 Codex 桌面应用正在运行，后续将支持更多后端。"
+    "description": "通过本机 Codex 操作真实的 Chrome 与 Windows 桌面应用；目前提供方为 Codex，需要 Codex 桌面应用正在运行，后续将支持更多提供方。"
   }
 }

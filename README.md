@@ -4,9 +4,9 @@ English | [中文](README.zh.md)
 
 This plugin turns **Codex Computer Use** into native DeepSeek Harness tools. It uses the local Codex
 app to drive the real Chrome through the browser server (`cua_repl`) and Windows desktop apps
-through the desktop server (`node_repl`), without manual MCP configuration. The current backend is
-Codex; other backends will be added later (see "Backends"). Screenshots and page contents are sent
-to the model provider.
+through the desktop server (`node_repl`), without manual MCP configuration. The current Computer Use
+provider is Codex; other providers will be added later (see "Providers"). Screenshots and page
+contents are sent to the model provider.
 
 ## Purpose
 
@@ -89,7 +89,7 @@ All fields are optional and belong in the `config:` block of `cordis.patch.yml`.
 | `codexHome` | `''` | An empty value means `%USERPROFILE%\.codex` |
 | `logFile` | `''` | Bridge log path; an empty value means `~/.dsh/pc-use.log` |
 | `timeoutMs` | `120000` | Timeout for one tool call |
-| `attachImages` | `true` | Attach screenshots as images when the model declares image input; screenshots go to the model provider, the default Files API upload of DSH expires after 7 days and is not deleted at session end, and the DSH attachment store keeps a local copy; turn it off to avoid uploads |
+| `attachImages` | `true` | Attach screenshots as images when the model declares image input; screenshots go to the model provider, the default Files API upload of DSH expires after 7 days and is not deleted at DSH session end, and the DSH attachment store keeps a local copy; turn it off to avoid uploads |
 | `keepImageFiles` | `false` | Also keep attached images under `~/.dsh/pc-use-images`; by default only the DSH attachment store keeps them |
 | `allowUserTabs` | `false` | Allow reading the tabs and history of the user; the covered entrances are listed below |
 | `tools` | all on | Per-tool switches: `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` |
@@ -103,11 +103,13 @@ All fields are optional and belong in the `config:` block of `cordis.patch.yml`.
 `allowUserTabs` governs `browser.user.openTabs`, `browser.user.claimTab`,
 `browser.user.getTabContext`, `browser.history`, `cua.getTab`, `cua.getState`,
 `browser.tabs.get` and `browser.tabs.content`. While it is off, the first four calls fail with an
-explanatory error; `cua.getTab`, `browser.tabs.get` and `browser.tabs.content` only accept the tabs
-of this session; `cua.getState` lists only those tabs. `browser.tabs.list` and
-`browser.tabs.selected` only see the tabs of this session and pass through. While it is on, tab
-titles, URLs, page content and history are sent to the model provider, so it is enabled only when
-the user has asked for that.
+explanatory error; `cua.getTab`, `browser.tabs.get` and `browser.tabs.content` only accept plugin
+tabs; `cua.getState` lists only plugin tabs. `browser.tabs.list` and `browser.tabs.selected` only
+see plugin tabs and pass through. A plugin tab is a Chrome tab opened or claimed through this
+plugin since the current browser kernel started; after `pc_codex_js_reset` or a browser reconnect,
+earlier tabs no longer count. All DSH sessions share the same plugin tabs. While `allowUserTabs`
+is on, tab titles, URLs, page content and history are sent to the model provider, so it is enabled
+only when the user has asked for that.
 
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /
 `codexHome` / `logFile` / `timeoutMs` / `attachImages` / `keepImageFiles` /
@@ -261,9 +263,9 @@ failures are not. The user is asked again after the desktop bridge reconnects (f
 `computer`, a `node_repl` change or a process restart), in a new DSH session, or after setting
 `rememberDesktopApprovals` to `false` (the next call or approval request while it is off clears the
 memory). A browser bridge reconnect does not clear remembered desktop approvals. To request a new
-prompt immediately, the most reliable way is to start a new session or toggle `computer` once. Note:
-if the user tightens the permission mode later, apps that were already remembered in this session
-still pass.
+prompt immediately, the most reliable way is to start a new DSH session or toggle `computer` once.
+Note: if the user tightens the permission mode later, apps that were already remembered in this DSH
+session still pass.
 
 Desktop approvals show the DSH three-option card by default: `允许这一次` (allow this step only, not
 remembered), `本次会话内允许` (the same agent and app are not asked again in this DSH session; it
@@ -319,7 +321,7 @@ model declares image input. If that fails, the plugin falls back to local path t
 failed `pc_codex_run_plan` are kept as path text with the reason `tool call failed`.
 
 Attaching sends the screenshot to the model provider. Per DSH 0.2.1-rc.2 source, the default upload
-path is the Files API: files expire after 7 days and are not deleted when the session ends. The
+path is the Files API: files expire after 7 days and are not deleted when the DSH session ends. The
 local attachment store of DSH keeps another copy; `keepImageFiles: false` (the default) avoids a
 second copy in `~/.dsh/pc-use-images`.
 
@@ -327,14 +329,14 @@ Each image costs roughly 184–1024 input tokens, and images in history are rese
 cap image size, use the `imagePixelBudget` setting of DSH; the plugin does not change it.
 `attachImages` is turned off if screenshots must not leave the machine.
 
-## Backends
+## Providers
 
-Only the Codex backend exists today: the `pc_codex_*` tools run through the local Codex desktop app.
-The naming already reserves room for other backends: tools exclusive to Codex use the `pc_codex_`
-prefix, and the computer use of Claude will sit next to it under `pc_claude_`; the top level of
-`pc_status` groups by `backends`, currently only `backends.codex`, which reports its `browser` and
-`desktop` servers separately. Config keys stay flat for now (`codexHome` etc.); whether to group
-them will be decided once a second backend has a concrete design.
+Only the Codex provider exists today: the `pc_codex_*` tools run through the local Codex desktop
+app. The naming already reserves room for other providers: tools exclusive to Codex use the
+`pc_codex_` prefix, and the computer use of Claude will sit next to it under `pc_claude_`; the top
+level of `pc_status` groups by `providers`, currently only `providers.codex`, which reports its
+`browser` and `desktop` servers separately. Config keys stay flat for now (`codexHome` etc.);
+whether to group them will be decided once a second provider has a concrete design.
 
 ## Tool-call metadata
 
@@ -381,7 +383,7 @@ how the server uses it is unknown.
 await cua.listBrowsers();
 ```
 
-Alternatively, call `pc_status` first and inspect `backends.codex`: it has `codexHome`,
+Alternatively, call `pc_status` first and inspect `providers.codex`: it has `codexHome`,
 `autoApprove`, `computer` and a `browser` and a `desktop` section. Each section reports `resolved`,
 `reason`, `source`, `command`, `cwd`, `nativePipe`, `connected` and `services`. Before the first
 connection, `connected` is `false` and `services` is `null`, which is normal; when a source cannot
@@ -458,15 +460,16 @@ available in the profile as well.
   Calculator, even with `include_text: true` (openai/codex#52319). The plugin tells the model to
   use a screenshot in that case; the model must not inspect logs, configuration or the disk for the
   cause, and must stop and tell the user if the screenshot is insufficient.
-- Browser `cua.listTabs()` is guarded: it only returns tabs opened by this session through
-  `cua.createBrowserTab`; other user tabs are filtered out. The guard is misuse protection, not a
-  security boundary; a reset or server restart forgets earlier tabs, and the prepended guard
-  shifts line numbers in model-code errors.
+- Browser `cua.listTabs()` is guarded: it only returns plugin tabs; other user tabs are filtered
+  out. A plugin tab is a Chrome tab opened or claimed through this plugin since the current browser
+  kernel started; after `pc_codex_js_reset` or a browser reconnect, earlier tabs no longer count,
+  and all DSH sessions share the same plugin tabs. The guard is misuse protection, not a security
+  boundary; the prepended guard shifts line numbers in model-code errors.
 - `allowUserTabs` (default off) covers `browser.user.openTabs`, `claimTab`,
   `getTabContext`, `browser.history`, `cua.getTab`, `cua.getState`, `browser.tabs.get`
   and `browser.tabs.content` on objects obtained through `cua.getBrowser` or
   `cua.browsers.{get,getDefault,getForUrl}`. `browser.tabs.list` and
-  `browser.tabs.selected` only see the tabs of this session and pass through. This is misuse
+  `browser.tabs.selected` only see plugin tabs and pass through. This is misuse
   protection, not a security boundary: model code can rewrite the Symbol that the wrapper
   reads. On a frozen Browser, reading `browser.user` or `browser.history` with the switch
   off throws the guard error.

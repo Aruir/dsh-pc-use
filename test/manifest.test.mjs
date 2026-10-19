@@ -135,24 +135,24 @@ test('pc_codex_js points desktop work at pc_codex_desktop_js', () => {
   }
 })
 
-test('pc_status reports separate browser and desktop backends', async () => {
+test('pc_status reports separate browser and desktop servers', async () => {
   const plugin = register()
   try {
     const status = JSON.parse(await plugin.tools.get('pc_status').execute({}, {}))
-    assert.deepEqual(Object.keys(status), ['backends'])
-    const codex = status.backends.codex
+    assert.deepEqual(Object.keys(status), ['providers'])
+    const codex = status.providers.codex
     assert.equal(typeof codex.codexHome, 'string')
     assert.equal(codex.autoApprove, false)
     assert.equal(codex.computer, false)
     assert.equal(codex.servicesFrom, undefined)
     assert.equal(status.connected, undefined)
     for (const side of ['browser', 'desktop']) {
-      const backend = codex[side]
-      assert.equal(typeof backend, 'object', side)
-      assert.equal(backend.resolved, false, side)
-      assert.equal(typeof backend.reason, 'string', side)
-      assert.equal(backend.connected, false, side)
-      assert.equal(backend.services, null, side)
+      const server = codex[side]
+      assert.equal(typeof server, 'object', side)
+      assert.equal(server.resolved, false, side)
+      assert.equal(typeof server.reason, 'string', side)
+      assert.equal(server.connected, false, side)
+      assert.equal(server.services, null, side)
     }
   } finally {
     plugin.dispose()

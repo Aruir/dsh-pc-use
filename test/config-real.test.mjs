@@ -169,8 +169,8 @@ test('pc_status reports the configured codexHome as a string', async (t) => {
   try {
     const status = plugin.tools.get('pc_status')
     const report = JSON.parse(await status.execute({}, {}))
-    assert.equal(typeof report.backends.codex.codexHome, 'string')
-    assert.equal(report.backends.codex.codexHome, codexHome)
+    assert.equal(typeof report.providers.codex.codexHome, 'string')
+    assert.equal(report.providers.codex.codexHome, codexHome)
   } finally {
     plugin.dispose()
     restore()
@@ -185,7 +185,7 @@ test('the real config path reads volatile values when they are used', async (t) 
   const plugin = registerPlugin(validate({ ...bundlePatch(codexHome), autoApprove: true }))
   try {
     const report = JSON.parse(await plugin.tools.get('pc_status').execute({}, {}))
-    assert.equal(report.backends.codex.autoApprove, true)
+    assert.equal(report.providers.codex.autoApprove, true)
   } finally {
     plugin.dispose()
     restore()

@@ -4,7 +4,7 @@
 
 本插件把 **Codex Computer Use** 接入 DeepSeek Harness，作为原生工具使用。插件通过浏览器服务器
 （`cua_repl`）调用本机 Codex，操作真实的 Chrome；通过桌面服务器（`node_repl`）操作 Windows
-桌面应用。使用前不需要手工配置 MCP。目前后端为 Codex，以后会增加其他后端，见“后端”一节。
+桌面应用。使用前不需要手工配置 MCP。目前提供方为 Codex，以后会增加其他提供方，见“提供方”一节。
 截图与页面内容会发送给模型服务商。
 
 ## 插件用途
@@ -84,7 +84,7 @@ bundle 层已经插入 `pc-use`。在 profile 的 `cordis.patch.yml` 中，**只
 | `codexHome` | `''` | 空值表示 `%USERPROFILE%\.codex` |
 | `logFile` | `''` | 桥接日志路径；空值表示 `~/.dsh/pc-use.log` |
 | `timeoutMs` | `120000` | 单次调用超时 |
-| `attachImages` | `true` | 模型声明支持图片输入时，将截图作为图片附加；截图会发送给模型服务商，按 DSH 0.2.1-rc.2 源码默认经 Files API 上传，有效期为 7 天，会话结束时不删除；本机 DSH 附件库另存一份；不需要上传时关闭 |
+| `attachImages` | `true` | 模型声明支持图片输入时，将截图作为图片附加；截图会发送给模型服务商，按 DSH 0.2.1-rc.2 源码默认经 Files API 上传，有效期为 7 天，DSH 会话结束时不删除；本机 DSH 附件库另存一份；不需要上传时关闭 |
 | `keepImageFiles` | `false` | 附加图片时，同时在本机 `~/.dsh/pc-use-images` 保存一份；默认只由 DSH 附件库保存 |
 | `allowUserTabs` | `false` | 允许读取用户的浏览器标签页与浏览历史；覆盖的入口见下文 |
 | `tools` | 全开 | `{ js, reset, desktopJs, desktopReset, desktopAddNodeModuleDir, observe, runPlan, docs, status }` 逐项开关 |
@@ -98,10 +98,12 @@ bundle 层已经插入 `pc-use`。在 profile 的 `cordis.patch.yml` 中，**只
 `allowUserTabs` 控制 `browser.user.openTabs`、`browser.user.claimTab`、
 `browser.user.getTabContext`、`browser.history`、`cua.getTab`、`cua.getState`、
 `browser.tabs.get` 与 `browser.tabs.content`。关闭时，前四项调用报错并说明原因；
-`cua.getTab`、`browser.tabs.get`、`browser.tabs.content` 只接受本会话的标签页；
-`cua.getState` 只列出本会话的标签页。`browser.tabs.list` 与 `browser.tabs.selected`
-只涉及本会话的标签页，原样放行。打开后，标签页标题、网址、页面内容或历史会发送给模型服务商；
-仅在用户明确要求时打开。
+`cua.getTab`、`browser.tabs.get`、`browser.tabs.content` 只接受插件标签页；
+`cua.getState` 只列出插件标签页。`browser.tabs.list` 与 `browser.tabs.selected`
+只涉及插件标签页，原样放行。插件标签页是浏览器内核本次启动后经本插件打开或认领的标签页；
+`pc_codex_js_reset` 或浏览器重连后，之前的标签页不再算。同一个 DSH 进程里的所有 DSH 会话
+共用同一份插件标签页。打开 `allowUserTabs` 后，标签页标题、网址、页面内容或历史会发送给模型
+服务商；仅在用户明确要求时打开。
 
 `autoApprove` / `computer` / `rememberDesktopApprovals` / `language` /
 `codexHome` / `logFile` / `timeoutMs` / `attachImages` / `keepImageFiles` /
@@ -230,8 +232,8 @@ Codex 应用一致：
 记住。以下情况会重新询问：桌面桥接重连（例如切换 `computer`、`node_repl` 变化或进程重启）、
 新建 DSH 会话，或将 `rememberDesktopApprovals` 设为 `false`（关闭期间的下一次调用或授权请求
 会清空记录）。浏览器桥接重连不会清空已记住的桌面审批。若需立即重新询问，最可靠的方式是
-新建会话或切换一次 `computer`。注意：如果用户之后收紧权限模式，本会话内已记住的应用仍会
-放行。
+新建 DSH 会话或切换一次 `computer`。注意：如果用户之后收紧权限模式，本 DSH 会话内已记住的
+应用仍会放行。
 
 桌面审批默认显示 DSH 三选项卡片：`允许这一次`（仅批准这一步，不记住）、
 `本次会话内允许`（同一 agent、同一应用在本次 DSH 会话内不再询问；重新连接或重启后失效）和
@@ -279,20 +281,20 @@ DSH 不询问并直接放行；如需逐次确认，请使用“仅可查看”�
 `tool call failed`。
 
 附加图片会将截图发送给模型服务商。按 DSH 0.2.1-rc.2 源码，默认经 Files API 上传：文件
-有效期为 7 天，会话结束时不删除。DSH 本机附件库还会保存一份；保持 `keepImageFiles: false`
+有效期为 7 天，DSH 会话结束时不删除。DSH 本机附件库还会保存一份；保持 `keepImageFiles: false`
 （默认）可避免在 `~/.dsh/pc-use-images` 再保存第二份。
 
 每张图片约消耗 184–1024 个输入 token；历史中的图片每轮都会重新发送。可在 DSH 设置中使用
 `imagePixelBudget` 限制图片大小；插件不修改该设置。如果截图不能离开本机，请关闭
 `attachImages`。
 
-## 后端
+## 提供方
 
-目前只有 Codex 后端：`pc_codex_*` 工具通过本机 Codex 桌面应用执行。命名已为其他后端预留：
+目前只有 Codex 提供方：`pc_codex_*` 工具通过本机 Codex 桌面应用执行。命名已为其他提供方预留：
 只属于 Codex 的工具使用 `pc_codex_` 前缀，以后 Claude 的 computer use 会以 `pc_claude_`
-前缀与之并列。`pc_status` 的顶层按 `backends` 分组，当前只有 `backends.codex`；其内部再
+前缀与之并列。`pc_status` 的顶层按 `providers` 分组，当前只有 `providers.codex`；其内部再
 分别报告 `browser` 与 `desktop` 两个服务器。配置键暂时保持扁平（`codexHome` 等）；等第二个
-后端有具体设计后，再决定是否分组。
+提供方有具体设计后，再决定是否分组。
 
 ## 工具调用元数据
 
@@ -335,7 +337,7 @@ DSH 不询问并直接放行；如需逐次确认，请使用“仅可查看”�
 await cua.listBrowsers();
 ```
 
-也可以先调用 `pc_status`，查看 `backends.codex`。该对象包含 `codexHome`、`autoApprove`、
+也可以先调用 `pc_status`，查看 `providers.codex`。该对象包含 `codexHome`、`autoApprove`、
 `computer`，以及 `browser` 与 `desktop` 两节。每节报告 `resolved`、`reason`、`source`、
 `command`、`cwd`、`nativePipe`、`connected` 与 `services`。第一次连接之前，`connected` 为
 `false`，`services` 为 `null`，这属于正常状态；来源解析失败时，`resolved` 为 `false`，
@@ -398,14 +400,15 @@ devDependency 带来的效果：本地执行 `npm install` 后，插件目录中
 - 部分 Windows 版本上，Codex 对某些应用（例如记事本、计算器）不返回无障碍树，即使
   `include_text: true` 也是如此（openai/codex#52319）。此时插件提示模型改用截图；模型不得
   为查找原因而读取日志、配置或在磁盘上搜索；截图不足时，模型应停止并告知用户。
-- 浏览器 `cua.listTabs()` 受守卫包装：只返回本会话通过 `cua.createBrowserTab` 打开的标签页，
-  用户的其他标签页会被过滤。守卫只防误用，不是安全边界；重置或服务器重启后不会保留先前的
-  标签页；前置守卫也会使模型代码报错的行号发生偏移。
+- 浏览器 `cua.listTabs()` 受守卫包装：只返回插件标签页，用户的其他标签页会被过滤。插件标签页
+  是浏览器内核本次启动后经本插件打开或认领的标签页；`pc_codex_js_reset` 或浏览器重连后，
+  之前的标签页不再算；同一个 DSH 进程里的所有 DSH 会话共用同一份插件标签页。守卫只防误用，
+  不是安全边界；前置守卫也会使模型代码报错的行号发生偏移。
 - `allowUserTabs`（默认关闭）覆盖经 `cua.getBrowser` 或
   `cua.browsers.{get,getDefault,getForUrl}` 得到的 `Browser` 上的
   `browser.user.openTabs`、`claimTab`、`getTabContext`、`browser.history`，以及
   `cua.getTab`、`cua.getState`、`browser.tabs.get`、`browser.tabs.content`。
-  `browser.tabs.list` 与 `browser.tabs.selected` 只涉及本会话的标签页，原样放行。
+  `browser.tabs.list` 与 `browser.tabs.selected` 只涉及插件标签页，原样放行。
   该守卫只防误用，不是安全边界：模型代码可以改写包装读取的 Symbol。对象被冻结时，关闭开关
   后读取 `browser.user` 或 `browser.history` 会直接报拦截错误。
 - 自动审批只识别 `Allow Browser use to access <origin>?` 这一文案。Codex 修改文案后，浏览器

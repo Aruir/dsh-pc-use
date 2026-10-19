@@ -15,7 +15,7 @@ const WRITE = Symbol.for('cosmokit.volatile.write')
 
 const USER_TABS_RULE = '`browser.user.openTabs()`, `claimTab`, `getTabContext` and '
   + '`browser.history()` are blocked by default by the `allowUserTabs` setting; only with '
-  + 'that switch on can you access the user\'s own tabs, and then only when the user '
+  + 'that switch on can you access user tabs, and then only when the user '
   + 'explicitly asks.'
 
 function createVolatile(value) {
@@ -417,7 +417,7 @@ test('an accessor cua.browsers is wrapped on every read', async () => {
   }
 })
 
-test('cua.getTab only accepts this session\'s ids while off', async () => {
+test('cua.getTab only accepts plugin tab ids while off', async () => {
   const context = browserContext('ok')
   try {
     const value = await runJs(context, `
@@ -749,12 +749,12 @@ test('the pc_codex_js description states the allowUserTabs rule in full', () => 
     const description = plugin.tools.get('pc_codex_js').description
     assert.equal(description.includes(USER_TABS_RULE), true)
     assert.match(description,
-      /`cua\.getTab\(\.\.\.\)` only accepts ids of tabs this session opened/)
-    assert.match(description, /`cua\.getState\(\)` lists only this session's tabs/)
+      /`cua\.getTab\(\.\.\.\)` only accepts ids of plugin tabs/)
+    assert.match(description, /`cua\.getState\(\)` lists only plugin tabs/)
     assert.match(description,
       /`browser\.tabs\.get` and `browser\.tabs\.content` follow the same rule/)
     assert.match(description,
-      /`browser\.tabs\.list` and `browser\.tabs\.selected` cover only this session/)
+      /`browser\.tabs\.list` and `browser\.tabs\.selected` cover only plugin tabs/)
   } finally {
     plugin.dispose()
   }
