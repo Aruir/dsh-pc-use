@@ -33,6 +33,10 @@ Codex 安装读取，不会复制进仓库；插件在正文后附加 DSH 说明
 已按 token 预算限制工具结果，并把全文存成文件供找回。`pc_codex_observe` 与
 `pc_codex_run_plan` 的输出不变。
 
+`pc_status` 的每个服务器新增两个字段：`serverInfo`（服务器 MCP `initialize` 返回的
+`{ name, version }`，未连接时为 null，每个值最多 200 个字符）与 `pluginVersion`（浏览器来源
+路径中的 `unified-computer-use` 版本目录；桌面侧或来源解析失败时为 null）。
+
 ## 0.9.1
 
 设置页现在显示“附图给模型”和“本机保留附图”的实际状态。以前页面读取设置后，这两个开关总显示为关，

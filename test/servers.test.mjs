@@ -237,7 +237,7 @@ test('pc_status reports null services on both sides while disconnected', async (
       const server = codex[side]
       assert.deepEqual(Object.keys(server), [
         'resolved', 'reason', 'source', 'command', 'cwd', 'nativePipe', 'connected', 'services',
-        'connectedPipe', 'reconnectPending',
+        'connectedPipe', 'reconnectPending', 'serverInfo', 'pluginVersion',
       ], side)
       assert.equal(server.resolved, true, side)
       assert.equal(server.connected, false, side)

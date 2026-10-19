@@ -23,6 +23,7 @@ function spec(overrides = {}) {
 function fakeBridge(options = {}) {
   const bridge = {
     alive: false,
+    serverInfo: options.serverInfo ?? null,
     startCount: 0,
     stopCount: 0,
     callCount: 0,
@@ -265,6 +266,8 @@ test('status reports unparsed, resolved, connected and pending states', async ()
     services: null,
     connectedPipe: null,
     reconnectPending: false,
+    serverInfo: null,
+    pluginVersion: null,
   })
 
   context.state.spec = spec()
@@ -274,6 +277,8 @@ test('status reports unparsed, resolved, connected and pending states', async ()
   assert.equal(resolvedOnly.nativePipe, 'pipe-one')
   assert.equal(resolvedOnly.connectedPipe, null)
   assert.equal(resolvedOnly.reconnectPending, false)
+  assert.equal(resolvedOnly.serverInfo, null)
+  assert.equal(resolvedOnly.pluginVersion, null)
 
   await context.bridge.ensure()
   const connected = context.bridge.status()
@@ -281,12 +286,26 @@ test('status reports unparsed, resolved, connected and pending states', async ()
   assert.deepEqual(connected.services, ['sky'])
   assert.equal(connected.connectedPipe, 'pipe-one')
   assert.equal(connected.reconnectPending, false)
+  assert.equal(connected.serverInfo, null)
+  assert.equal(connected.pluginVersion, null)
 
   context.state.spec = spec({ pipeDirectory: 'pipe-two' })
   const pending = context.bridge.status()
   assert.equal(pending.nativePipe, 'pipe-two')
   assert.equal(pending.connectedPipe, 'pipe-one')
   assert.equal(pending.reconnectPending, true)
+})
+
+test('status reports serverInfo only while connected and the source version', async () => {
+  const context = setup({
+    spec: spec({ source: '/cache/unified-computer-use/2.3.4/.mcp.json' }),
+    bridge: { serverInfo: { name: 'server', version: '2.3.4' } },
+  })
+  const unconnected = context.bridge.status()
+  assert.equal(unconnected.serverInfo, null)
+  assert.equal(unconnected.pluginVersion, '2.3.4')
+  await context.bridge.ensure()
+  assert.deepEqual(context.bridge.status().serverInfo, { name: 'server', version: '2.3.4' })
 })
 
 test('spec caches the last resolution until the Codex home changes', async () => {

@@ -426,7 +426,11 @@ await cua.listBrowsers();
 
 Alternatively, call `pc_status` first and inspect `providers.codex`: it has `codexHome`,
 `autoApprove`, `computer` and a `browser` and a `desktop` section. Each section reports `resolved`,
-`reason`, `source`, `command`, `cwd`, `nativePipe`, `connected` and `services`. Before the first
+`reason`, `source`, `command`, `cwd`, `nativePipe`, `connected`, `services`, `serverInfo` and
+`pluginVersion`. `serverInfo` is the `{ name, version }` from the server's MCP `initialize`
+(null until connected, and at most 200 characters per value); `pluginVersion` is the version
+directory baked into the browser source path (`unified-computer-use/<version>`), and null for
+the desktop side or when the source does not resolve. Before the first
 connection, `connected` is `false` and `services` is `null`, which is normal; when a source cannot
 be resolved, `resolved` is `false` and `reason` names the missing `.mcp.json` or `config.toml`
 section. The old `servicesFrom` field was removed in 0.5.0. Command-line smoke test:

@@ -374,7 +374,10 @@ await cua.listBrowsers();
 
 也可以先调用 `pc_status`，查看 `providers.codex`。该对象包含 `codexHome`、`autoApprove`、
 `computer`，以及 `browser` 与 `desktop` 两节。每节报告 `resolved`、`reason`、`source`、
-`command`、`cwd`、`nativePipe`、`connected` 与 `services`。第一次连接之前，`connected` 为
+`command`、`cwd`、`nativePipe`、`connected`、`services`、`serverInfo` 与 `pluginVersion`。
+`serverInfo` 是服务器 MCP `initialize` 返回的 `{ name, version }`（未连接时为 null，每个值
+最多 200 个字符）；`pluginVersion` 是浏览器来源路径里的版本目录
+（`unified-computer-use/<版本>`），桌面侧或来源解析失败时为 null。第一次连接之前，`connected` 为
 `false`，`services` 为 `null`，这属于正常状态；来源解析失败时，`resolved` 为 `false`，
 `reason` 写出缺失的 `.mcp.json` 或 `config.toml` 节。旧的 `servicesFrom` 字段已在 0.5.0
 删除。命令行冒烟测试：

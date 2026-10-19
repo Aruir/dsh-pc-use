@@ -41,6 +41,11 @@ not truncate results; DSH's spill policy already bounds tool results by token bu
 keeps the full text recoverable. `pc_codex_observe` and `pc_codex_run_plan` outputs are
 unchanged.
 
+`pc_status` now reports two more fields per server: `serverInfo`, the `{ name, version }` from
+the server's MCP `initialize` (null until connected, values capped at 200 characters), and
+`pluginVersion`, the `unified-computer-use` version directory from the browser source path
+(null for the desktop side or when the source does not resolve).
+
 ## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image

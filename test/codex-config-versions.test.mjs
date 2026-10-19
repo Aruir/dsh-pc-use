@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { resolveComputerUseDocs } from '../lib/codex-config.js'
+import { resolveComputerUseDocs, versionFromSource } from '../lib/codex-config.js'
 import { tempDir } from './helpers.mjs'
 
 const TOPICS = ['skill', 'guidance', 'api', 'confirmations']
@@ -24,6 +24,23 @@ function writeDocs(home, version) {
     writeFileSync(join(dir, segments.at(-1)), `# ${topic} ${version}\n`)
   }
 }
+
+test('versionFromSource only accepts unified-computer-use/<version>/.mcp.json', () => {
+  const browser = join('cache', 'unified-computer-use', '26.1013.31256', '.mcp.json')
+  assert.equal(versionFromSource(browser), '26.1013.31256')
+  // Not a .mcp.json file.
+  assert.equal(versionFromSource(join('cache', 'unified-computer-use', '26.1013.31256',
+    'config.toml')), null)
+  // A numeric directory outside the unified-computer-use cache.
+  assert.equal(versionFromSource(join('cache', 'other', '2026', '.mcp.json')), null)
+  // A desktop source under a numeric Codex home must not look like a version.
+  assert.equal(versionFromSource(join('/mnt/d/', '2026-codex', 'config.toml')), null)
+  // A non-numeric version directory.
+  assert.equal(versionFromSource(join('cache', 'unified-computer-use', 'abc', '.mcp.json')),
+    null)
+  assert.equal(versionFromSource(''), null)
+  assert.equal(versionFromSource(null), null)
+})
 
 test('numeric directories are versions; files and other names are skipped', () => {
   const home = tempDir('pc-use-versions-')

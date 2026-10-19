@@ -27,6 +27,17 @@ function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`)
 }
 
+/** Initialize serverInfo: FAKE_SERVER_INFO JSON when set, else the fixture default. O(1). */
+function initializeServerInfo() {
+  const raw = process.env.FAKE_SERVER_INFO
+  if (typeof raw !== 'string' || raw === '') return { name: 'fake-dual' }
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return { name: 'fake-dual' }
+  }
+}
+
 record({
   type: 'start',
   pid: process.pid,
@@ -85,7 +96,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         result: {
           protocolVersion: '2025-11-25',
           capabilities: {},
-          serverInfo: { name: 'fake-dual' },
+          serverInfo: initializeServerInfo(),
         },
       })
       record({ type: 'init', pid: process.pid })
