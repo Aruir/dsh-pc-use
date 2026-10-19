@@ -119,13 +119,13 @@ function buildConfig(schema) {
         .volatile(),
       tools: schema.object({
         js: schema.boolean().default(true).description(TEXT.zh.config.tools.js),
-        reset: schema.boolean().default(true).description('注册 `pc_codex_js_reset`：重置浏览器 JS 内核。'),
+        reset: schema.boolean().default(true).description(TEXT.zh.config.tools.reset),
         desktopJs: schema.boolean().default(true)
-          .description('注册 `pc_codex_desktop_js`：在持久的 node_repl 内核中执行 JS。'),
+          .description(TEXT.zh.config.tools.desktopJs),
         desktopReset: schema.boolean().default(true)
-          .description('注册 `pc_codex_desktop_js_reset`：重置桌面 JS 内核。'),
+          .description(TEXT.zh.config.tools.desktopReset),
         desktopAddNodeModuleDir: schema.boolean().default(true)
-          .description('注册 `pc_codex_desktop_js_add_node_module_dir`：为 node_repl 增加模块目录。'),
+          .description(TEXT.zh.config.tools.desktopAddNodeModuleDir),
         docs: schema.boolean().default(true)
           .description(TEXT.zh.config.tools.docs),
         status: schema.boolean().default(true).description(TEXT.zh.config.tools.status),

@@ -2,11 +2,14 @@
 
 [中文](CHANGELOG.zh.md) | English
 
-## Unreleased
+## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image
 files". Before, both switches always looked off after the page read the settings, although
-screenshots were attached by default.
+screenshots were attached by default. Four tool switches in the configuration schema now use the
+same Chinese descriptions as the plugin's text table. Internally, duplicated code in the tool
+dispatch, approval reasons, configuration lookup, bridge shutdown, logging and the tab guard was
+merged; the behavior of the plugin does not change otherwise.
 
 ## 0.9.0
 
