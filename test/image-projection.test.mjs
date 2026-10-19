@@ -87,6 +87,7 @@ test('an image-capable model gets text plus one image block and no local copy', 
     const tool = context.plugin.tools.get('pc_codex_js')
     const exec = execFor()
     const value = await tool.execute({ code: '1', title: 'one image' }, exec)
+    assert.match(value, /^Wall time: \d+\.\d{4} seconds\nOutput:\n/)
     assert.match(value, /\[image 1: image\/png, attached\]/)
     assertNoMarkers(value)
     assert.equal(value.includes('.dsh'), false)

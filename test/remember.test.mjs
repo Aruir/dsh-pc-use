@@ -5,7 +5,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { registerPlugin, tempDir, useHome, waitFor, writeCodexHome } from './helpers.mjs'
+import {
+  registerPlugin, stripWallTime, tempDir, useHome, waitFor, writeCodexHome,
+} from './helpers.mjs'
 
 const DESKTOP_SERVER = process.env.CODEX_CU_DESKTOP_SERVER
   ?? fileURLToPath(new URL('./fake-computer-server.mjs', import.meta.url))
@@ -83,8 +85,10 @@ function finish(context) {
   context.restore()
 }
 
-function runJs(context, code, exec) {
-  return context.plugin.tools.get('pc_codex_desktop_js').execute({ code, title: code }, exec)
+async function runJs(context, code, exec) {
+  const result = await context.plugin.tools.get('pc_codex_desktop_js')
+    .execute({ code, title: code }, exec)
+  return stripWallTime(result)
 }
 
 test('same agent and app: the second request is remembered', async () => {
@@ -293,10 +297,10 @@ test('a remembered app still needs a running desktop call', async () => {
     await runJs(context, APP, execFor(agent, 'call-1'))
     assert.equal(requests.length, 1)
     const js = context.plugin.tools.get('pc_codex_desktop_js')
-    const result = await js.execute(
+    const result = stripWallTime(await js.execute(
       { code: `${APP}|spontaneous`, title: 'after' },
       execFor(agent, 'call-2'),
-    )
+    ))
     assert.equal(result, 'ran js')
     const declined = await waitFor(
       () => serverAnswers(context.serverLog).includes('answer decline'),

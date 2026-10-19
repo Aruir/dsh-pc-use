@@ -26,6 +26,13 @@ Codex 安装读取，不会复制进仓库；插件在正文后附加 DSH 说明
 不论本轮是否用过它；`_meta` 只含 `threadId`。桌面光标仍只在“本轮用过桌面桥接且该桥接
 未重建”时关闭。
 
+与原生 MCP 调用一一对应的 5 个工具（`pc_codex_js`、`pc_codex_js_reset`、
+`pc_codex_desktop_js`、`pc_codex_desktop_js_reset` 与
+`pc_codex_desktop_js_add_node_module_dir`）现在在服务器原文前加原生 Codex 的结果头部：
+`Wall time: <秒，四位小数> seconds` 与 `Output:`。插件不截断结果；DSH 的 spill-policy
+已按 token 预算限制工具结果，并把全文存成文件供找回。`pc_codex_observe` 与
+`pc_codex_run_plan` 的输出不变。
+
 ## 0.9.1
 
 设置页现在显示“附图给模型”和“本机保留附图”的实际状态。以前页面读取设置后，这两个开关总显示为关，

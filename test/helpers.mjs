@@ -235,6 +235,17 @@ export function registerPlugin(config, options = {}) {
   }
 }
 
+/** Native Codex result header added by the plugin (r29). O(1). */
+const WALL_TIME_HEADER = /^Wall time: \d+\.\d{4} seconds\nOutput:\n/
+
+/**
+ * Remove the native wall-time header from one tool result so a test can compare the body
+ * byte for byte. Non-strings pass through unchanged. O(1).
+ */
+export function stripWallTime(value) {
+  return typeof value === 'string' ? value.replace(WALL_TIME_HEADER, '') : value
+}
+
 /** Poll `predicate` until it returns true or the deadline passes, then ask once more. O(n) + wait. */
 export async function waitFor(predicate, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs

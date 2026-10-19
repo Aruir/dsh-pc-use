@@ -170,6 +170,14 @@ After installation, every agent preset automatically has:
 | `pc_codex_docs` | none | Read the Computer Use docs bundled with the local Codex installation (`skill` / `guidance` / `api` / `confirmations`) |
 | `pc_status` | none | Report the resolved configuration and connection state of both servers; check it first when another tool fails |
 
+The five tools that map one-to-one to a native MCP call (`pc_codex_js`, `pc_codex_js_reset`,
+`pc_codex_desktop_js`, `pc_codex_desktop_js_reset` and
+`pc_codex_desktop_js_add_node_module_dir`) put native Codex's result header in front of the
+server text: `Wall time: <seconds, four decimals> seconds` and `Output:`. The plugin does not
+truncate the result; DSH's spill policy already bounds tool results by token budget and keeps
+the full text in a file. `pc_codex_observe` and `pc_codex_run_plan` are plugin-composed tools
+and do not add this header.
+
 ### Choosing a tool
 
 1. **Preferred:** place the known consecutive steps in one program in `pc_codex_js` or

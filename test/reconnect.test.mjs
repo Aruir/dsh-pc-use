@@ -7,7 +7,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { registerPlugin, tempDir, useHome, waitFor, writeCodexHome } from './helpers.mjs'
+import {
+  registerPlugin, stripWallTime, tempDir, useHome, waitFor, writeCodexHome,
+} from './helpers.mjs'
 
 const PID_SERVER = process.env.CODEX_CU_PID_SERVER
   ?? fileURLToPath(new URL('./fixtures/pid-server.mjs', import.meta.url))
@@ -69,9 +71,10 @@ function killAll(pids) {
   }
 }
 
-function runJs(context) {
-  return context.plugin.tools.get('pc_codex_js')
+async function runJs(context) {
+  const result = await context.plugin.tools.get('pc_codex_js')
     .execute({ code: '1', title: 'reconnect' }, {})
+  return stripWallTime(result)
 }
 
 function finish(context) {

@@ -33,6 +33,14 @@ every connected server, whether or not that turn used it, with a `_meta` that co
 `threadId`. The desktop cursor is still closed only when the turn used the desktop bridge and
 that bridge was not rebuilt since.
 
+The five tools that correspond one-to-one to a native MCP call (`pc_codex_js`,
+`pc_codex_js_reset`, `pc_codex_desktop_js`, `pc_codex_desktop_js_reset` and
+`pc_codex_desktop_js_add_node_module_dir`) now prefix the server text with native Codex's
+result header: `Wall time: <seconds, four decimals> seconds` and `Output:`. The plugin does
+not truncate results; DSH's spill policy already bounds tool results by token budget and
+keeps the full text recoverable. `pc_codex_observe` and `pc_codex_run_plan` outputs are
+unchanged.
+
 ## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image

@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { registerPlugin } from './helpers.mjs'
+import { registerPlugin, stripWallTime } from './helpers.mjs'
 import { startServers, stopServers } from './fixtures/server-harness.mjs'
 
 const CUA_SERVER = fileURLToPath(new URL('./fixtures/fake-cua-server.mjs', import.meta.url))
@@ -34,8 +34,10 @@ function browserContext(mode = 'ok', config = {}) {
   })
 }
 
-function runJs(context, code) {
-  return context.plugin.tools.get('pc_codex_js').execute({ code, title: 'user tabs' }, {})
+async function runJs(context, code) {
+  const result = await context.plugin.tools.get('pc_codex_js')
+    .execute({ code, title: 'user tabs' }, {})
+  return stripWallTime(result)
 }
 
 function userCalls(context) {

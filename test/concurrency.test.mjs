@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
 import { McpBridge } from '../lib/mcp-bridge.js'
-import { registerPlugin, tempDir, useHome, waitFor, writeCodexHome } from './helpers.mjs'
+import {
+  registerPlugin, stripWallTime, tempDir, useHome, waitFor, writeCodexHome,
+} from './helpers.mjs'
 
 const PID_SERVER = process.env.CODEX_CU_PID_SERVER
   ?? fileURLToPath(new URL('./fixtures/pid-server.mjs', import.meta.url))
@@ -57,7 +59,7 @@ test('two parallel first calls start exactly one server', async () => {
       js.execute({ code: '1', title: 'first' }, {}),
       js.execute({ code: '2', title: 'second' }, {}),
     ])
-    assert.deepEqual(results, ['ran js', 'ran js'])
+    assert.deepEqual(results.map(stripWallTime), ['ran js', 'ran js'])
     startedPids.push(...readPids(pidFile))
     assert.equal(startedPids.length, 1, 'the first handshake must not spawn a second server')
     plugin.dispose()

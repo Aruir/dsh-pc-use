@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { waitFor } from './helpers.mjs'
+import { stripWallTime, waitFor } from './helpers.mjs'
 import {
   DUAL_SERVER, isRunning, startServers, stopServers, writeBrowserSource, writeDesktopSource,
 } from './fixtures/server-harness.mjs'
@@ -22,13 +22,16 @@ function createVolatile(value) {
   })
 }
 
-function runBrowser(context) {
-  return context.plugin.tools.get('pc_codex_js').execute({ code: '1', title: 'browser' }, {})
+async function runBrowser(context) {
+  const result = await context.plugin.tools.get('pc_codex_js')
+    .execute({ code: '1', title: 'browser' }, {})
+  return stripWallTime(result)
 }
 
-function runDesktop(context) {
-  return context.plugin.tools.get('pc_codex_desktop_js')
+async function runDesktop(context) {
+  const result = await context.plugin.tools.get('pc_codex_desktop_js')
     .execute({ code: '1', title: 'desktop' }, {})
+  return stripWallTime(result)
 }
 
 function readLog(context) {

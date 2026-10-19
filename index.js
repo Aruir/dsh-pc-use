@@ -215,6 +215,14 @@ function renderResult(result, collector = null) {
   return text
 }
 
+/**
+ * Native Codex puts this header in front of a direct MCP call's result, before the server
+ * text: the wall time with four decimals and an `Output:` marker. O(1).
+ */
+function wallTimeHeader(elapsedMs) {
+  return `Wall time: ${(elapsedMs / 1000).toFixed(4)} seconds\nOutput:\n`
+}
+
 /** Wrap a spec with defineTool when the platform package is available. */
 function tool(spec) {
   return definePortableTool(spec, defineTool)
@@ -653,9 +661,12 @@ export function apply(ctx, raw = {}) {
    * reads the turn, snapshots the identity and marks the server used in one synchronous
    * block after `servers[kind].ensure()`, so the `_meta` turn and the reported-as-used turn
    * are always the same (F1). D16 stays in `call()`: it fixes the identity snapshot before
-   * its first await. O(1).
+   * its first await. `wallTime` adds the native result header to direct MCP calls only; the
+   * elapsed time starts after `ensure()` (server startup is not part of the call) and ends
+   * when the call returns, including the error text of an `isError` result. O(1).
    */
-  const callOn = async (kind, method, args, timeoutMs, exec, collector = null) => {
+  const callOn = async (kind, method, args, timeoutMs, exec, collector = null,
+    { wallTime = false } = {}) => {
     const active = await servers[kind].ensure()
     const identity = turns.beginCall(exec, kind)
     const guarded = kind === 'browser' && method === 'js' && typeof args?.code === 'string'
@@ -665,7 +676,16 @@ export function apply(ctx, raw = {}) {
           + `${args.code}`,
       }
       : args
-    return renderResult(await active.call(method, guarded, timeoutMs, identity), collector)
+    const startedAt = performance.now()
+    const result = await active.call(method, guarded, timeoutMs, identity)
+    const prefix = wallTime ? wallTimeHeader(performance.now() - startedAt) : ''
+    try {
+      return prefix + renderResult(result, collector)
+    } catch (error) {
+      // An `isError` result has no text to return, so the header goes on the thrown message;
+      // a transport failure throws before this point and stays without a header.
+      throw prefix === '' ? error : new Error(prefix + errorMessage(error))
+    }
   }
 
   /**
@@ -749,7 +769,7 @@ export function apply(ctx, raw = {}) {
         code: args.code,
         title: args.title,
         ...(Number.isFinite(args.timeout_ms) ? { timeout_ms: args.timeout_ms } : {}),
-      }, jsTimeoutMs(args.timeout_ms), exec, collector)
+      }, jsTimeoutMs(args.timeout_ms), exec, collector, { wallTime: true })
       const noted = withToolNotes(text, registration)
       return await finishImages(exec, appendServerDocs(noted, target, exec), collector)
     } catch (error) {
@@ -956,7 +976,8 @@ export function apply(ctx, raw = {}) {
       async execute(_args, exec) {
         // Same turn identity as pc_codex_js, so a reset-only turn still reports turn_ended.
         syncComputerSwitch()
-        return callOn('browser', 'js_reset', {}, configuredTimeoutMs(), exec)
+        return callOn('browser', 'js_reset', {}, configuredTimeoutMs(), exec, null,
+          { wallTime: true })
       },
     }),
     desktopJs: () => tool({
@@ -993,7 +1014,8 @@ export function apply(ctx, raw = {}) {
       async execute(_args, exec) {
         syncComputerSwitch()
         requireComputer()
-        return callOn('desktop', 'js_reset', {}, configuredTimeoutMs(), exec)
+        return callOn('desktop', 'js_reset', {}, configuredTimeoutMs(), exec, null,
+          { wallTime: true })
       },
     }),
     desktopAddNodeModuleDir: () => tool({
@@ -1012,7 +1034,7 @@ export function apply(ctx, raw = {}) {
         return onTarget('desktop', exec, async (registration) => {
           try {
             const text = await callOn('desktop', 'js_add_node_module_dir', { path: args.path },
-              configuredTimeoutMs(), exec)
+              configuredTimeoutMs(), exec, null, { wallTime: true })
             return withToolNotes(text, registration)
           } catch (error) {
             throw withToolErrorNotes(error, registration)

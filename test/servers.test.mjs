@@ -5,7 +5,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { waitFor } from './helpers.mjs'
+import { stripWallTime, waitFor } from './helpers.mjs'
 import {
   records, startServers, stopServers,
 } from './fixtures/server-harness.mjs'
@@ -29,13 +29,16 @@ function makeAgents() {
   }
 }
 
-function runBrowser(context, exec = {}) {
-  return context.plugin.tools.get('pc_codex_js').execute({ code: '1', title: 'browser' }, exec)
+async function runBrowser(context, exec = {}) {
+  const result = await context.plugin.tools.get('pc_codex_js')
+    .execute({ code: '1', title: 'browser' }, exec)
+  return stripWallTime(result)
 }
 
-function runDesktop(context, exec = {}) {
-  return context.plugin.tools.get('pc_codex_desktop_js')
+async function runDesktop(context, exec = {}) {
+  const result = await context.plugin.tools.get('pc_codex_desktop_js')
     .execute({ code: '1', title: 'desktop' }, exec)
+  return stripWallTime(result)
 }
 
 test('browser calls start cua_repl from .mcp.json', async () => {
@@ -151,7 +154,7 @@ test('add_node_module_dir reaches node_repl with the same identity', async () =>
     await runDesktop(context, execFor(agent, 'call-js'))
     const added = await context.plugin.tools.get('pc_codex_desktop_js_add_node_module_dir')
       .execute({ path: 'C:\\fake\\modules' }, execFor(agent, 'call-add'))
-    assert.equal(added, 'ran js_add_node_module_dir')
+    assert.equal(stripWallTime(added), 'ran js_add_node_module_dir')
     const calls = context.desktopCalls()
     assert.deepEqual(calls.map((call) => call.name), ['js', 'js_add_node_module_dir'])
     assert.deepEqual(calls[1].arguments, { path: 'C:\\fake\\modules' })

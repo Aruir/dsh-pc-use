@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { registerPlugin, tempDir, useHome, waitFor, writeCodexHome } from './helpers.mjs'
+import {
+  registerPlugin, stripWallTime, tempDir, useHome, waitFor, writeCodexHome,
+} from './helpers.mjs'
 
 const DESKTOP_SERVER = process.env.CODEX_CU_DESKTOP_SERVER
   ?? fileURLToPath(new URL('./fake-computer-server.mjs', import.meta.url))
@@ -81,9 +83,10 @@ function approvalLines(logFile) {
   return readFileSync(logFile, 'utf8').split('\n').filter((line) => line.includes('approval "'))
 }
 
-function runDesktopCall(context) {
-  return context.plugin.tools.get('pc_codex_desktop_js')
+async function runDesktopCall(context) {
+  const result = await context.plugin.tools.get('pc_codex_desktop_js')
     .execute({ code: '1', title: 'desktop approval' }, context.exec)
+  return stripWallTime(result)
 }
 
 function readPids(file) {
@@ -270,7 +273,9 @@ test('a desktop approval after the last desktop call ended is declined without D
   })
   try {
     const js = context.plugin.tools.get('pc_codex_desktop_js')
-    const result = await js.execute({ code: '1', title: 'finish' }, execFixture('call-done'))
+    const result = stripWallTime(
+      await js.execute({ code: '1', title: 'finish' }, execFixture('call-done')),
+    )
     assert.equal(result, 'ran js')
     const declined = await waitFor(
       () => readFileSync(context.serverLog, 'utf8').includes('answer decline'),

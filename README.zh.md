@@ -155,6 +155,13 @@ approval "Allow Browser use to access https://www.bilibili.com?" -> accept (brow
 | `pc_codex_docs` | 无 | 读取本机 Codex 自带的 Computer Use 文档（`skill` / `guidance` / `api` / `confirmations`） |
 | `pc_status` | 无 | 报告两个服务器的解析结果与连接状态；其他工具失败时先检查该工具 |
 
+与原生 MCP 调用一一对应的 5 个工具（`pc_codex_js`、`pc_codex_js_reset`、
+`pc_codex_desktop_js`、`pc_codex_desktop_js_reset` 与
+`pc_codex_desktop_js_add_node_module_dir`）会在服务器原文前加原生的结果头部：
+`Wall time: <秒，四位小数> seconds` 与 `Output:`。插件不截断结果；DSH 的 spill-policy
+已按 token 预算限制工具结果，并把全文存成文件供找回。`pc_codex_observe` 与
+`pc_codex_run_plan` 是插件组合的工具，不加这个头部。
+
 ### 选择工具
 
 1. **首选**：将已知的连续步骤写入 `pc_codex_js` 或 `pc_codex_desktop_js` 的同一段程序。程序

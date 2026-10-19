@@ -24,6 +24,11 @@ const cwdB = mkdtempSync(join(tmpdir(), 'pc-use-cwd-b-'))
 let currentCwd = cwdA
 const args = [PID_SERVER, pidFile, 'ok', serverLog]
 
+/** Remove the native wall-time header so the child can compare the server body. O(1). */
+function withoutWallTime(text) {
+  return text.replace(/^Wall time: \d+\.\d{4} seconds\nOutput:\n/, '')
+}
+
 mock.module(pathToFileURL(join(ROOT, 'lib', 'codex-config.js')).href, {
   namedExports: {
     COMPUTER_USE_DOC_TOPICS: [],
@@ -114,11 +119,11 @@ test('a changed resolved cwd starts a second server process', async () => {
     const js = plugin.tools.get('pc_codex_js')
     const exec = (callId) => ({ name: 'pc_codex_js', callId, signal: new AbortController().signal })
     const first = await js.execute({ code: '1', title: 'cwd-first' }, exec('call-a'))
-    assert.equal(first, 'ran js')
+    assert.equal(withoutWallTime(first), 'ran js')
     assert.equal(await waitFor(() => readPids(pidFile).length === 1), true)
     currentCwd = cwdB
     const second = await js.execute({ code: '2', title: 'cwd-second' }, exec('call-b'))
-    assert.equal(second, 'ran js')
+    assert.equal(withoutWallTime(second), 'ran js')
     assert.equal(await waitFor(() => readPids(pidFile).length === 2), true)
     assert.match(readFileSync(logFile, 'utf8'), /Codex server changed \(cwd\); reconnecting/)
   } finally {

@@ -8,7 +8,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { registerPlugin, tempDir, useHome, waitFor, writeCodexHome } from './helpers.mjs'
+import {
+  registerPlugin, stripWallTime, tempDir, useHome, waitFor, writeCodexHome,
+} from './helpers.mjs'
 
 const SERVER = process.env.CODEX_CU_DESKTOP_SERVER
   ?? fileURLToPath(new URL('./fixtures/pid-computer-server.mjs', import.meta.url))
@@ -106,9 +108,10 @@ function approvalAfter(ms, outcome = 'allowed-once') {
   }
 }
 
-function runJs(context, callId = 'call-1') {
-  return context.plugin.tools.get('pc_codex_desktop_js')
+async function runJs(context, callId = 'call-1') {
+  const result = await context.plugin.tools.get('pc_codex_desktop_js')
     .execute({ code: '1', title: 'timer' }, execFor(callId))
+  return stripWallTime(result)
 }
 
 test('a pending approval pauses the call timeout', async () => {

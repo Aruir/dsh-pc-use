@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
 import { startServers, stopServers } from './fixtures/server-harness.mjs'
+import { stripWallTime } from './helpers.mjs'
 
 const CUA_SERVER = fileURLToPath(new URL('./fixtures/fake-cua-server.mjs', import.meta.url))
 
@@ -16,8 +17,10 @@ function browserContext(mode = 'ok') {
   })
 }
 
-function runJs(context, code) {
-  return context.plugin.tools.get('pc_codex_js').execute({ code, title: 'tab guard' }, {})
+async function runJs(context, code) {
+  const result = await context.plugin.tools.get('pc_codex_js')
+    .execute({ code, title: 'tab guard' }, {})
+  return stripWallTime(result)
 }
 
 function listOptions(context) {
