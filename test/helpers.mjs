@@ -13,20 +13,34 @@ export const FAKE_SERVER = process.env.CODEX_CU_FAKE_SERVER
 
 const createdTempDirs = new Set()
 
+/**
+ * Remove one temp directory, retrying while Windows still holds it.
+ * Returns true when removed. On failure, report and return false.
+ * O(size) per try, at most `budgetMs / 100` tries.
+ */
+export async function removeTempDir(directory, budgetMs = 10_000) {
+  const deadline = Date.now() + budgetMs
+  while (true) {
+    try {
+      rmSync(directory, { recursive: true, force: true })
+      return true
+    } catch (error) {
+      if (Date.now() >= deadline) {
+        console.error(`could not remove temp dir ${directory}: ${error.code ?? error.message}`)
+        return false
+      }
+      await new Promise((done) => setTimeout(done, 100))
+    }
+  }
+}
+
 // Each test file that imports this module gets one `after` hook: every tempDir it created
-// is removed when that file's tests finish, including on failure.
+// is removed when that file's tests finish, including on failure. Windows may keep a child
+// process's cwd busy for a while after dispose, so removal retries on a budget.
 try {
   after(async () => {
     for (const directory of createdTempDirs) {
-      // Windows may keep a child process's cwd busy for a few milliseconds after dispose.
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        try {
-          rmSync(directory, { recursive: true, force: true })
-          break
-        } catch {
-          await new Promise((done) => setTimeout(done, 50))
-        }
-      }
+      await removeTempDir(directory)
     }
     createdTempDirs.clear()
   })
@@ -198,14 +212,15 @@ export function registerPlugin(config, options = {}) {
   }
 }
 
-/** Poll `predicate` until it returns true or the deadline passes. */
+/** Poll `predicate` until it returns true or the deadline passes, then ask once more. O(n) + wait. */
 export async function waitFor(predicate, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (await predicate()) return true
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
-  return false
+  // The last sleep can cover the moment the predicate became true, so check it once more.
+  return Boolean(await predicate())
 }
 
 export async function waitForProcessExit(pid, timeoutMs = 5000) {

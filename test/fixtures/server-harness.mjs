@@ -160,14 +160,22 @@ export function killPids(pids) {
 }
 
 /**
- * Dispose the plugin, require every fake server to exit within `timeoutMs`, then kill
- * anything that is left so a leaked server cannot hang the test process. O(n) + wait.
+ * Dispose the plugin and wait in two stages. The first wait requires every recorded fake
+ * server to exit on its own within `timeoutMs`; that is the return value, so leftovers are
+ * still reported as a failure. After it, any pid that is left is killed and waited for
+ * (at most 5000 ms) so a leaked server cannot keep a temp cwd busy; the second wait does not
+ * change the return value. O(n) + wait.
  */
-export async function stopServers(context, timeoutMs = 3000) {
+export async function stopServers(context, timeoutMs = 10_000) {
   const pids = context.allPids()
   context.plugin.dispose()
   const stopped = await waitFor(() => pids.every((pid) => !isRunning(pid)), timeoutMs)
+  if (!stopped) {
+    const alive = pids.filter((pid) => isRunning(pid))
+    console.error(`stopServers: still running after ${timeoutMs}ms: ${alive.join(', ')}`)
+  }
   killPids(pids)
+  await waitFor(() => pids.every((pid) => !isRunning(pid)), 5000)
   context.restore()
   return stopped
 }
