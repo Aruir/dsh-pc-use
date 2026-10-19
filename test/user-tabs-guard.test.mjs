@@ -14,8 +14,9 @@ const CUA_SERVER = fileURLToPath(new URL('./fixtures/fake-cua-server.mjs', impor
 const WRITE = Symbol.for('cosmokit.volatile.write')
 
 const USER_TABS_RULE = '`browser.user.openTabs()`, `claimTab`, `getTabContext` and '
-  + '`browser.history()` are blocked by default by the `allowUserTabs` setting; with that '
-  + 'switch on, use them only when the user explicitly asks.'
+  + '`browser.history()` are blocked by default by the `allowUserTabs` setting; only with '
+  + 'that switch on can you access the user\'s own tabs, and then only when the user '
+  + 'explicitly asks.'
 
 function createVolatile(value) {
   let current = value
@@ -416,6 +417,216 @@ test('an accessor cua.browsers is wrapped on every read', async () => {
   }
 })
 
+test('cua.getTab only accepts this session\'s ids while off', async () => {
+  const context = browserContext('ok')
+  try {
+    const value = await runJs(context, `
+{
+  const own = await cua.createBrowserTab('chrome', 'https://own.invalid/get');
+  const out = { ownId: own.id };
+  for (const [name, arg] of [
+    ['foreign', 'FOREIGN-1'],
+    ['url', { url: 'https://foreign.invalid/1' }],
+    ['mention', { mention: 'x' }],
+    ['missing', undefined],
+    ['own', own.id],
+  ]) {
+    try { const tab = await cua.getTab(arg); out[name] = tab?.id ?? null }
+    catch (error) { out[name] = 'blocked' }
+  }
+  nodeRepl.write(JSON.stringify(out));
+}
+`)
+    const result = JSON.parse(value.trim())
+    for (const name of ['foreign', 'url', 'mention', 'missing']) {
+      assert.equal(result[name], 'blocked', name)
+    }
+    assert.equal(result.own, result.ownId)
+    assert.equal(browserRecords(context, 'getTab').length, 1)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('cua.getTab on lets a foreign tab into the session tab set', async () => {
+  const context = browserContext('ok', { allowUserTabs: true })
+  try {
+    const value = await runJs(context, `
+{
+  const tab = await cua.getTab('FOREIGN-1');
+  const list = await cua.listTabs({ emit: false });
+  nodeRepl.write(JSON.stringify({ id: tab.id, ids: list.map((item) => item.id) }));
+}
+`)
+    const result = JSON.parse(value.trim())
+    assert.equal(result.id, 'FOREIGN-1')
+    assert.equal(result.ids.includes('FOREIGN-1'), true)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('cua.getState off filters tabs in the return value and the output', async () => {
+  const context = browserContext('ok')
+  try {
+    const value = await runJs(context, `
+{
+  const own = await cua.createBrowserTab('chrome', 'https://own.invalid/state');
+  const state = await cua.getState();
+  const ids = state.browsers[0].tabs.map((tab) => tab.id);
+  nodeRepl.write(JSON.stringify({ ownId: own.id, ids }));
+}
+`)
+    assert.doesNotMatch(value, /FOREIGN-TITLE|foreign\.invalid/)
+    assert.match(value, /\n2 user tabs hidden because allowUserTabs is off/)
+    const marker = value.split('\n').find((line) => line.startsWith('{"ownId"'))
+    const result = JSON.parse(marker)
+    assert.deepEqual(result.ids, [result.ownId])
+    const calls = browserRecords(context, 'getState')
+    assert.equal(calls.at(-1).options.emit, false)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('cua.getState off with emit:false produces no output and filters the result', async () => {
+  const context = browserContext('ok')
+  try {
+    const value = await runJs(context, `
+{
+  const state = await cua.getState({ emit: false });
+  if (state.browsers[0].tabs.some((tab) => tab.id === 'FOREIGN-1')) {
+    throw new Error('unfiltered state');
+  }
+}
+`)
+    assert.equal(value.trim(), '')
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('cua.getState on passes the caller options and full state through', async () => {
+  const context = browserContext('ok', { allowUserTabs: true })
+  try {
+    const value = await runJs(context, `
+{
+  const state = await cua.getState({ includeApps: true });
+  const ids = state.browsers[0].tabs.map((tab) => tab.id);
+  nodeRepl.write('IDS ' + JSON.stringify(ids));
+}
+`)
+    assert.match(value, /FOREIGN-TITLE-1/)
+    assert.match(value, /foreign\.invalid/)
+    const line = value.split('\n').find((entry) => entry.startsWith('IDS '))
+    assert.equal(JSON.parse(line.slice(4)).includes('FOREIGN-1'), true)
+    assert.deepEqual(browserRecords(context, 'getState').at(-1).options,
+      { includeApps: true })
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('browser.tabs guards get and content and records new tabs', async () => {
+  const context = browserContext('ok')
+  try {
+    const value = await runJs(context, `
+{
+  const own = await cua.createBrowserTab('chrome', 'https://own.invalid/tabs');
+  const browser = await cua.getBrowser('chrome');
+  const out = {};
+  for (const [name, call] of [
+    ['foreignGet', () => browser.tabs.get('FOREIGN-1')],
+    ['foreignContent', () => browser.tabs.content('FOREIGN-1')],
+  ]) {
+    try { await call(); out[name] = 'NOT BLOCKED' } catch { out[name] = 'blocked' }
+  }
+  out.ownGet = (await browser.tabs.get(own.id)).id === own.id;
+  out.ownContent = await browser.tabs.content(own.id);
+  const created = await browser.tabs.new();
+  out.newId = created.id;
+  out.newGet = (await browser.tabs.get(created.id)).id === created.id;
+  const list = await browser.tabs.list();
+  out.list = { isArray: Array.isArray(list), count: list.length };
+  out.selected = (await browser.tabs.selected()) !== undefined;
+  nodeRepl.write(JSON.stringify(out));
+}
+`)
+    const result = JSON.parse(value.trim())
+    assert.equal(result.foreignGet, 'blocked')
+    assert.equal(result.foreignContent, 'blocked')
+    assert.equal(result.ownGet, true)
+    assert.equal(result.newGet, true)
+    assert.equal(result.list.isArray, true)
+    assert.equal(result.list.count, 2)
+    assert.equal(result.selected, true)
+    assert.equal(browserRecords(context, 'tabsGet').length, 2)
+    assert.equal(browserRecords(context, 'tabsContent').length, 1)
+    assert.equal(browserRecords(context, 'tabsNew').length, 1)
+    assert.equal(browserRecords(context, 'tabsList').length, 1)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('membrane: getTab, getState and tabs.get stay guarded', async () => {
+  const context = browserContext('membrane')
+  try {
+    const value = await runJs(context, `
+{
+  const browser = await cua.getBrowser('chrome');
+  const out = {};
+  try { await cua.getTab('FOREIGN-1'); out.getTab = 'NOT BLOCKED' }
+  catch { out.getTab = 'blocked' }
+  try { await browser.tabs.get('FOREIGN-1'); out.tabsGet = 'NOT BLOCKED' }
+  catch { out.tabsGet = 'blocked' }
+  const state = await cua.getState({ emit: false });
+  out.ids = state.browsers[0].tabs.map((tab) => tab.id);
+  nodeRepl.write(JSON.stringify(out));
+}
+`)
+    const result = JSON.parse(value.trim())
+    assert.equal(result.getTab, 'blocked')
+    assert.equal(result.tabsGet, 'blocked')
+    assert.equal(result.ids.includes('FOREIGN-1'), false)
+    assert.equal(browserRecords(context, 'getTab').length, 0)
+    assert.equal(browserRecords(context, 'tabsGet').length, 0)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('getTab and getState follow the switch on/off/on/off in one REPL', async () => {
+  const allowUserTabs = createVolatile(false)
+  const context = browserContext('ok', { allowUserTabs })
+  const ids = async () => {
+    const value = await runJs(context, `
+{
+  const state = await cua.getState({ emit: false });
+  nodeRepl.write(JSON.stringify(state.browsers[0].tabs.map((tab) => tab.id)));
+}
+`)
+    return JSON.parse(value.trim())
+  }
+  try {
+    const url = 'https://example.invalid/hot'
+    await assert.rejects(runJs(context, `await cua.getTab({ url: "${url}" });`),
+      /allowUserTabs/)
+    assert.equal((await ids()).includes('FOREIGN-1'), false)
+    allowUserTabs[WRITE](true)
+    const allowed = await runJs(context,
+      `nodeRepl.write((await cua.getTab({ url: "${url}" })).id);`)
+    assert.equal(allowed.trim(), 'url-tab-1')
+    assert.equal((await ids()).includes('FOREIGN-1'), true)
+    allowUserTabs[WRITE](false)
+    await assert.rejects(runJs(context, `await cua.getTab({ url: "${url}" });`),
+      /allowUserTabs/)
+    assert.equal((await ids()).includes('FOREIGN-1'), false)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
 for (const mode of ['ok', 'sync-entrance']) {
   test(`Promise and synchronous entrance results are both blocked (${mode})`, async () => {
     const context = browserContext(mode)
@@ -537,6 +748,13 @@ test('the pc_codex_js description states the allowUserTabs rule in full', () => 
   try {
     const description = plugin.tools.get('pc_codex_js').description
     assert.equal(description.includes(USER_TABS_RULE), true)
+    assert.match(description,
+      /`cua\.getTab\(\.\.\.\)` only accepts ids of tabs this session opened/)
+    assert.match(description, /`cua\.getState\(\)` lists only this session's tabs/)
+    assert.match(description,
+      /`browser\.tabs\.get` and `browser\.tabs\.content` follow the same rule/)
+    assert.match(description,
+      /`browser\.tabs\.list` and `browser\.tabs\.selected` cover only this session/)
   } finally {
     plugin.dispose()
   }

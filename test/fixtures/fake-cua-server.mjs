@@ -22,6 +22,7 @@ function createEnvironment() {
   let nextId = 1
   let browser = null
   let membraneCached = null
+  let stateCached = null
   const ownTabs = []
   const claimedTabs = []
   const foreignTabs = [
@@ -79,6 +80,80 @@ function createEnvironment() {
     return [{ title: 'HISTORY-TITLE-1', url: 'https://history.invalid/1' }]
   }
 
+  function allTabs() {
+    return [...ownTabs, ...claimedTabs, ...foreignTabs]
+  }
+
+  function sessionTabs() {
+    return [...ownTabs, ...claimedTabs]
+  }
+
+  function tabInfo(tab) {
+    return {
+      id: tab.id, providerTabId: tab.id, lastOpened: '2026-10-19T00:00:00.000Z',
+      title: tab.title, url: tab.url,
+    }
+  }
+
+  function tabById(value) {
+    const id = String(value)
+    return allTabs().find((tab) => tab.id !== undefined && String(tab.id) === id)
+  }
+
+  function tabByArg(arg) {
+    if (arg !== null && typeof arg === 'object') {
+      if (arg.id !== undefined) return tabById(arg.id)
+      if (typeof arg.url === 'string') return allTabs().find((tab) => tab.url === arg.url)
+      return undefined
+    }
+    return tabById(arg)
+  }
+
+  function buildState() {
+    return {
+      apps: [],
+      browsers: [{ id: 'browser-1', name: 'Chrome', tabs: allTabs().map(tabInfo) }],
+    }
+  }
+
+  class StubTabs {
+    async get(arg) {
+      record({ type: 'tabsGet' })
+      const tab = tabByArg(arg)
+      if (tab === undefined) throw new Error('tab not found')
+      return tab
+    }
+
+    async content(arg) {
+      record({ type: 'tabsContent' })
+      const tab = tabByArg(arg)
+      if (tab === undefined) throw new Error('tab not found')
+      return { kind: 'text', text: 'USER-TAB-TEXT-1' }
+    }
+
+    async list() {
+      record({ type: 'tabsList' })
+      return sessionTabs().map(tabInfo)
+    }
+
+    async new() {
+      record({ type: 'tabsNew' })
+      const tab = {
+        id: `tab-${nextId++}`,
+        title: 'OWN-NEW-TAB',
+        url: 'about:blank',
+        async getAXState() { nodeRepl.write('NEW-AX') },
+      }
+      ownTabs.push(tab)
+      return tab
+    }
+
+    async selected() {
+      record({ type: 'tabsSelected' })
+      return sessionTabs()[0] ?? undefined
+    }
+  }
+
   class StubBrowserUser {
     async openTabs() { return openTabs() }
 
@@ -90,6 +165,7 @@ function createEnvironment() {
   class StubBrowser {
     constructor() {
       this.id = 'browser-1'
+      this.tabs = new StubTabs()
       this.user = new StubBrowserUser()
     }
 
@@ -146,6 +222,7 @@ function createEnvironment() {
 
   function membraneBrowser() {
     const created = shapeBrowser()
+    created.tabs = membrane(created.tabs)
     if (created.user !== undefined) created.user = membrane(created.user)
     return membrane(created)
   }
@@ -193,6 +270,21 @@ function createEnvironment() {
         }))
         if (options.emit !== false) nodeRepl.write(JSON.stringify(all))
         return all
+      },
+      async getTab(arg) {
+        record({ type: 'getTab' })
+        const tab = tabByArg(arg)
+        if (tab !== undefined) return tab
+        if (arg !== null && typeof arg === 'object' && typeof arg.url === 'string') {
+          return { id: 'url-tab-1', title: 'URL-TAB', url: arg.url }
+        }
+        return { id: 'unknown-tab', title: 'UNKNOWN', url: 'about:blank' }
+      },
+      async getState(options = {}) {
+        record({ type: 'getState', options })
+        if (stateCached === null) stateCached = buildState()
+        if (options.emit !== false) nodeRepl.write(JSON.stringify(stateCached))
+        return stateCached
       },
     }
     if (mode !== 'no-get-browser') {
@@ -255,6 +347,7 @@ function createEnvironment() {
       nextId = 1
       browser = null
       membraneCached = null
+      stateCached = null
       ownTabs.length = 0
       claimedTabs.length = 0
       calls.create = 0

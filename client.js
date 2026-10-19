@@ -58,8 +58,11 @@ window.__ModuleLoader__.load({
       keepImageFilesDescription: '附图时同时在本机 ~/.dsh/pc-use-images 再存一份；默认只由 DSH 附件库保存。',
       allowUserTabs: '允许读取用户标签页',
       allowUserTabsDescription: '允许模型读你自己的浏览器标签页和浏览历史（`browser.user.openTabs`、'
-        + '`claimTab`、`getTabContext`、`browser.history`）。关闭时这些调用会报错。打开后，'
-        + '标签页标题、网址、页面内容或历史会发给模型服务商。',
+        + '`claimTab`、`getTabContext`、`browser.history`、`cua.getTab`、`cua.getState`、'
+        + '`browser.tabs.get`、`browser.tabs.content`）。关闭时前四项直接报错；'
+        + '`cua.getTab`、`browser.tabs.get`、`browser.tabs.content` 只接受本会话的标签页，'
+        + '`cua.getState` 只列出本会话的标签页。打开后，标签页标题、网址、页面内容或'
+        + '历史会发给模型服务商。',
       timeoutInvalid: '请输入 10 到 3600 之间的整数秒。',
       secondsUnit: '秒',
       codexHome: 'Codex 配置目录',
@@ -111,9 +114,12 @@ window.__ModuleLoader__.load({
         + 'by default only the DSH attachment store keeps them.',
       allowUserTabs: 'Allow reading user tabs',
       allowUserTabsDescription: 'Allow the model to read your own browser tabs and browsing '
-        + 'history (`browser.user.openTabs`, `claimTab`, `getTabContext`, `browser.history`). '
-        + 'While off these calls fail. While on, tab titles, URLs, page content or history '
-        + 'are sent to the model provider.',
+        + 'history (`browser.user.openTabs`, `claimTab`, `getTabContext`, `browser.history`, '
+        + '`cua.getTab`, `cua.getState`, `browser.tabs.get`, `browser.tabs.content`). While '
+        + 'off, the first four fail with an error; `cua.getTab`, `browser.tabs.get` and '
+        + '`browser.tabs.content` only accept this session\'s tabs, and `cua.getState` lists '
+        + 'only those tabs. While on, tab titles, URLs, page content or history are sent to '
+        + 'the model provider.',
       timeoutInvalid: 'Enter an integer between 10 and 3600 seconds.',
       secondsUnit: 'seconds',
       codexHome: 'Codex home',

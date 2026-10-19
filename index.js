@@ -117,8 +117,11 @@ function buildConfig(schema) {
         .volatile(),
       allowUserTabs: schema.boolean().default(false)
         .description('允许模型读你自己的浏览器标签页和浏览历史（`browser.user.openTabs`、'
-          + '`claimTab`、`getTabContext`、`browser.history`）。关闭时这些调用会报错。'
-          + '打开后，标签页标题、网址、页面内容或历史会发给模型服务商。')
+          + '`claimTab`、`getTabContext`、`browser.history`、`cua.getTab`、`cua.getState`、'
+          + '`browser.tabs.get`、`browser.tabs.content`）。关闭时前四项直接报错；'
+          + '`cua.getTab`、`browser.tabs.get`、`browser.tabs.content` 只接受本会话的标签页，'
+          + '`cua.getState` 只列出本会话的标签页。打开后，标签页标题、网址、页面内容或'
+          + '历史会发给模型服务商。')
         .volatile(),
       tools: schema.object({
         js: schema.boolean().default(true).description('注册 `pc_codex_js`：在持久的 cua_repl 内核中执行 JS。'),
@@ -1192,11 +1195,15 @@ export function apply(ctx, raw = {}) {
         '`globalThis.tab = await cua.createBrowserTab(...)`, so later calls and ' +
         '`pc_codex_observe` can use it. `cua.listTabs()` returns only tabs opened by ' +
         'this session via `cua.createBrowserTab`; other user tabs are filtered out, so ' +
-        'check your own tab by id. `browser.user.openTabs()`, `claimTab`, `getTabContext` ' +
-        'and `browser.history()` are blocked by default by the `allowUserTabs` setting; ' +
-        'with that switch on, use them only when the user explicitly asks. Browser tasks ' +
-        'do not need `pc_codex_docs`. When the tree is available, judge UI state by ' +
-        'reading values ' +
+        'check your own tab by id. `cua.getTab(...)` only accepts ids of tabs this session ' +
+        'opened, and `cua.getState()` lists only this session\'s tabs. ' +
+        '`browser.tabs.get` and `browser.tabs.content` follow the same rule; ' +
+        '`browser.tabs.list` and `browser.tabs.selected` cover only this session. ' +
+        '`browser.user.openTabs()`, `claimTab`, `getTabContext` and `browser.history()` ' +
+        'are blocked by default by the `allowUserTabs` setting; only with that switch on ' +
+        'can you access the user\'s own tabs, and then only when the user explicitly asks. ' +
+        'Browser tasks do not need `pc_codex_docs`. When the tree is available, judge UI ' +
+        'state by reading values ' +
         '(button enabled, input value, selected item), not screenshots; if it is not, ' +
         'use a screenshot. After a UI-changing step, read state first and do not reuse ' +
         'old indexes or coordinates. Fallback: use `pc_codex_run_plan` when you need ' +

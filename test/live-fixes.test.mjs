@@ -170,7 +170,12 @@ test('tool descriptions carry the live-fix guidance', () => {
     assert.match(browser, /`browser\.user\.openTabs\(\)`/)
     assert.match(browser, /`claimTab`, `getTabContext` and `browser\.history\(\)`/)
     assert.match(browser, /blocked by default by the `allowUserTabs` setting/)
-    assert.match(browser, /use them only when the user explicitly asks/)
+    assert.match(browser, /only with that switch on can you access the user's own tabs/)
+    assert.match(browser, /`cua\.getTab\(\.\.\.\)` only accepts ids of tabs this session opened/)
+    assert.match(browser, /`cua\.getState\(\)` lists only this session's tabs/)
+    assert.match(browser, /`browser\.tabs\.get` and `browser\.tabs\.content` follow the same rule/)
+    assert.match(browser,
+      /`browser\.tabs\.list` and `browser\.tabs\.selected` cover only this session/)
     assert.match(browser, /check your own tab by id/)
     assert.match(browser, /globalThis\.tab = await cua\.createBrowserTab/)
     for (const name of ['pc_codex_desktop_js', 'pc_codex_observe']) {

@@ -434,12 +434,14 @@ the profile as well.
   `cua.createBrowserTab`; other user tabs are filtered out. The guard is misuse protection, not a
   security boundary; a reset or server restart forgets earlier tabs, and the prepended guard
   shifts line numbers in model-code errors.
-- `allowUserTabs` (default off) blocks `browser.user.openTabs`, `claimTab`,
-  `getTabContext` and `browser.history` on Browser objects obtained through
-  `cua.getBrowser` or `cua.browsers.{get,getDefault,getForUrl}`. This is misuse
+- `allowUserTabs` (default off) covers `browser.user.openTabs`, `claimTab`,
+  `getTabContext`, `browser.history`, `cua.getTab`, `cua.getState`, `browser.tabs.get`
+  and `browser.tabs.content` on objects obtained through `cua.getBrowser` or
+  `cua.browsers.{get,getDefault,getForUrl}`. `browser.tabs.list` and
+  `browser.tabs.selected` only see this session's tabs and pass through. This is misuse
   protection, not a security boundary: model code can rewrite the Symbol the wrapper
-  reads, `browser.tabs` and `cua.getTab` are not covered. On a frozen Browser, reading
-  `browser.user` or `browser.history` with the switch off throws the guard error.
+  reads. On a frozen Browser, reading `browser.user` or `browser.history` with the switch
+  off throws the guard error.
 - Automatic approval only recognizes the exact wording `Allow Browser use to access <origin>?`; if
   Codex changes it, browser approvals are declined (fail-closed) and the declined wording is logged.
 - Desktop approvals only recognize `Allow Computer Use to use "<name>"?` and `Allow Codex to use <name>?`;

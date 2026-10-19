@@ -367,12 +367,13 @@ npm run test:smoke
 - 浏览器 `cua.listTabs()` 受守卫包装：只返回本会话通过 `cua.createBrowserTab` 打开的标签页，
   用户其他标签页会被过滤。守卫只防误用，不是安全边界；重置或服务器重启后不记得先前的
   标签页，前置守卫也会让模型代码报错的行号发生偏移。
-- `allowUserTabs`（默认关闭）会拦截经 `cua.getBrowser` 或
+- `allowUserTabs`（默认关闭）覆盖经 `cua.getBrowser` 或
   `cua.browsers.{get,getDefault,getForUrl}` 得到的 `Browser` 上的
-  `browser.user.openTabs`、`claimTab`、`getTabContext` 与 `browser.history`。
-  它只防误用，不是安全边界：模型代码能改写包装读取的 Symbol，
-  `browser.tabs` 与 `cua.getTab` 未覆盖。对象被冻结时，开关关闭下读 `browser.user` 或
-  `browser.history` 会直接报拦截错误。
+  `browser.user.openTabs`、`claimTab`、`getTabContext`、`browser.history`，以及
+  `cua.getTab`、`cua.getState`、`browser.tabs.get`、`browser.tabs.content`。
+  `browser.tabs.list` 与 `browser.tabs.selected` 只涉及本会话的标签页，原样放行。
+  它只防误用，不是安全边界：模型代码能改写包装读取的 Symbol。对象被冻结时，
+  开关关闭下读 `browser.user` 或 `browser.history` 会直接报拦截错误。
 - 自动审批只认 `Allow Browser use to access <origin>?` 这条文案；Codex 改文案后浏览器授权会被拒绝（fail-closed），被拒绝的原文会写进日志。
 - 桌面授权只认 `Allow Computer Use to use "<名称>"?` 和 `Allow Codex to use <名称>?` 两种文案，
   改文案后会被拒绝；桌面操控默认关闭，是否弹卡片由 DSH 的权限模式决定（“完全权限”直接放行，
