@@ -9,6 +9,9 @@
   those calls can send tab titles, URLs, page content and history to the model provider.
 - The settings page shows a skeleton with the same layout while settings load; control
   contents appear when loading completes.
+- `initialize` matches native Codex: protocol version `2025-06-18` and `form` plus `url`
+  elicitation capabilities. `url`-mode requests are always declined and logged by host
+  name only; `clientInfo` stays `dsh-pc-use` with the plugin version.
 
 ## 0.7.0
 

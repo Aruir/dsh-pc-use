@@ -6,11 +6,15 @@
 //   init-hang         never answer initialize
 //   elicit            on tools/call, ask a browser-access approval and report the decision
 //   elicit-other      same, but with a non-browser approval message
+//   elicit-form       same as elicit, with explicit elicitation mode "form"
+//   elicit-url        same as elicit, as a url-mode request with a token in the query
+//   elicit-url-invalid  url-mode request whose url cannot be parsed
 //   elicit-then-exit  ask an approval, then exit before the client can answer
 //   slow              never answer tools/call (client timeout and cancellation)
 //   image             answer tools/call with one image content item
 // Every method received is appended to <log-file>, one per line; answers to approvals
-// are logged as "answer <action>", and initialize's clientInfo as "initialize-params ...".
+// are logged as "answer <action>", initialize's clientInfo as "initialize-params ...", and
+// its full params as "initialize-full ...".
 import { appendFileSync } from 'node:fs'
 import readline from 'node:readline'
 
@@ -26,13 +30,13 @@ function record(text) {
   appendFileSync(logFile, `${text}\n`)
 }
 
-function askApproval(callId, text) {
+function askApproval(callId, text, extra = null) {
   const elicitationId = `e-${callId}`
   send({
     jsonrpc: '2.0',
     id: elicitationId,
     method: 'elicitation/create',
-    params: { message: text },
+    params: { message: text, ...(extra ?? {}) },
   })
   waiting.set(elicitationId, callId)
 }
@@ -60,6 +64,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 
   if (message.method === 'initialize') {
     record(`initialize-params ${JSON.stringify(message.params?.clientInfo ?? null)}`)
+    record(`initialize-full ${JSON.stringify(message.params ?? null)}`)
     if (mode === 'init-hang') {
       return
     }
@@ -95,6 +100,24 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   }
   if (mode === 'elicit-other') {
     askApproval(message.id, 'Allow Codex to control the Notepad app?')
+    return
+  }
+  if (mode === 'elicit-form') {
+    askApproval(message.id, 'Allow Browser use to access https://example.com?', { mode: 'form' })
+    return
+  }
+  if (mode === 'elicit-url') {
+    askApproval(message.id, 'Allow Browser use to access https://example.com?', {
+      mode: 'url',
+      url: 'https://example.com/secret/path?token=SECRET',
+    })
+    return
+  }
+  if (mode === 'elicit-url-invalid') {
+    askApproval(message.id, 'Allow Browser use to access https://example.com?', {
+      mode: 'url',
+      url: 'not a url',
+    })
     return
   }
   if (mode === 'elicit-then-exit') {

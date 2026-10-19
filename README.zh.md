@@ -23,6 +23,10 @@ Codex 自己的客户端才会做的事，普通 MCP 客户端接不了：
 的来源。启动环境原样传入：浏览器用 `.mcp.json` 里的值，桌面用 `config.toml` 里的值，与 Codex
 应用的启动方式一致。
 
+`initialize` 与原生 Codex 一致：协议版本为 `2025-06-18`，elicitation 同时声明 `form` 与
+`url` 两种能力。插件没有让用户打开网址的界面，`url` 形式的请求一律拒绝；`clientInfo` 仍为
+`dsh-pc-use` 与插件版本。
+
 ## 前置条件
 
 - Codex 桌面应用必须正在运行（两个服务器连的都是它的原生管道）；

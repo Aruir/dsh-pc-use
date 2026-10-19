@@ -8,6 +8,9 @@ import { test } from 'node:test'
 import { FAKE_SERVER, registerPlugin, tempDir, useHome, writeCodexHome } from './helpers.mjs'
 
 const WRITE = Symbol.for('cosmokit.volatile.write')
+const packageJson = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+)
 
 function createVolatile(value) {
   let current = value
@@ -22,6 +25,15 @@ function createVolatile(value) {
 function approvalLines(logFile) {
   if (!existsSync(logFile)) return []
   return readFileSync(logFile, 'utf8').split('\n').filter((line) => line.includes('approval "'))
+}
+
+/** The full initialize params the fake server received. O(n), n = log lines. */
+function initializeParams(serverLog) {
+  const line = readFileSync(serverLog, 'utf8')
+    .split('\n')
+    .find((entry) => entry.startsWith('initialize-full '))
+  assert.ok(line, 'the fixture must record the initialize params')
+  return JSON.parse(line.slice('initialize-full '.length))
 }
 
 /** Start the plugin against the fake server; `logFile` null means the default log path. */
@@ -154,6 +166,68 @@ test('the next approval after a volatile autoApprove rewrite uses the new value'
     assert.equal(lines.length, 2)
     assert.match(lines[0], /-> accept/)
     assert.match(lines[1], /-> decline/)
+  } finally {
+    context.plugin.dispose()
+    context.restore()
+  }
+})
+
+test('initialize matches native protocol, capabilities and the dsh clientInfo', async () => {
+  const context = setup({ mode: 'ok', autoApprove: false })
+  try {
+    await exercise(context)
+    const params = initializeParams(context.serverLog)
+    assert.equal(params.protocolVersion, '2025-06-18')
+    assert.deepEqual(params.capabilities, { elicitation: { form: {}, url: {} } })
+    assert.equal(params.clientInfo.name, 'dsh-pc-use')
+    assert.equal(params.clientInfo.version, packageJson.version)
+  } finally {
+    context.plugin.dispose()
+    context.restore()
+  }
+})
+
+test('a url-mode elicitation is declined even when autoApprove would accept its text', async () => {
+  const context = setup({ mode: 'elicit-url', autoApprove: true })
+  try {
+    const text = await exercise(context)
+    assert.match(text, /decision decline/)
+    const lines = approvalLines(context.expectedLogFile)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0], /-> decline \(url elicitation is not supported\)/)
+    assert.match(lines[0], /example\.com/)
+    assert.doesNotMatch(lines[0], /\/secret|token=SECRET/)
+    assert.match(readFileSync(context.serverLog, 'utf8'), /answer decline/)
+  } finally {
+    context.plugin.dispose()
+    context.restore()
+  }
+})
+
+test('a url-mode elicitation with an unparseable url logs invalid url', async () => {
+  const context = setup({ mode: 'elicit-url-invalid', autoApprove: true })
+  try {
+    const text = await exercise(context)
+    assert.match(text, /decision decline/)
+    const lines = approvalLines(context.expectedLogFile)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0], /-> decline \(url elicitation is not supported\)/)
+    assert.match(lines[0], /invalid url/)
+    assert.doesNotMatch(lines[0], /not a url/)
+  } finally {
+    context.plugin.dispose()
+    context.restore()
+  }
+})
+
+test('an explicit form-mode elicitation keeps the browser auto-approval', async () => {
+  const context = setup({ mode: 'elicit-form', autoApprove: true })
+  try {
+    const text = await exercise(context)
+    assert.match(text, /decision accept/)
+    const lines = approvalLines(context.expectedLogFile)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0], /-> accept \(browser access auto-approved\)/)
   } finally {
     context.plugin.dispose()
     context.restore()

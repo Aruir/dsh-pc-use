@@ -27,6 +27,10 @@ server's source before using it. The launch environment is passed through unchan
 server uses the values from `.mcp.json` and the desktop server those from `config.toml`, exactly as
 the Codex app starts them.
 
+`initialize` matches native Codex: protocol version `2025-06-18`, with both `form` and `url`
+elicitation capabilities. The plugin has no UI to open a URL for the user, so `url`-mode
+requests are always declined; `clientInfo` stays `dsh-pc-use` with the plugin version.
+
 ## Prerequisites
 
 - The Codex desktop app must be running (both servers connect to its native pipes);
