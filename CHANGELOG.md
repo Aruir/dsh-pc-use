@@ -25,6 +25,9 @@ body is read from the local Codex installation when DSH lists or loads it, so it
 copied into the repository; the plugin appends DSH notes that name the desktop tools and map
 the `docs/` files to `pc_codex_docs` topics.
 
+The descriptions of the settings page's "Codex home" and "Bridge log" rows now point at
+`pc_status` for the reason when the path cannot be used or the log cannot be written.
+
 ## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image

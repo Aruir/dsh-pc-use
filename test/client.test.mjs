@@ -659,6 +659,20 @@ test('the allowUserTabs switch sits after autoApprove in the browser group', () 
   assert.match(enText, /sent to the model provider/)
 })
 
+test('the two path rows point at pc_status in both languages', () => {
+  const { context, renderer } = renderSection()
+  const pathRow = (id) => rowsOfGroup(groupContainers(renderer.getTree())[2])
+    .find((row) => rowControlId(row) === id)
+  for (const id of ['pc-use-codexHome', 'pc-use-logFile']) {
+    assert.match(renderedText(pathRow(id)), /pc_status/, `${id} zh`)
+  }
+  context.locale.language = 'en'
+  renderer.render()
+  for (const id of ['pc-use-codexHome', 'pc-use-logFile']) {
+    assert.match(renderedText(pathRow(id)), /pc_status/, `${id} en`)
+  }
+})
+
 test('a failed read renders readFailed and no controls', () => {
   const { renderer } = renderSection({
     status: 'unavailable',
