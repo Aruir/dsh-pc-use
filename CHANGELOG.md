@@ -2,6 +2,11 @@
 
 [中文](CHANGELOG.zh.md) | English
 
+## Unreleased
+
+The plugin description in DSH no longer says which provider is used or that more providers are
+planned.
+
 ## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image
