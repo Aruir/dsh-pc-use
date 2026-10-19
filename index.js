@@ -37,6 +37,7 @@ import {
   desktopApprovalQuestion, illegalReturnNote, legacyDisplayReason, noAccessibilityTreeNote,
   resolveLanguage, systemLocale,
 } from './lib/text.js'
+import { createTurnTracker } from './lib/turn-tracker.js'
 
 export const name = 'pc-use'
 export const inject = ['tools']
@@ -183,7 +184,6 @@ const CALL_ENDED = Symbol('pc_codex_desktop_js call ended')
 const DELEGATED = Symbol('delegated caller')
 
 const SPEC_FIELDS = ['command', 'args', 'cwd', 'pipeDirectory', 'source']
-const SERVER_KINDS = ['browser', 'desktop']
 const RESOLVERS = { browser: resolveBrowserServer, desktop: resolveDesktopServer }
 
 /** Names of the launch fields that differ between two resolved specs. O(n), n = args. */
@@ -600,82 +600,18 @@ export function apply(ctx, raw = {}) {
   })
   const servers = { browser: makeServer('browser'), desktop: makeServer('desktop') }
 
-  // F6: per-agent Codex session/turn identity, one identity shared by both servers.
-  const agentTurns = new WeakMap()
-  // Subagent sessions are keyed by the session object, so entries disappear with it.
-  const subagentSessions = new WeakSet()
+  // r13: turn tracking lives in its own module; it only needs each server's generation,
+  // so a bridge rebuilt mid-turn never receives the old turn.
+  const turns = createTurnTracker({ generationOf: (kind) => servers[kind].generation })
 
-  /** A fresh per-agent turn identity. O(1). */
-  const newTurnState = () => ({
-    sessionId: randomUUID(),
-    turnId: randomUUID(),
-    // The turn identity's creation time; rotated together with turnId (D16 / meta-fields) so
-    // every call reports the start of the turn it belongs to, not of the next one.
-    startedAtUnixMs: Date.now(),
-    used: { browser: false, desktop: false },
-    generations: { browser: -1, desktop: -1 },
-  })
-  /** Get this agent's Codex identity; created on first use. O(1). */
-  const turnStateFor = (agent) => {
-    let state = agentTurns.get(agent)
-    if (state === undefined) {
-      state = newTurnState()
-      agentTurns.set(agent, state)
-    }
-    return state
-  }
-  /**
-   * The model and reasoning effort of the DSH agent running a call, read from the request
-   * header the DSH agent loop logs for its latest request (packages/core/session:
-   * `Session.requestHeader()`, an `EpochHeader` whose `config` is the resolved
-   * `LlmCallConfig`). A tool call only runs after a request, but a missing or throwing
-   * header simply omits both fields instead of failing the call. O(1).
-   */
-  const agentRoute = (agent) => {
-    let config
-    try {
-      config = agent?.session?.requestHeader?.()?.config
-    } catch {
-      return {}
-    }
-    const model = config?.model
-    const reasoningEffort = config?.reasoningEffort
-    return {
-      model: typeof model === 'string' && model !== '' ? model : undefined,
-      reasoningEffort: typeof reasoningEffort === 'string' && reasoningEffort !== ''
-        ? reasoningEffort
-        : undefined,
-    }
-  }
-  /**
-   * One call's `_meta` identity. The per-call values come from the DSH tool execution:
-   * `callId`, and the agent's current route for model/effort. The caller reads it in the
-   * same synchronous block that marks the server used, so `_meta` and the "used" marker
-   * always describe the same turn. O(1).
-   */
-  const callIdentity = (state, exec) => {
-    const route = agentRoute(exec?.agent)
-    return {
-      sessionId: state?.sessionId,
-      turnId: state?.turnId,
-      turnStartedAtUnixMs: state?.startedAtUnixMs,
-      callId: typeof exec?.callId === 'string' && exec.callId !== '' ? exec.callId : undefined,
-      model: route.model,
-      reasoningEffort: route.reasoningEffort,
-    }
-  }
-  /** Record that this turn used one server, with that bridge's generation. O(1). */
-  const markServerUsed = (state, kind) => {
-    state.used[kind] = true
-    state.generations[kind] = servers[kind].generation
-  }
   /** Send turn_ended on one server's existing connection; never starts one. O(1). */
   const reportTurnEnded = (kind, hookEventName, identity) => {
     const active = servers[kind].bridge
     if (active === null || active.alive !== true) return
-    // D16: the identity was copied before onSessionEvent rotates it below; call() fixes
-    // its _meta from this snapshot before its first await. metaMode keeps the turn_ended
-    // `_meta` byte for byte as before the r1 meta-fields work (r3 turn-ended-align owns it).
+    // D16: the identity is a snapshot taken before the turn tracker rotated the turn; call()
+    // fixes its _meta from that snapshot before its first await. metaMode keeps the
+    // turn_ended `_meta` byte for byte as before the r1 meta-fields work (r3
+    // turn-ended-align owns it).
     active.call('turn_ended', {
       hook_event_name: hookEventName,
       session_id: identity.sessionId,
@@ -704,42 +640,12 @@ export function apply(ctx, raw = {}) {
       () => log('end_turn failed: connect failed'),
     )
   }
-  /** Codex hook name for a finished DSH turn. O(1). */
-  const turnEndedHookName = (event, subagent) => {
-    if (subagent === true) return 'SubagentStop'
-    const kind = event?.data?.reason?.kind
-    if (kind === 'aborted' || kind === 'interrupted') return 'Interrupt'
-    return 'Stop'
-  }
-  /** Track subagent sessions and report finished turns to each used server. O(1). */
-  const onSessionEvent = (agents, session, event) => {
-    if (event?.type === 'subagent/descriptor') {
-      subagentSessions.add(session)
-      return
+  /** Report one finished turn to every server it used, then close the desktop overlay. O(1). */
+  const reportEndedTurn = (ended) => {
+    for (const kind of ended.kinds) {
+      reportTurnEnded(kind, ended.hookEventName, ended.identity)
     }
-    if (event?.type !== 'turn/end') return
-    const agent = agents?.get(session.id)
-    if (agent === undefined || agent === null) return
-    const state = agentTurns.get(agent)
-    if (state === undefined) return
-    const hookEventName = turnEndedHookName(event, subagentSessions.has(session))
-    const identity = { sessionId: state.sessionId, turnId: state.turnId }
-    for (const kind of SERVER_KINDS) {
-      if (state.used[kind] !== true) continue
-      // A bridge rebuilt since this turn's call must not receive that turn.
-      if (state.generations[kind] !== servers[kind].generation) continue
-      reportTurnEnded(kind, hookEventName, identity)
-    }
-    // Same generation rule as above: only close the turn that this call actually used.
-    if (state.used.desktop === true
-      && state.generations.desktop === servers.desktop.generation) {
-      closeDesktopTurn(identity)
-    }
-    state.turnId = randomUUID()
-    // A rotated turn gets a new start time, so the next call reports a later one.
-    state.startedAtUnixMs = Date.now()
-    state.used = { browser: false, desktop: false }
-    state.generations = { browser: -1, desktop: -1 }
+    if (ended.kinds.includes('desktop')) closeDesktopTurn(ended.identity)
   }
 
   /** Re-resolve one server's launch spec; never throws. O(file size). */
@@ -862,17 +768,15 @@ export function apply(ctx, raw = {}) {
   }
 
   /**
-   * Run one MCP call on one server with the identity of the turn it belongs to. The turn is
-   * read, snapshotted and marked used in one synchronous block after `ensureServer`, so the
-   * `_meta` turn and the reported-as-used turn are always the same (F1). D16 stays in
-   * `call()`: it fixes the identity snapshot before its own first await. O(1).
+   * Run one MCP call on one server with the identity of the turn it belongs to. `beginCall`
+   * reads the turn, snapshots the identity and marks the server used in one synchronous
+   * block after `ensureServer`, so the `_meta` turn and the reported-as-used turn are always
+   * the same (F1). D16 stays in `call()`: it fixes the identity snapshot before its first
+   * await. O(1).
    */
   const callOn = async (kind, method, args, timeoutMs, exec, collector = null) => {
     const active = await ensureServer(kind)
-    const agent = exec?.agent
-    const turn = agent === null || agent === undefined ? null : turnStateFor(agent)
-    const identity = callIdentity(turn, exec)
-    if (turn !== null) markServerUsed(turn, kind)
+    const identity = turns.beginCall(exec, kind)
     const guarded = kind === 'browser' && method === 'js' && typeof args?.code === 'string'
       ? {
         ...args,
@@ -1623,7 +1527,10 @@ export function apply(ctx, raw = {}) {
   // subscription is owned by this plugin context (removed on unload).
   if (typeof ctx.inject === 'function') {
     ctx.inject(['agents'], (scope) => {
-      scope.on('session/event', (session, event) => onSessionEvent(scope.agents, session, event))
+      scope.on('session/event', (session, event) => {
+        const ended = turns.onSessionEvent(scope.agents, session, event)
+        if (ended !== null) reportEndedTurn(ended)
+      })
     })
   }
 
