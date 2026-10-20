@@ -127,14 +127,15 @@ test('a pending approval pauses the call timeout', async () => {
 })
 
 test('after an approval the call only gets its remaining time back', async () => {
+  // Timing: ask at 1000 ms, answer at 1600 ms, timeoutMs 3000 ms. Correct is ~2000 ms
+  // after the answer; a full 3000 ms recovery gives ~3000 ms and zero remaining ~0 ms.
   const approval = approvalAfter(600)
   const context = setup({
-    timeoutMs: 500,
+    timeoutMs: 3000,
     mode: 'slow-ask-answer',
     services: { approval: approval.service },
   })
   try {
-    const startedAt = Date.now()
     let error = null
     try {
       await runJs(context)
@@ -143,12 +144,11 @@ test('after an approval the call only gets its remaining time back', async () =>
     }
     const rejectedAt = Date.now()
     assert.ok(error instanceof Error, 'the call must time out')
-    assert.match(error.message, /timed out after 500ms/)
+    assert.match(error.message, /timed out after 3000ms/)
     assert.equal(typeof approval.state.answeredAt, 'number')
     const afterApproval = rejectedAt - approval.state.answeredAt
-    assert.ok(afterApproval >= 100, `timed out only ${afterApproval}ms after the approval`)
-    assert.ok(afterApproval <= 400, `timed out ${afterApproval}ms after the approval`)
-    assert.ok(rejectedAt - startedAt >= 1000, 'the 300ms preamble must be honoured')
+    assert.ok(afterApproval >= 1000, `timed out only ${afterApproval}ms after the approval`)
+    assert.ok(afterApproval <= 2600, `timed out ${afterApproval}ms after the approval`)
   } finally {
     await finish(context)
   }

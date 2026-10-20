@@ -306,7 +306,8 @@ approval log. The plugin never asks for `always`. The user is asked again after 
 reconnects (for example switching `computer`, a `node_repl` change or a process restart), in a new
 DSH session, or after setting `rememberDesktopApprovals` to `false`; turning that switch off
 restarts the desktop server, so both the plugin's and the server's memories are cleared (the
-desktop JS kernel is reset too). A browser bridge reconnect does not clear remembered desktop
+desktop JS kernel is reset too). A desktop call that is running fails. A browser bridge
+reconnect does not clear remembered desktop
 approvals. To request a new prompt immediately, the most reliable way is to start a new DSH
 session or toggle `computer` once. Note: if the user tightens the permission mode later, apps
 that were already remembered in this DSH session still pass.

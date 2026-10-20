@@ -46,6 +46,7 @@ Codex 应用。
 插件记住桌面应用时，授权回复现在带 `_meta: { persist: "session" }`，让 Codex 服务器在
 同一会话内也记住并不再重复请求；插件不发送 `always`。关闭 `rememberDesktopApprovals`
 现在会重启桌面服务器，清空插件与服务器两边的记忆（桌面 JS 内核也会重置）。
+正在运行的桌面调用会中断。
 
 ## 0.9.1
 

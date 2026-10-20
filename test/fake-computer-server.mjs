@@ -162,9 +162,10 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
           id: callId,
           result: { content: [{ type: 'text', text: `decision ${action}` }] },
         }
-      // The remaining-time test needs the result 400 ms after the approval answer.
+      // The remaining-time test needs the result long after the approval answer, so the
+      // client's resumed timer fires while the server is still busy.
       if (mode === 'slow-ask-answer') {
-        setTimeout(() => send(reply), 400)
+        setTimeout(() => send(reply), 4000)
       } else if (mode === 'flow-meta-reject-error-slow' && rejected) {
         setTimeout(() => send(reply), 300)
       } else {
@@ -208,8 +209,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     return
   }
   if (mode === 'slow-ask-answer') {
-    // Ask only after 300 ms; the caller's timeout must be paused from that moment on.
-    setTimeout(() => ask(message.id, COMPUTER_QUESTION), 300)
+    // Ask only after 1000 ms, so the authorization itself takes a known part of the
+    // caller's 3000 ms timeout before it is paused.
+    setTimeout(() => ask(message.id, COMPUTER_QUESTION), 1000)
     return
   }
   if (mode === 'hang') {
