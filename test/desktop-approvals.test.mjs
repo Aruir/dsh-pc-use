@@ -140,11 +140,12 @@ test('the session choice is remembered for that agent only', async () => {
   const firstAgent = { id: 'agent-first' }
   await approvals.withCall(execFor(firstAgent), async () => {
     assert.deepEqual(await approvals.decide({ appName: 'Notepad', meta: META }), {
-      action: APPROVE, reason: 'approved for this DSH session',
+      action: APPROVE, reason: 'approved for this DSH session', persist: 'session',
     })
-    // The remembered app is approved without opening another card.
+    // The remembered app is approved without opening another card; the request still asks
+    // for a session approval, so the server copy is refreshed too.
     assert.deepEqual(await approvals.decide({ appName: 'Notepad', meta: META }), {
-      action: APPROVE, reason: 'approved earlier in this DSH session',
+      action: APPROVE, reason: 'approved earlier in this DSH session', persist: 'session',
     })
   })
   assert.equal(questions.requests.length, 1)
@@ -195,7 +196,7 @@ test('the one-shot card remembers only when meta asks for the session', async ()
   await approvals.withCall(execFor(rememberedAgent), async () => {
     await approvals.decide({ appName: 'Notepad', meta: META })
     assert.deepEqual(await approvals.decide({ appName: 'Notepad', meta: META }), {
-      action: APPROVE, reason: 'approved earlier in this DSH session',
+      action: APPROVE, reason: 'approved earlier in this DSH session', persist: 'session',
     })
   })
   const plainAgent = { id: 'agent-plain' }

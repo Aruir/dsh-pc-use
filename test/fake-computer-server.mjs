@@ -10,6 +10,7 @@
 //   flow-meta-plain        same, but the meta object is under params.meta
 //   flow-meta-nosession    same, but meta.persist is ["always"] (no "session")
 //   flow-meta-nometa       same, but the request carries no meta at all
+//   flow-meta-drop         first request asks for session, later requests carry no persist
 //   flow-meta-reject-error same, but a user decline returns isError with Codex's wording
 //   flow-meta-reject-error-slow same, but that isError arrives 300 ms later
 //   turn-ended             answer tools/call; record `turn_ended` arguments
@@ -68,8 +69,17 @@ function flowParts(code) {
   return { displayName, appKey: appKey ?? displayName, action }
 }
 
+let flowMetaCalls = 0
+
 function flowMeta(appKey, flowMode) {
-  const persist = flowMode === 'flow-meta-nosession' ? ['always'] : ['session']
+  let persist
+  if (flowMode === 'flow-meta-drop') {
+    // First request asks for a session approval, later ones do not.
+    flowMetaCalls += 1
+    persist = flowMetaCalls === 1 ? ['session'] : []
+  } else {
+    persist = flowMode === 'flow-meta-nosession' ? ['always'] : ['session']
+  }
   return { persist, tool_params: { app: appKey } }
 }
 
@@ -129,6 +139,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   if (message.method === undefined) {
     const action = message.result?.action ?? `error ${message.error?.message}`
     record(`answer ${action}`)
+    // The complete reply, so tests can assert the `_meta` (r32 persist). The label must
+    // not start with "answer": older tests read every line starting with that word.
+    record(`reply ${JSON.stringify(message.result ?? null)}`)
     const callId = waiting.get(message.id)
     if (callId !== undefined) {
       waiting.delete(message.id)

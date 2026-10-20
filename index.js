@@ -652,6 +652,19 @@ export function apply(ctx, raw = {}) {
     servers.desktop.stop()
   }
 
+  // r32: the server keeps its own session-wide approvals, and the plugin cannot revoke only
+  // that copy; turning the remember switch off therefore restarts the desktop server. The
+  // previous value is read once at load, and only a true -> off transition stops it.
+  let lastRememberEnabled = rememberEnabled()
+  const syncRememberSwitch = (logLine = null) => {
+    const current = rememberEnabled()
+    if (lastRememberEnabled === true && current !== true && servers.desktop.started()) {
+      log(logLine ?? 'remember approvals turned off; stopping the desktop server')
+      servers.desktop.stop()
+    }
+    lastRememberEnabled = current
+  }
+
   /** Reject a desktop call while `computer` is off, before any process could start. O(1). */
   const requireComputer = () => {
     if (computerEnabled() !== true) throw new Error(COMPUTER_OFF)
@@ -748,6 +761,7 @@ export function apply(ctx, raw = {}) {
    */
   const onTarget = (target, exec, task) => {
     syncComputerSwitch()
+    syncRememberSwitch()
     if (target === 'browser') return task(null)
     requireComputer()
     return approvals.withCall(exec, task)
@@ -981,6 +995,7 @@ export function apply(ctx, raw = {}) {
       async execute(_args, exec) {
         // Same turn identity as pc_codex_js, so a reset-only turn still reports turn_ended.
         syncComputerSwitch()
+        syncRememberSwitch()
         return callOn('browser', 'js_reset', {}, configuredTimeoutMs(), exec, null,
           { wallTime: true })
       },
@@ -1018,6 +1033,7 @@ export function apply(ctx, raw = {}) {
       output,
       async execute(_args, exec) {
         syncComputerSwitch()
+        syncRememberSwitch()
         requireComputer()
         return callOn('desktop', 'js_reset', {}, configuredTimeoutMs(), exec, null,
           { wallTime: true })
@@ -1163,6 +1179,7 @@ export function apply(ctx, raw = {}) {
       output,
       async execute(args) {
         syncComputerSwitch()
+        syncRememberSwitch()
         const topic = args.topic
         if (!COMPUTER_USE_DOC_TOPICS.includes(topic)) {
           throw new Error(
@@ -1206,6 +1223,7 @@ export function apply(ctx, raw = {}) {
       output,
       async execute() {
         syncComputerSwitch()
+        syncRememberSwitch()
 
         return JSON.stringify({
           providers: {
@@ -1277,6 +1295,7 @@ export function apply(ctx, raw = {}) {
   if (typeof ctx.on === 'function') {
     ctx.effect(() => ctx.on('loader/volatile-update', () => {
       syncComputerSwitch('computer turned off; stopping the desktop server')
+      syncRememberSwitch('remember approvals turned off; stopping the desktop server')
       // r26: the skill catalog depends on `computer` and `tools.desktopJs`.
       if (skillControl !== null) skillControl.invalidate()
     }), 'dsh-pc-use: computer switch')

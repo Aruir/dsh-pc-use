@@ -299,13 +299,17 @@ desktop approval requests.
 The plugin remembers the desktop approvals of the user within one DSH session: once the user has
 allowed an app, later requests are not asked again, and the log reason reads
 `approved earlier in this DSH session`. Only "allow" is remembered; denials, cancellations and
-failures are not. The user is asked again after the desktop bridge reconnects (for example switching
-`computer`, a `node_repl` change or a process restart), in a new DSH session, or after setting
-`rememberDesktopApprovals` to `false` (the next call or approval request while it is off clears the
-memory). A browser bridge reconnect does not clear remembered desktop approvals. To request a new
-prompt immediately, the most reliable way is to start a new DSH session or toggle `computer` once.
-Note: if the user tightens the permission mode later, apps that were already remembered in this DSH
-session still pass.
+failures are not. When the plugin remembers an app it also replies to Codex with
+`_meta: { persist: "session" }`, so the server remembers the app for the same session and stops
+sending those requests until the next desktop server start; those later uses do not appear in the
+approval log. The plugin never asks for `always`. The user is asked again after the desktop bridge
+reconnects (for example switching `computer`, a `node_repl` change or a process restart), in a new
+DSH session, or after setting `rememberDesktopApprovals` to `false`; turning that switch off
+restarts the desktop server, so both the plugin's and the server's memories are cleared (the
+desktop JS kernel is reset too). A browser bridge reconnect does not clear remembered desktop
+approvals. To request a new prompt immediately, the most reliable way is to start a new DSH
+session or toggle `computer` once. Note: if the user tightens the permission mode later, apps
+that were already remembered in this DSH session still pass.
 
 Desktop approvals show the DSH three-option card by default: `允许这一次` (allow this step only, not
 remembered), `本次会话内允许` (the same agent and app are not asked again in this DSH session; it
