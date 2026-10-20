@@ -56,12 +56,6 @@ connecting to it. A successful handshake logs a fixed line when the configured p
 missing or cannot be checked, and tool results that mention `native pipe is unavailable`
 append a note telling the user to fully quit and reopen the Codex app.
 
-When the plugin remembers a desktop app, the approval reply now carries
-`_meta: { persist: "session" }` so the Codex server remembers it for the same session and
-stops re-requesting it; the plugin never sends `always`. Turning `rememberDesktopApprovals`
-off now restarts the desktop server, which clears both the plugin's and the server's
-remembered approvals (and the desktop JS kernel). A desktop call that is running fails.
-
 ## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image

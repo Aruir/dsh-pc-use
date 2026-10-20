@@ -10,12 +10,12 @@
 //   flow-meta-plain        same, but the meta object is under params.meta
 //   flow-meta-nosession    same, but meta.persist is ["always"] (no "session")
 //   flow-meta-nometa       same, but the request carries no meta at all
-//   flow-meta-drop         first request asks for session, later requests carry no persist
+//   persist-store          meta asks for session; a persist reply is remembered in a file
 //   flow-meta-reject-error same, but a user decline returns isError with Codex's wording
 //   flow-meta-reject-error-slow same, but that isError arrives 300 ms later
 //   turn-ended             answer tools/call; record `turn_ended` arguments
 //   turn-ended-error       same, but answer `turn_ended` with a JSON-RPC error
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 import readline from 'node:readline'
 
 const [mode, logFile, pidFile] = process.argv.slice(2)
@@ -69,18 +69,43 @@ function flowParts(code) {
   return { displayName, appKey: appKey ?? displayName, action }
 }
 
-let flowMetaCalls = 0
-
 function flowMeta(appKey, flowMode) {
-  let persist
-  if (flowMode === 'flow-meta-drop') {
-    // First request asks for a session approval, later ones do not.
-    flowMetaCalls += 1
-    persist = flowMetaCalls === 1 ? ['session'] : []
-  } else {
-    persist = flowMode === 'flow-meta-nosession' ? ['always'] : ['session']
-  }
+  const persist = flowMode === 'flow-meta-nosession' ? ['always'] : ['session']
   return { persist, tool_params: { app: appKey } }
+}
+
+// r35: simulate Codex's on-disk session memory. A reply carrying `_meta.persist` "session"
+// stores `<session id>\t<app>`; a later call with the same pair does not ask again, and the
+// file survives a server restart. Set FAKE_PERSIST_STORE to the file path.
+const persistStore = process.env.FAKE_PERSIST_STORE ?? null
+const persistReplyLog = persistStore === null ? null : `${persistStore}.replies`
+const pendingPersist = new Map()
+
+function storedPersistKeys() {
+  if (persistStore === null) return new Set()
+  try {
+    return new Set(readFileSync(persistStore, 'utf8').split('\n').filter(Boolean))
+  } catch {
+    return new Set()
+  }
+}
+
+function handlePersistStore(message) {
+  const parts = flowParts(message.params?.arguments?.code)
+  const sessionId = message.params?._meta?.['x-codex-turn-metadata']?.session_id ?? '-'
+  const key = `${sessionId}\t${parts.appKey}`
+  if (storedPersistKeys().has(key)) {
+    send({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: { content: [{ type: 'text', text: 'ran js' }] },
+    })
+    return
+  }
+  ask(message.id, `Allow Codex to use ${parts.displayName}?`,
+    { persist: ['session'], tool_params: { app: parts.appKey } })
+  // The approval reply uses the elicitation id, not the tool-call id.
+  pendingPersist.set(`e-${message.id}`, key)
 }
 
 function handleFlow(message, flowMode) {
@@ -139,9 +164,16 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   if (message.method === undefined) {
     const action = message.result?.action ?? `error ${message.error?.message}`
     record(`answer ${action}`)
-    // The complete reply, so tests can assert the `_meta` (r32 persist). The label must
-    // not start with "answer": older tests read every line starting with that word.
-    record(`reply ${JSON.stringify(message.result ?? null)}`)
+    if (mode === 'persist-store' && persistStore !== null) {
+      const key = pendingPersist.get(message.id)
+      if (key !== undefined) {
+        pendingPersist.delete(message.id)
+        if (message.result?._meta?.persist === 'session') {
+          appendFileSync(persistStore, `${key}\n`)
+        }
+      }
+      appendFileSync(persistReplyLog, `${JSON.stringify(message.result ?? null)}\n`)
+    }
     const callId = waiting.get(message.id)
     if (callId !== undefined) {
       waiting.delete(message.id)
@@ -198,6 +230,10 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   }
   if (mode.startsWith('flow-meta')) {
     handleFlow(message, mode)
+    return
+  }
+  if (mode === 'persist-store') {
+    handlePersistStore(message)
     return
   }
   if (mode === 'computer') {
