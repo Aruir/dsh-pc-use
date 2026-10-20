@@ -7,9 +7,6 @@
 0.10.0 changes the result text of the five js tools: it now starts with native Codex's
 `Wall time:` and `Output:` lines, so anything that parses those results must skip two lines.
 
-The plugin description in DSH no longer says which provider is used or that more providers are
-planned.
-
 The five js tools now take their descriptions from the Codex servers: the `initialize`
 instructions, the `tools/list` description of the matching server tool, and the plugin rules
 that map those tools to DSH names. The plugin caches the descriptions in

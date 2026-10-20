@@ -7,8 +7,6 @@
 0.10.0 改变了 5 个 js 工具的结果文字：开头现在是原生 Codex 的 `Wall time:` 与 `Output:` 两行，
 解析这些结果的程序要跳过这两行。
 
-DSH 插件页的插件简介不再说明提供方，也不再提以后增加提供方。
-
 5 个 js 类工具的说明改为来自 Codex 服务器：`initialize` 的 `instructions`、`tools/list` 中
 对应服务器工具的 `description`，以及把它们映射为 DSH 工具名的插件规则。插件把说明缓存在
 `~/.dsh/pc-use-server-docs.json`；缓存缺失或过期（例如 Codex 更新后）时先用内置说明，
