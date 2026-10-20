@@ -209,8 +209,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     return
   }
   if (mode === 'slow-ask-answer') {
-    // Ask only after 1000 ms, so the authorization itself takes a known part of the
-    // caller's 3000 ms timeout before it is paused.
+    // Ask only after 1000 ms, so a known part of the caller's 3000 ms timeout is used before the
+    // timer is paused.
     setTimeout(() => ask(message.id, COMPUTER_QUESTION), 1000)
     return
   }

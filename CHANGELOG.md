@@ -2,7 +2,10 @@
 
 [中文](CHANGELOG.zh.md) | English
 
-## Unreleased
+## 0.10.0
+
+0.10.0 changes the result text of the five js tools: it now starts with native Codex's
+`Wall time:` and `Output:` lines, so anything that parses those results must skip two lines.
 
 The plugin description in DSH no longer says which provider is used or that more providers are
 planned.
