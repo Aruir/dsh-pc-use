@@ -4,8 +4,7 @@ English | [中文](README.zh.md)
 
 This plugin turns **Codex Computer Use** into native DeepSeek Harness tools. It uses the local Codex
 app to drive the real Chrome through the browser server (`cua_repl`) and Windows desktop apps
-through the desktop server (`node_repl`), without manual MCP configuration. The current Computer Use
-provider is Codex; other providers will be added later (see "Providers"). Screenshots and page
+through the desktop server (`node_repl`), without manual MCP configuration. Screenshots and page
 contents are sent to the model provider.
 
 ## Purpose
@@ -369,15 +368,6 @@ second copy in `~/.dsh/pc-use-images`.
 Each image costs roughly 184–1024 input tokens, and images in history are resent on every turn. To
 cap image size, use the `imagePixelBudget` setting of DSH; the plugin does not change it.
 `attachImages` is turned off if screenshots must not leave the machine.
-
-## Providers
-
-Only the Codex provider exists today: the `pc_codex_*` tools run through the local Codex desktop
-app. The naming already reserves room for other providers: tools exclusive to Codex use the
-`pc_codex_` prefix, and the computer use of Claude will sit next to it under `pc_claude_`; the top
-level of `pc_status` groups by `providers`, currently only `providers.codex`, which reports its
-`browser` and `desktop` servers separately. Config keys stay flat for now (`codexHome` etc.);
-whether to group them will be decided once a second provider has a concrete design.
 
 ## Tool-call metadata
 

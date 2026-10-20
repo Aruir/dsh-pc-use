@@ -4,7 +4,7 @@
 
 本插件把 **Codex Computer Use** 接入 DeepSeek Harness，作为原生工具使用。插件通过浏览器服务器
 （`cua_repl`）调用本机 Codex，操作真实的 Chrome；通过桌面服务器（`node_repl`）操作 Windows
-桌面应用。使用前不需要手工配置 MCP。目前提供方为 Codex，以后会增加其他提供方，见“提供方”一节。
+桌面应用。使用前不需要手工配置 MCP。
 截图与页面内容会发送给模型服务商。
 
 ## 插件用途
@@ -322,14 +322,6 @@ DSH 不询问并直接放行；如需逐次确认，请使用“仅可查看”�
 每张图片约消耗 184–1024 个输入 token；历史中的图片每轮都会重新发送。可在 DSH 设置中使用
 `imagePixelBudget` 限制图片大小；插件不修改该设置。如果截图不能离开本机，请关闭
 `attachImages`。
-
-## 提供方
-
-目前只有 Codex 提供方：`pc_codex_*` 工具通过本机 Codex 桌面应用执行。命名已为其他提供方预留：
-只属于 Codex 的工具使用 `pc_codex_` 前缀，以后 Claude 的 computer use 会以 `pc_claude_`
-前缀与之并列。`pc_status` 的顶层按 `providers` 分组，当前只有 `providers.codex`；其内部再
-分别报告 `browser` 与 `desktop` 两个服务器。配置键暂时保持扁平（`codexHome` 等）；等第二个
-提供方有具体设计后，再决定是否分组。
 
 ## 工具调用元数据
 
