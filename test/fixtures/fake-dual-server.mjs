@@ -12,6 +12,8 @@
 //   hang           never answer a tools/call (the client's own timeout is the only way out)
 //   error          answer tools/call with an isError result (`server error text`)
 //   illegal-return answer tools/call with text containing `Illegal return statement`
+//   pipe-error     answer tools/call with isError and the native pipe failure text
+//   pipe-text      answer tools/call with a successful result containing that text
 // `turn_ended` is always answered regardless of the mode.
 import { appendFileSync } from 'node:fs'
 import readline from 'node:readline'
@@ -137,6 +139,17 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       jsonrpc: '2.0',
       id: message.id,
       result: { content: [{ type: 'text', text: 'Illegal return statement' }] },
+    })
+    return
+  }
+  if (mode === 'pipe-error' || mode === 'pipe-text') {
+    const text = 'Computer Use native pipe is unavailable: failed to connect'
+    send({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: { content: [{ type: 'text', text }], ...(mode === 'pipe-error'
+        ? { isError: true }
+        : {}) },
     })
     return
   }

@@ -37,6 +37,12 @@ Codex 安装读取，不会复制进仓库；插件在正文后附加 DSH 说明
 `{ name, version }`，未连接时为 null，每个值最多 200 个字符）与 `pluginVersion`（浏览器来源
 路径中的 `unified-computer-use` 版本目录；桌面侧或来源解析失败时为 null）。
 
+`pc_status` 的每个服务器新增 `nativePipeState`（`present`、`missing`、`check failed`，
+未配置管道时为 null），描述下一次连接会用的管道。Windows 命名管道通过与管道目录列表比对
+判断，不打开也不连接管道。握手成功时，配置的管道不存在或无法检查会记一行固定日志；
+结果文字含 `native pipe is unavailable` 时会在末尾追加提示，请用户完全退出并重新打开
+Codex 应用。
+
 ## 0.9.1
 
 设置页现在显示“附图给模型”和“本机保留附图”的实际状态。以前页面读取设置后，这两个开关总显示为关，

@@ -37,8 +37,9 @@ import { definePortableTool } from './lib/define-tool.js'
 import { tabGuardSource } from './lib/tab-guard.js'
 import { createTargetBridge } from './lib/target-bridge.js'
 import {
-  CONFIG_I18N, TEXT, closeAppsNote, declineNote, illegalReturnNote, noAccessibilityTreeNote,
-  resolveLanguage, serverDocsChangedNote, systemLocale,
+  CONFIG_I18N, TEXT, closeAppsNote, declineNote, illegalReturnNote,
+  nativePipeUnavailableNote, noAccessibilityTreeNote, resolveLanguage, serverDocsChangedNote,
+  systemLocale,
 } from './lib/text.js'
 import { parseObserveArgs, parsePlanArgs } from './lib/tool-args.js'
 import {
@@ -712,6 +713,10 @@ export function apply(ctx, raw = {}) {
     if (noTreeMarker !== null && text.includes(noTreeMarker)) {
       result = result.replaceAll(noTreeMarker, '[no accessibility tree for this window]')
       result += `\n\n${noAccessibilityTreeNote(language, screenshot)}`
+    }
+    // One fixed sentence, at most once, for both success and isError results.
+    if (text.includes('native pipe is unavailable')) {
+      result += `\n\n${nativePipeUnavailableNote(language)}`
     }
     return result
   }

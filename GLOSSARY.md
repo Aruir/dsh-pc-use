@@ -38,6 +38,11 @@ _避免_：回合、一次调用
 运行 DSH 所用模型的服务方。截图与页面内容会发送给它。
 _避免_：提供方、provider（单独使用）
 
+**原生管道**（native pipe）：
+Codex 应用为 Computer Use 建的命名管道。Codex 应用每次启动都换新名，并写进 `config.toml`
+与插件的 `.mcp.json`；桌面服务器经它操作桌面，本插件经它收起光标。
+_避免_：管道目录（来自环境变量名 `SKY_CUA_NATIVE_PIPE_DIRECTORY`，实际是一个管道）
+
 ## 工具说明
 
 **服务器说明**（server docs）：

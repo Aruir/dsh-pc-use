@@ -374,10 +374,15 @@ await cua.listBrowsers();
 
 也可以先调用 `pc_status`，查看 `providers.codex`。该对象包含 `codexHome`、`autoApprove`、
 `computer`，以及 `browser` 与 `desktop` 两节。每节报告 `resolved`、`reason`、`source`、
-`command`、`cwd`、`nativePipe`、`connected`、`services`、`serverInfo` 与 `pluginVersion`。
-`serverInfo` 是服务器 MCP `initialize` 返回的 `{ name, version }`（未连接时为 null，每个值
-最多 200 个字符）；`pluginVersion` 是浏览器来源路径里的版本目录
-（`unified-computer-use/<版本>`），桌面侧或来源解析失败时为 null。第一次连接之前，`connected` 为
+`command`、`cwd`、`nativePipe`、`connected`、`services`、`serverInfo`、`pluginVersion` 与
+`nativePipeState`。`serverInfo` 是 `initialize` 返回的 MCP 库名称与版本（未连接时为 null，
+每个值最多 200 个字符）；Codex 的两个服务器目前都报 `rmcp`，因此它不是 Computer Use 的
+版本；
+浏览器插件的版本看 `pluginVersion`（即 `unified-computer-use/<版本>` 目录，桌面侧或来源
+解析失败时为 null）。`nativePipeState` 不会连接管道本身，取值为 `present`、`missing`、
+`check failed`，未配置管道时为 null；它描述下一次连接会用的管道。桌面调用报
+`native pipe is unavailable`，或 `nativePipeState` 为 `missing` 时，请完全退出并重新打开
+Codex 应用；不要手改配置里的管道。第一次连接之前，`connected` 为
 `false`，`services` 为 `null`，这属于正常状态；来源解析失败时，`resolved` 为 `false`，
 `reason` 写出缺失的 `.mcp.json` 或 `config.toml` 节。旧的 `servicesFrom` 字段已在 0.5.0
 删除。命令行冒烟测试：

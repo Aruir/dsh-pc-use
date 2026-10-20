@@ -238,11 +238,13 @@ test('pc_status reports null services on both sides while disconnected', async (
       assert.deepEqual(Object.keys(server), [
         'resolved', 'reason', 'source', 'command', 'cwd', 'nativePipe', 'connected', 'services',
         'connectedPipe', 'reconnectPending', 'serverInfo', 'pluginVersion',
+        'nativePipeState',
       ], side)
       assert.equal(server.resolved, true, side)
       assert.equal(server.connected, false, side)
       assert.equal(server.services, null, side)
       assert.equal(server.nativePipe, side === 'browser' ? 'pipe-browser' : null, side)
+      assert.equal(server.nativePipeState, side === 'browser' ? 'missing' : null, side)
       assert.equal(typeof server.source, 'string', side)
       assert.equal(server.command, process.execPath, side)
       assert.equal(server.cwd, context.home, side)

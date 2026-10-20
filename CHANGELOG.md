@@ -46,6 +46,13 @@ the server's MCP `initialize` (null until connected, values capped at 200 charac
 `pluginVersion`, the `unified-computer-use` version directory from the browser source path
 (null for the desktop side or when the source does not resolve).
 
+`pc_status` now reports `nativePipeState` for each server (`present`, `missing`,
+`check failed`, or null when no pipe is configured) for the pipe the next connection would
+use. A Windows named pipe is matched against the pipe directory listing, without opening or
+connecting to it. A successful handshake logs a fixed line when the configured pipe is
+missing or cannot be checked, and tool results that mention `native pipe is unavailable`
+append a note telling the user to fully quit and reopen the Codex app.
+
 ## 0.9.1
 
 The settings page now shows the real state of "Attach screenshots" and "Keep local image

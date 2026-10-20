@@ -79,6 +79,7 @@ function setup(options = {}) {
       created.push({ spec: resolved, bridge: createdBridge })
       return createdBridge
     },
+    pipeState: options.pipeState,
     onStop: () => {
       state.stopCalls += 1
     },
@@ -268,6 +269,7 @@ test('status reports unparsed, resolved, connected and pending states', async ()
     reconnectPending: false,
     serverInfo: null,
     pluginVersion: null,
+    nativePipeState: null,
   })
 
   context.state.spec = spec()
@@ -279,6 +281,7 @@ test('status reports unparsed, resolved, connected and pending states', async ()
   assert.equal(resolvedOnly.reconnectPending, false)
   assert.equal(resolvedOnly.serverInfo, null)
   assert.equal(resolvedOnly.pluginVersion, null)
+  assert.equal(resolvedOnly.nativePipeState, 'missing')
 
   await context.bridge.ensure()
   const connected = context.bridge.status()
@@ -288,6 +291,7 @@ test('status reports unparsed, resolved, connected and pending states', async ()
   assert.equal(connected.reconnectPending, false)
   assert.equal(connected.serverInfo, null)
   assert.equal(connected.pluginVersion, null)
+  assert.equal(connected.nativePipeState, 'missing')
 
   context.state.spec = spec({ pipeDirectory: 'pipe-two' })
   const pending = context.bridge.status()
@@ -306,6 +310,57 @@ test('status reports serverInfo only while connected and the source version', as
   assert.equal(unconnected.pluginVersion, '2.3.4')
   await context.bridge.ensure()
   assert.deepEqual(context.bridge.status().serverInfo, { name: 'server', version: '2.3.4' })
+})
+
+test('status checks the pipe the next connection would use', async () => {
+  const seen = []
+  const context = setup({
+    pipeState: (path) => {
+      seen.push(path)
+      return `state:${path}`
+    },
+  })
+  context.state.spec = { ok: false, reason: 'none' }
+  assert.equal(context.bridge.status().nativePipeState, null)
+  context.state.spec = spec()
+  assert.equal(context.bridge.status().nativePipeState, 'state:pipe-one')
+  await context.bridge.ensure()
+  seen.length = 0
+  context.state.spec = spec({ pipeDirectory: 'pipe-two' })
+  assert.equal(context.bridge.status().nativePipeState, 'state:pipe-two')
+  assert.deepEqual(seen, ['pipe-two'])
+})
+
+test('the handshake logs a fixed pipe line without the pipe path', async () => {
+  for (const [state, line] of [
+    ['missing', 'native pipe not found (desktop)'],
+    ['check failed', 'native pipe check failed (desktop)'],
+  ]) {
+    const context = setup({ pipeState: () => state })
+    const created = await context.bridge.ensure()
+    assert.equal(created, context.created[0].bridge)
+    assert.equal(context.logs.includes(line), true, state)
+    assert.equal(context.logs.some((entry) => entry.includes('pipe-one')), false, state)
+  }
+  for (const state of ['present', null]) {
+    const context = setup({ pipeState: () => state })
+    await context.bridge.ensure()
+    assert.equal(context.logs.some((entry) => entry.startsWith('native pipe ')), false,
+      state)
+  }
+})
+
+test('a throwing pipe check does not change ensure', async () => {
+  const context = setup({
+    pipeState: () => {
+      throw new Error('pipe check failed')
+    },
+  })
+  const created = await context.bridge.ensure()
+  assert.equal(created, context.created[0].bridge)
+  assert.equal(context.bridge.generation(), 1)
+  assert.equal(context.bridge.status().nativePipeState, 'check failed')
+  assert.equal(context.logs.includes('native pipe check failed (desktop)'), true)
 })
 
 test('spec caches the last resolution until the Codex home changes', async () => {

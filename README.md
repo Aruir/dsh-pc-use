@@ -426,11 +426,16 @@ await cua.listBrowsers();
 
 Alternatively, call `pc_status` first and inspect `providers.codex`: it has `codexHome`,
 `autoApprove`, `computer` and a `browser` and a `desktop` section. Each section reports `resolved`,
-`reason`, `source`, `command`, `cwd`, `nativePipe`, `connected`, `services`, `serverInfo` and
-`pluginVersion`. `serverInfo` is the `{ name, version }` from the server's MCP `initialize`
-(null until connected, and at most 200 characters per value); `pluginVersion` is the version
-directory baked into the browser source path (`unified-computer-use/<version>`), and null for
-the desktop side or when the source does not resolve. Before the first
+`reason`, `source`, `command`, `cwd`, `nativePipe`, `connected`, `services`, `serverInfo`,
+`pluginVersion` and `nativePipeState`. `serverInfo` is the MCP library's name and version
+reported by `initialize` (null until connected, at most 200 characters per value); both
+Codex servers currently report `rmcp`, so this is not the Computer Use version — the
+browser plugin's version is `pluginVersion` (the `unified-computer-use/<version>` directory,
+null for the desktop side or when the source does not resolve). The `nativePipeState` check
+never connects to the pipe; it is `present`, `missing`, `check failed`, or `null` when no
+pipe is configured, and it describes the pipe the next connection would use. If a desktop
+call reports `native pipe is unavailable`, or `nativePipeState` is `missing`, fully quit and
+reopen the Codex app; do not edit the pipe in the configuration by hand. Before the first
 connection, `connected` is `false` and `services` is `null`, which is normal; when a source cannot
 be resolved, `resolved` is `false` and `reason` names the missing `.mcp.json` or `config.toml`
 section. The old `servicesFrom` field was removed in 0.5.0. Command-line smoke test:
