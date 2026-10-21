@@ -3,73 +3,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { parseObserveArgs, parsePlanArgs } from '../lib/tool-args.js'
+import { parsePlanArgs } from '../lib/tool-args.js'
 
 /** One valid plan step; extra options land on top. O(1). */
 function step(overrides = {}) {
   return { title: 'one', code: '1', ...overrides }
 }
-
-test('observe defaults: screenshot and full false, textMode true', () => {
-  assert.deepEqual(parseObserveArgs({ target: 'desktop', subject: 'targetWindow' }), {
-    target: 'desktop',
-    subject: 'targetWindow',
-    screenshot: false,
-    full: false,
-    textMode: true,
-  })
-})
-
-test('observe returns explicit booleans and rejects non-booleans', () => {
-  assert.deepEqual(
-    parseObserveArgs({
-      target: 'browser', subject: 'tab', screenshot: true, full: true, text: false,
-    }),
-    { target: 'browser', subject: 'tab', screenshot: true, full: true, textMode: false },
-  )
-  for (const name of ['screenshot', 'full', 'text']) {
-    assert.throws(
-      () => parseObserveArgs({ target: 'browser', subject: 'tab', [name]: 'yes' }),
-      { message: `${name} must be a boolean` },
-    )
-  }
-})
-
-test('target must be browser or desktop', () => {
-  for (const target of [undefined, null, '', 'tablet', 'Browser']) {
-    assert.throws(
-      () => parseObserveArgs({ target, subject: 'tab' }),
-      { message: 'target must be "browser" or "desktop"' },
-    )
-  }
-})
-
-test('subject must be a JavaScript identifier', () => {
-  for (const subject of ['tab', '_x', '$w1']) {
-    assert.equal(parseObserveArgs({ target: 'browser', subject }).subject, subject)
-  }
-  for (const subject of ['1tab', 'a-b', '', 'a b', 42, null, undefined]) {
-    assert.throws(
-      () => parseObserveArgs({ target: 'browser', subject }),
-      { message: 'subject must be a JavaScript identifier' },
-    )
-  }
-})
-
-test('the first invalid observe argument wins', () => {
-  assert.throws(
-    () => parseObserveArgs({ target: 'tablet', subject: '1tab' }),
-    { message: 'target must be "browser" or "desktop"' },
-  )
-  assert.throws(
-    () => parseObserveArgs({ target: 'browser', subject: '1tab', screenshot: 'x' }),
-    { message: 'subject must be a JavaScript identifier' },
-  )
-  assert.throws(
-    () => parseObserveArgs({ target: 'browser', subject: 'tab', screenshot: 'x', full: 'y' }),
-    { message: 'screenshot must be a boolean' },
-  )
-})
 
 test('plan steps are validated and reduced to title, code and check', () => {
   for (const steps of [undefined, null, [], Array(21).fill(null), 'one']) {

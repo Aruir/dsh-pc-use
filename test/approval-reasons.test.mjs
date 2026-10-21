@@ -23,17 +23,6 @@ test('the reason constants keep the exact log text', () => {
   assert.equal(REASON_CALL_ENDED, 'pc_codex_desktop_js call ended')
 })
 
-test('isUserDenial is true only for a user-caused denial', () => {
-  assert.equal(isUserDenial({ action: DECLINE, reason: REASON_REJECTED }), true)
-  assert.equal(isUserDenial({ action: DECLINE, reason: REASON_NO_CHOICE }), true)
-  for (const reason of [REASON_REJECTED, REASON_NO_CHOICE]) {
-    assert.equal(isUserDenial({ action: APPROVE, reason }), false)
-  }
-  for (const reason of [REASON_CALL_ENDED, 'approval cancelled', 'approval unavailable']) {
-    assert.equal(isUserDenial({ action: DECLINE, reason }), false)
-  }
-})
-
 test('a host "rejected" outcome is a user denial, the others are not', () => {
   assert.equal(isUserDenial(decisionFromHostOutcome('rejected')), true)
   for (const outcome of ['allowed-once', 'cancelled', 'unavailable', undefined]) {

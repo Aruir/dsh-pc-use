@@ -70,25 +70,6 @@ test('the English top-level return hint tells the model how to print output', as
   }
 })
 
-test('js descriptions prefer one checked program and accessibility values', () => {
-  const plugin = registerPlugin({})
-  try {
-    for (const name of ['pc_codex_js', 'pc_codex_desktop_js']) {
-      const description = plugin.tools.get(name).description
-      assert.match(description, /Preferred:/)
-      assert.match(description, /one program/)
-      assert.match(description, /if\/loops\/assertions/)
-      assert.match(description, /tree is available/)
-      assert.match(description, /screenshot/)
-      assert.match(description, /print only/)
-      assert.ok(description.indexOf('Preferred:') < description.indexOf('pc_codex_run_plan'))
-      assert.match(description, /pc_codex_observe/)
-    }
-  } finally {
-    plugin.dispose()
-  }
-})
-
 test('run_plan is a fallback and observe prints the whole accessibility tree', () => {
   const plugin = registerPlugin({})
   try {

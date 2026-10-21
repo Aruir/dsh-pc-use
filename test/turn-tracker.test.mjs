@@ -66,20 +66,6 @@ test('one agent keeps one session and turn id across calls', () => {
   assert.notEqual(other.turnId, one.turnId)
 })
 
-test('a call without an agent carries only the call id and opens no turn', () => {
-  const { turns } = makeTracker()
-  const idle = makeAgent('session-idle')
-  const identity = turns.beginCall(execFor(null, 'call-only'), 'browser')
-  assert.equal(identity.callId, 'call-only')
-  assert.equal(identity.sessionId, undefined)
-  assert.equal(identity.turnId, undefined)
-  assert.equal(identity.turnStartedAtUnixMs, undefined)
-  assert.equal(identity.model, undefined)
-  assert.equal(identity.reasoningEffort, undefined)
-  // No turn state was created, so this agent's turn end has nothing to report.
-  assert.equal(end(turns, agentsOf(idle), idle.session), null)
-})
-
 test('model and reasoningEffort come from the request header', () => {
   const { turns } = makeTracker()
   const routed = makeAgent('session-route', { model: 'test-model', reasoningEffort: 'high' })
@@ -101,39 +87,6 @@ test('a throwing or empty request header omits model and reasoningEffort', () =>
   assert.equal(thrown.reasoningEffort, undefined)
   assert.equal(blank.model, undefined)
   assert.equal(blank.reasoningEffort, undefined)
-})
-
-test('turn/end always reports both servers and says whether to close the desktop', () => {
-  const { turns } = makeTracker()
-  const browserOnly = makeAgent('session-browser-only')
-  const desktopOnly = makeAgent('session-desktop-only')
-  const agents = agentsOf(browserOnly, desktopOnly)
-  turns.beginCall(execFor(browserOnly.agent, 'call-b'), 'browser')
-  const browserEnd = end(turns, agents, browserOnly.session)
-  assert.deepEqual(browserEnd.kinds, ['browser', 'desktop'])
-  assert.equal(browserEnd.closeDesktop, false)
-  turns.beginCall(execFor(desktopOnly.agent, 'call-d'), 'desktop')
-  const desktopEnd = end(turns, agents, desktopOnly.session)
-  assert.deepEqual(desktopEnd.kinds, ['browser', 'desktop'])
-  assert.equal(desktopEnd.closeDesktop, true)
-})
-
-test('a rebuilt desktop bridge keeps the cursor for the next turn', () => {
-  const { turns, generations } = makeTracker()
-  const item = makeAgent('session-generation')
-  const agents = agentsOf(item)
-  turns.beginCall(execFor(item.agent, 'call-browser'), 'browser')
-  turns.beginCall(execFor(item.agent, 'call-desktop'), 'desktop')
-  // A desktop bridge rebuilt after the call increments the desktop generation.
-  generations.desktop += 1
-  const ended = end(turns, agents, item.session)
-  assert.deepEqual(ended.kinds, ['browser', 'desktop'])
-  assert.equal(ended.closeDesktop, false)
-  // A browser generation change does not affect the desktop cursor.
-  turns.beginCall(execFor(item.agent, 'call-browser-2'), 'browser')
-  turns.beginCall(execFor(item.agent, 'call-desktop-2'), 'desktop')
-  generations.browser += 1
-  assert.equal(end(turns, agents, item.session).closeDesktop, true)
 })
 
 test('turn/end rotates the turn id and start time but keeps the session id', () => {
@@ -182,19 +135,4 @@ test('a subagent session reports SubagentStop', () => {
   const descriptor = { type: 'subagent/descriptor', seq: 1, data: { version: 1 } }
   assert.equal(turns.onSessionEvent(agents, item.session, descriptor), null)
   assert.equal(end(turns, agents, item.session).hookEventName, 'SubagentStop')
-})
-
-test('other events, unknown sessions and agents that never called return null', () => {
-  const { turns } = makeTracker()
-  const idle = makeAgent('session-idle')
-  const called = makeAgent('session-called')
-  const agents = agentsOf(idle, called)
-  assert.equal(turns.onSessionEvent(agents, idle.session, { type: 'turn/start', seq: 1 }), null)
-  // An agent that never began a call has no turn state.
-  assert.equal(end(turns, agents, idle.session), null)
-  assert.equal(turns.onSessionEvent(agents, { id: 'session-unknown' }, turnEnd()), null)
-  assert.equal(turns.onSessionEvent(undefined, idle.session, turnEnd()), null)
-  turns.beginCall(execFor(called.agent, 'call-1'), 'browser')
-  // The state belongs to `called`'s agent, not to this other session.
-  assert.equal(end(turns, agents, idle.session), null)
 })

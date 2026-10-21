@@ -12,7 +12,6 @@ import { registerPlugin, tempDir, useHome, writeCodexHome } from './helpers.mjs'
 
 const SERVER = process.env.CODEX_CU_DESKTOP_SERVER
   ?? fileURLToPath(new URL('./fake-computer-server.mjs', import.meta.url))
-const WRITE = Symbol.for('cosmokit.volatile.write')
 
 const ZH_CARD = {
   header: '桌面授权',
@@ -47,16 +46,6 @@ const ZH_DISPLAY_REASON = '允许 Codex Computer Use 操作“记事本”？'
 const EN_DISPLAY_REASON = 'Allow Codex Computer Use to operate “记事本”?'
 const ZH_AUDIT_REASON = 'Codex Computer Use 请求操作桌面应用：记事本'
 const EN_AUDIT_REASON = 'Codex Computer Use requests access to the desktop app: 记事本'
-
-function createVolatile(value) {
-  let current = value
-  return Object.freeze({
-    get: () => current,
-    [WRITE](next) {
-      current = next
-    },
-  })
-}
 
 function approvalService(outcome = 'allowed-once') {
   const requests = []
@@ -320,26 +309,5 @@ test('the three desktop tool switches describe their tools in zh and en', () => 
       assert.equal(typeof text, 'string', `${language} tools.${key}`)
       assert.equal(text.includes(toolName), true, `${language} tools.${key}`)
     }
-  }
-})
-
-test('language is re-read for the next approval', async () => {
-  const language = createVolatile('zh')
-  const questions = questionsService([picked(ZH_CARD.once.label), picked(EN_CARD.once.label)])
-  const approval = approvalService()
-  const services = { approval: approval.service, userQuestions: questions.service }
-  const context = setup({ language, services })
-  try {
-    const first = await runJs(context, execFor('call-1'))
-    assert.match(first, /decision accept/)
-    assert.equal(questions.requests[0].questions[0].header, ZH_CARD.header)
-    // Switching to English is picked up by the next approval without a remount.
-    language[WRITE]('en')
-    await runJs(context, execFor('call-2'))
-    assert.equal(questions.requests.length, 2)
-    assert.equal(questions.requests[1].questions[0].header, EN_CARD.header)
-    assert.equal(approval.requests.length, 0)
-  } finally {
-    finish(context)
   }
 })

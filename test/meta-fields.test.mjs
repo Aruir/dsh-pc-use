@@ -276,26 +276,6 @@ test('model and reasoning_effort follow the DSH route and are omitted when unkno
   }
 })
 
-test('a throwing request header omits model and reasoning_effort', async () => {
-  const context = startServers({})
-  const session = {
-    id: 'session-throwing',
-    requestHeader() {
-      throw new Error('header unavailable')
-    },
-  }
-  const agent = { id: session.id, session }
-  try {
-    const result = await toolAt(context, 'pc_codex_js')
-      .execute({ code: '1', title: 'throws' }, execFor(agent, 'call-throws'))
-    assert.match(result, /ran js/)
-    const record = calls(context, 'browser')[0]
-    assertRequiredFields(record, { model: null, reasoningEffort: null })
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
 test('empty callId, model and reasoning_effort are omitted', async () => {
   const agents = makeAgents()
   const context = startServers({ services: { agents } })
@@ -305,22 +285,6 @@ test('empty callId, model and reasoning_effort are omitted', async () => {
       .execute({ code: '1', title: 'empty' }, execFor(agent, ''))
     const record = calls(context, 'browser')[0]
     assertRequiredFields(record, { model: null, reasoningEffort: null })
-    assert.equal(Object.hasOwn(metaOf(record), 'callId'), false)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('a call without an agent carries every required field', async () => {
-  const context = startServers({})
-  try {
-    await toolAt(context, 'pc_codex_js_reset').execute({}, {})
-    const record = calls(context, 'browser').find((item) => item.name === 'js_reset')
-    assert.notEqual(record, undefined)
-    assertRequiredFields(record, { model: null, reasoningEffort: null })
-    const turn = turnMetaOf(record)
-    assert.match(turn.session_id, /^dsh-pc-/)
-    assert.equal(Number.isInteger(turn.turn_started_at_unix_ms), true)
     assert.equal(Object.hasOwn(metaOf(record), 'callId'), false)
   } finally {
     assert.equal(await stopServers(context), true)

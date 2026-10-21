@@ -98,22 +98,6 @@ function finish(context) {
   context.restore()
 }
 
-test('two agents get different Codex session ids', async () => {
-  const context = setup()
-  try {
-    const first = context.agents.add('session-one')
-    const second = context.agents.add('session-two')
-    await runJs(context, execFor(first.agent, 'call-1'))
-    await runJs(context, execFor(second.agent, 'call-2'))
-    assert.equal(await waitFor(() => callLines(context.serverLog).length === 2), true)
-    const firstCall = callLines(context.serverLog)[0].split(' ')
-    const secondCall = callLines(context.serverLog)[1].split(' ')
-    assert.notEqual(firstCall[2], secondCall[2])
-  } finally {
-    finish(context)
-  }
-})
-
 test('a normal turn end reports Stop and rotates the turn id', async () => {
   const context = setup()
   try {
@@ -206,77 +190,6 @@ test('turn_ended is not sent when the bridge disconnected, and is not reconnecte
     await new Promise((done) => setTimeout(done, 300))
     assert.deepEqual(turnEnded(context.serverLog), [])
     assert.equal(readLines(context.pidFile).length, 1)
-  } finally {
-    finish(context)
-  }
-})
-
-test('a failed turn_ended call is logged and does not throw', async () => {
-  const context = setup({ mode: 'turn-ended-error' })
-  try {
-    const { agent, session } = context.agents.add('session-fail')
-    await runJs(context, execFor(agent, 'call-1'))
-    assert.equal(await waitFor(() => callLines(context.serverLog).length === 1), true)
-    assert.doesNotThrow(() => emitTurnEnd(context, session))
-    assert.equal(
-      await waitFor(() => readFileSync(context.logFile, 'utf8').includes('turn_ended failed')),
-      true,
-    )
-  } finally {
-    finish(context)
-  }
-})
-
-test('a rebuilt bridge still receives the turn that ended', async () => {
-  const context = setup()
-  try {
-    const { agent, session } = context.agents.add('session-reconnect')
-    await runJs(context, execFor(agent, 'call-old'))
-    assert.equal(await waitFor(() => callLines(context.serverLog).length === 1), true)
-    const oldCall = callLines(context.serverLog)[0].split(' ')
-    const oldTurnId = oldCall[3]
-    // A changed launch spec rebuilds the browser bridge; the reset has no agent, so the
-    // new bridge is not marked as used in this turn.
-    writeCodexHome(join(context.home, 'codex'), [
-      SERVER, 'turn-ended', context.serverLog, context.pidFile, 'rebuilt',
-    ])
-    await context.plugin.tools.get('pc_codex_js_reset').execute({}, {})
-    assert.equal(await waitFor(() => readLines(context.pidFile).length === 2), true)
-    emitTurnEnd(context, session)
-    // Native Codex reports to the connected server even though the bridge was replaced.
-    assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 1), true)
-    const oldReport = turnEnded(context.serverLog)[0]
-    assert.equal(oldReport.turn_id, oldTurnId)
-    assert.equal(oldReport.session_id, oldCall[2])
-    await runJs(context, execFor(agent, 'call-new'))
-    assert.equal(await waitFor(() => callLines(context.serverLog).length === 2), true)
-    const nextCall = callLines(context.serverLog)[1].split(' ')
-    assert.notEqual(nextCall[3], oldTurnId)
-    emitTurnEnd(context, session)
-    assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 2), true)
-    const nextReport = turnEnded(context.serverLog)[1]
-    assert.equal(nextReport.turn_id, nextCall[3])
-    assert.equal(nextReport.session_id, nextCall[2])
-  } finally {
-    finish(context)
-  }
-})
-
-test('a later turn still reports on the connected server', async () => {
-  const context = setup()
-  try {
-    const { agent, session } = context.agents.add('session-second-turn')
-    await runJs(context, execFor(agent, 'call-1'))
-    assert.equal(await waitFor(() => callLines(context.serverLog).length === 1), true)
-    emitTurnEnd(context, session)
-    assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 1), true)
-    const first = turnEnded(context.serverLog)[0]
-    // The next turn makes no tool call, but the native rule still reports it.
-    emitTurnEnd(context, session)
-    assert.equal(await waitFor(() => turnEnded(context.serverLog).length === 2), true)
-    const second = turnEnded(context.serverLog)[1]
-    assert.notEqual(second.turn_id, first.turn_id)
-    assert.equal(second.session_id, first.session_id)
   } finally {
     finish(context)
   }

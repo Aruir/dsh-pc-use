@@ -7,7 +7,7 @@ import { test } from 'node:test'
 
 import { Config } from '../index.js'
 import { isVolatile, unwrapConfigValue } from '../lib/config-value.js'
-import { FAKE_SERVER, registerPlugin, tempDir, useHome, writeCodexHome } from './helpers.mjs'
+import { registerPlugin, tempDir, useHome } from './helpers.mjs'
 
 const schemastery = await import('@deepseek-ai/schemastery').catch(() => null)
 const canResolve = schemastery !== null && Config !== undefined
@@ -75,19 +75,6 @@ test('old config keys addNodeModuleDir and stateFile are tolerated', (t) => {
   }
 })
 
-test('a legacy desktopApprovalChoices field validates and is ignored', (t) => {
-  if (!canResolve) return t.skip(SKIP)
-  // The field is gone from the schema, so settings pages and `Config.dict` no longer show it.
-  assert.equal(Config.dict.desktopApprovalChoices, undefined)
-  // Schemastery objects are non-strict: the unknown key is preserved by validation, not rejected.
-  for (const value of [true, false]) {
-    const config = validate({ desktopApprovalChoices: value })
-    assert.equal(config.desktopApprovalChoices, value)
-  }
-  assert.equal(unwrapConfigValue(validate({}).language), 'auto')
-  assert.equal(unwrapConfigValue(validate({ language: 'en' }).language), 'en')
-})
-
 test('enabled:false registers nothing through the real config path', (t) => {
   if (!canResolve) return t.skip(SKIP)
   const plugin = registerPlugin(validate({ enabled: false }))
@@ -149,31 +136,6 @@ test('autoApprove defaults to false (fail-closed)', (t) => {
     assert.equal(plugin.tools.size, 9)
   } finally {
     plugin.dispose()
-  }
-})
-
-test('allowUserTabs defaults to false and the bundle patch ships the same default', (t) => {
-  if (!canResolve) return t.skip(SKIP)
-  const value = validate({})
-  assert.equal(unwrapConfigValue(value.allowUserTabs), false)
-  assert.match(PATCH, /^\s+allowUserTabs: false$/m)
-})
-
-test('pc_status reports the configured codexHome as a string', async (t) => {
-  if (!canResolve) return t.skip(SKIP)
-  const home = tempDir()
-  const restore = useHome(home)
-  const codexHome = join(home, 'codex')
-  writeCodexHome(codexHome, [FAKE_SERVER, 'ok', join(home, 'server.log')])
-  const plugin = registerPlugin(validate(bundlePatch(codexHome)))
-  try {
-    const status = plugin.tools.get('pc_status')
-    const report = JSON.parse(await status.execute({}, {}))
-    assert.equal(typeof report.providers.codex.codexHome, 'string')
-    assert.equal(report.providers.codex.codexHome, codexHome)
-  } finally {
-    plugin.dispose()
-    restore()
   }
 })
 

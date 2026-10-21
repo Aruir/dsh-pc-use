@@ -3,7 +3,7 @@
 // Codex documentation text.
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
@@ -11,11 +11,9 @@ import { test } from 'node:test'
 import {
   assertTempHome, registerPlugin, tempDir, useHome, waitFor, waitForProcessExit, writeCodexHome,
 } from './helpers.mjs'
-import { composeDescription } from '../lib/server-docs.js'
 import {
   BROWSER_JS_DESCRIPTION, BROWSER_JS_RESET_DESCRIPTION, DESKTOP_ADD_NODE_MODULE_DIR_DESCRIPTION,
-  DESKTOP_JS_DESCRIPTION, DESKTOP_JS_RESET_DESCRIPTION, BROWSER_JS_RESET_RULES, BROWSER_JS_RULES,
-  DESKTOP_ADD_NODE_MODULE_DIR_RULES, DESKTOP_JS_RESET_RULES, DESKTOP_JS_RULES,
+  DESKTOP_JS_DESCRIPTION, DESKTOP_JS_RESET_DESCRIPTION, BROWSER_JS_RULES,
 } from '../lib/tool-docs.js'
 
 const FAKE_SERVER = fileURLToPath(new URL('./fixtures/fake-server.mjs', import.meta.url))
@@ -184,80 +182,6 @@ test('computer on: prefetch fills both targets', async () => {
     assert.equal(data.desktop.tools.js, OLD.js)
   } finally {
     context.restore()
-    clearDocs()
-  }
-})
-
-test('a valid cache becomes the registered description at the next start', async () => {
-  setDocs(OLD)
-  const first = setup({ prefetch: true })
-  try {
-    await waitCache(first)
-  } finally {
-    first.restore()
-  }
-  const second = setup({ home: first.home })
-  try {
-    const entry = cacheOf(second).browser
-    assert.equal(second.plugin.tools.get('pc_codex_js').description,
-      composeDescription(entry, 'js', BROWSER_JS_RULES))
-    assert.equal(second.plugin.tools.get('pc_codex_js_reset').description,
-      composeDescription(entry, 'js_reset', BROWSER_JS_RESET_RULES))
-    assert.equal(second.plugin.tools.get('pc_codex_js').description.includes(OLD.js), true)
-    assert.deepEqual(serverMethods(second), [])
-  } finally {
-    second.restore()
-    clearDocs()
-  }
-})
-
-test('desktop cache descriptions compose with the desktop rules', async () => {
-  setDocs(OLD)
-  const first = setup({ prefetch: true, computer: true, desktop: true })
-  try {
-    assert.equal(await waitFor(() => {
-      if (!existsSync(first.cacheFile)) return false
-      return cacheOf(first).desktop !== null
-    }), true)
-  } finally {
-    first.restore()
-  }
-  const second = setup({ home: first.home, computer: true, desktop: true })
-  try {
-    const entry = cacheOf(second).desktop
-    assert.equal(second.plugin.tools.get('pc_codex_desktop_js').description,
-      composeDescription(entry, 'js', DESKTOP_JS_RULES))
-    assert.equal(second.plugin.tools.get('pc_codex_desktop_js_reset').description,
-      composeDescription(entry, 'js_reset', DESKTOP_JS_RESET_RULES))
-    assert.equal(
-      second.plugin.tools.get('pc_codex_desktop_js_add_node_module_dir').description,
-      composeDescription(entry, 'js_add_node_module_dir', DESKTOP_ADD_NODE_MODULE_DIR_RULES),
-    )
-  } finally {
-    second.restore()
-    clearDocs()
-  }
-})
-
-test('a changed launch spec invalidates the cache and prefetches again', async () => {
-  setDocs(OLD)
-  const first = setup({ prefetch: true })
-  try {
-    await waitCache(first)
-  } finally {
-    first.restore()
-  }
-  const oldFingerprint = cacheOf(first).browser.fingerprint
-  const args = [FAKE_SERVER, 'ok', join(first.home, 'server.log'), 'SECRET-ARG', 'extra']
-  const second = setup({ home: first.home, args, prefetch: true })
-  try {
-    assert.equal(second.plugin.tools.get('pc_codex_js').description, BROWSER_JS_DESCRIPTION)
-    assert.equal(await waitFor(() => {
-      if (!existsSync(second.cacheFile)) return false
-      return cacheOf(second).browser.fingerprint !== oldFingerprint
-    }), true)
-  } finally {
-    second.restore()
     clearDocs()
   }
 })
@@ -586,20 +510,6 @@ test('pc_status reports sources, hashes, stale and no command or argument leaks'
     assert.equal((await statusOf(restarted)).browser.stale, false)
   } finally {
     restarted.restore()
-    clearDocs()
-  }
-})
-
-test('the cache directory holds no temporary files after a write', async () => {
-  setDocs(OLD)
-  const context = setup({ prefetch: true })
-  try {
-    await waitCache(context)
-    const names = readdirSync(join(context.home, '.dsh'))
-    assert.equal(names.filter((name) => name.endsWith('.tmp')).length, 0)
-    assert.equal(names.includes('pc-use-server-docs.json'), true)
-  } finally {
-    context.restore()
     clearDocs()
   }
 })

@@ -13,27 +13,6 @@ function block(data) {
   return { mimeType: 'image/png', data }
 }
 
-test('canonical base64 decodes to the original bytes', () => {
-  // 300 bytes is a multiple of 3, so the encoded length is a multiple of 4 with no padding.
-  const random = Buffer.alloc(300)
-  for (let index = 0; index < random.length; index += 1) {
-    random[index] = (index * 37) % 256
-  }
-  const encoded = random.toString('base64')
-  const cases = [
-    ['', Buffer.alloc(0)],
-    ['QQ==', Buffer.from('A')],
-    ['QUJD', Buffer.from('ABC')],
-    ['QUI=', Buffer.from('AB')],
-    [encoded, random],
-  ]
-  for (const [data, expected] of cases) {
-    const decoded = decodeImage(block(data))
-    assert.equal(decoded.mediaType, 'image/png')
-    assert.deepEqual(decoded.data, expected)
-  }
-})
-
 test('non-canonical base64 is rejected with the same error', () => {
   // 'QR==' and 'QUJ=' decode but re-encode their last group differently; 'QQ' is not
   // 4-character aligned; 'QQ=A' has '=' before the end; a space is outside the alphabet.

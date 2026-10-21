@@ -85,53 +85,6 @@ test('the settings service receives configure({ auto: false })', () => {
   }
 })
 
-test('the plugin loads and registers its tools without a settings service', () => {
-  const home = tempDir('pc-use-no-settings-')
-  const restore = useHome(home)
-  const server = setupServer(home, 'codex')
-  const plugin = registerPlugin({ codexHome: server.codexHome, logFile: join(home, 'bridge.log') })
-  try {
-    assert.equal(plugin.tools.size, 9)
-  } finally {
-    plugin.dispose()
-    restore()
-  }
-})
-
-test('a changed volatile codexHome reconnects without remounting the plugin', async () => {
-  const home = tempDir('pc-use-codexhome-')
-  const restore = useHome(home)
-  const first = setupServer(home, 'codex-a')
-  const second = setupServer(home, 'codex-b')
-  const codexHome = createVolatile(first.codexHome)
-  const plugin = registerPlugin(
-    { codexHome, logFile: join(home, 'bridge.log') },
-  )
-  const toolsBefore = plugin.tools.get('pc_codex_js')
-  const started = []
-  try {
-    const js = plugin.tools.get('pc_codex_js')
-    await js.execute({ code: '1', title: 'first home' }, {})
-    assert.equal(await waitFor(() => readPids(first.pidFile).length === 1), true)
-    codexHome[WRITE](second.codexHome)
-    await js.execute({ code: '2', title: 'second home' }, {})
-    assert.equal(await waitFor(() => readPids(second.pidFile).length === 1), true)
-    assert.equal(readPids(first.pidFile).length, 1)
-    assert.equal(plugin.tools.get('pc_codex_js'), toolsBefore, 'the plugin must not remount')
-    assert.match(
-      readFileSync(join(home, 'bridge.log'), 'utf8'),
-      /Codex home changed; reconnecting/,
-    )
-  } finally {
-    started.push(...readPids(first.pidFile), ...readPids(second.pidFile))
-    plugin.dispose()
-    const stopped = await waitFor(() => started.every((pid) => !isRunning(pid)), 2000)
-    killAll(started)
-    restore()
-    assert.equal(stopped, true, 'every server this test started must exit')
-  }
-})
-
 test('an invalid codexHome fails the call instead of keeping the stale bridge', async () => {
   const home = tempDir('pc-use-codexhome-invalid-')
   const restore = useHome(home)

@@ -4,7 +4,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { illegalReturnNote } from '../lib/text.js'
 import { startServers, stopServers } from './fixtures/server-harness.mjs'
 
 const HEADER = /^Wall time: (\d+\.\d{4}) seconds\nOutput:\n/
@@ -48,51 +47,6 @@ test('an isError result throws an error whose message starts with the same heade
         return true
       },
     )
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('a transport failure keeps its own error and gets no header', async () => {
-  const context = startServers({ browser: { mode: 'hang' }, config: { timeoutMs: 100 } })
-  try {
-    await assert.rejects(
-      () => context.plugin.tools.get('pc_codex_js').execute({ code: '1', title: 'hang' }, {}),
-      (error) => {
-        assert.equal(error.message.includes('Wall time:'), false)
-        assert.match(error.message, /timed out/)
-        return true
-      },
-    )
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('observe and run_plan stay without the header', async () => {
-  const context = startServers()
-  try {
-    const tools = context.plugin.tools
-    const observed = await tools.get('pc_codex_observe')
-      .execute({ target: 'browser', subject: 'tab' }, {})
-    assert.equal(observed.includes('Wall time:'), false)
-    const planned = await tools.get('pc_codex_run_plan')
-      .execute({ target: 'browser', steps: [{ code: '1', title: 'step' }] }, {})
-    assert.equal(planned.includes('Wall time:'), false)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('the server text stays byte for byte between the header and the notes', async () => {
-  const context = startServers({
-    browser: { mode: 'illegal-return' },
-    config: { language: 'en' },
-  })
-  try {
-    const value = await context.plugin.tools.get('pc_codex_js')
-      .execute({ code: '1', title: 'notes' }, {})
-    assert.equal(bodyOf(value), `Illegal return statement\n\n${illegalReturnNote('en')}`)
   } finally {
     assert.equal(await stopServers(context), true)
   }

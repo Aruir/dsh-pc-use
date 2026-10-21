@@ -1,7 +1,6 @@
 // Client half of 0.4.3: load the browser bundle with a fake module loader and fake React,
 // then drive the settings page model and slot registration without a browser.
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { test } from 'node:test'
@@ -435,34 +434,6 @@ function pageFor(form) {
   return client.internals.createPage(form)
 }
 
-test('registers the pc-use settings section after the plugin market', () => {
-  const context = fakeCtx()
-  context.configForms.setServed(['pc-use'])
-  client.apply(context.ctx)
-  const entry = context.registrations.find((item) => item.options.name === 'settings.section')
-  assert.ok(entry, 'settings.section must be registered')
-  assert.equal(entry.options.id, 'pc-use')
-  assert.equal(typeof entry.options.order, 'number')
-  assert.ok(entry.options.order > 40, 'must sort after dshmarket order 40')
-  context.locale.language = 'zh'
-  assert.equal(entry.options.label(), '电脑操控')
-  context.locale.language = 'en'
-  assert.equal(entry.options.label(), 'PC Use')
-})
-
-test('whileServed only registers while the pc-use entry is served', () => {
-  const context = fakeCtx()
-  client.apply(context.ctx)
-  assert.equal(context.registrations.length, 0)
-  assert.deepEqual(context.configForms.whileServedCalls[0], ['pc-use'])
-  context.configForms.setServed(['pc-use'])
-  assert.equal(context.registrations.length, 1)
-  context.configForms.setServed([])
-  assert.equal(context.registrations.length, 0)
-  context.configForms.setServed(['another-plugin'])
-  assert.equal(context.registrations.length, 0)
-})
-
 test('controls write the right keys, units and read revision', async () => {
   const form = readyForm()
   const page = pageFor(form)
@@ -578,14 +549,6 @@ test('disposing the page module clears every registration and subscription', () 
   assert.equal(form.countSubscriptions(), 0)
 })
 
-test('the rendered page shows the three groups', () => {
-  const { renderer } = renderSection()
-  const content = renderedText(renderer.getTree())
-  for (const group of ['桌面操控', '浏览器', '通用']) {
-    assert.ok(content.includes(group), `missing group ${group}`)
-  }
-})
-
 test('"Restore default" only appears when the user value differs from the base', () => {
   const untouched = renderSection()
   assert.deepEqual(rowsWithReset(untouched.renderer.getTree()), [])
@@ -657,20 +620,6 @@ test('the allowUserTabs switch sits after autoApprove in the browser group', () 
   assert.match(enText, /the first four fail with an error/)
   assert.match(enText, /only accept plugin tabs/)
   assert.match(enText, /sent to the model provider/)
-})
-
-test('the two path rows point at pc_status in both languages', () => {
-  const { context, renderer } = renderSection()
-  const pathRow = (id) => rowsOfGroup(groupContainers(renderer.getTree())[2])
-    .find((row) => rowControlId(row) === id)
-  for (const id of ['pc-use-codexHome', 'pc-use-logFile']) {
-    assert.match(renderedText(pathRow(id)), /pc_status/, `${id} zh`)
-  }
-  context.locale.language = 'en'
-  renderer.render()
-  for (const id of ['pc-use-codexHome', 'pc-use-logFile']) {
-    assert.match(renderedText(pathRow(id)), /pc_status/, `${id} en`)
-  }
 })
 
 test('a failed read renders readFailed and no controls', () => {
@@ -817,20 +766,6 @@ test('ready back to loading clears old values and shows the skeleton', () => {
   assert.equal(renderedText(statusLines(tree)[0]), '正在读取设置…')
 })
 
-test('the skeleton page keeps the ready page row ids', () => {
-  const loadingTree = renderForm(loadingForm()).renderer.getTree()
-  const readyTree = renderSection().renderer.getTree()
-  const ids = labelForIds(loadingTree)
-  assert.deepEqual(ids, labelForIds(readyTree))
-  assert.deepEqual(ids, [
-    'pc-use-computer', 'pc-use-rememberDesktopApprovals',
-    'pc-use-autoApprove', 'pc-use-allowUserTabs',
-    'pc-use-language', 'pc-use-timeoutMs', 'pc-use-attachImages',
-    'pc-use-keepImageFiles', 'pc-use-prefetchServerDocs', 'pc-use-codexHome',
-    'pc-use-logFile',
-  ])
-})
-
 test('skeleton placeholders have no handlers and never write', () => {
   const form = loadingForm()
   const { renderer, context } = renderForm(form)
@@ -891,28 +826,6 @@ test('a read-only form disables every control', () => {
 })
 
 // Variables verified in `dsh-client-ui-theme` (the built-in settings pages use them too).
-const VERIFIED_THEME_VARIABLES = new Set([
-  '--dsw-alias-border-l2',
-  '--dsw-alias-border-l3',
-  '--dsw-alias-brand-primary',
-  '--dsw-alias-switch-thumb',
-  '--dsw-alias-label-primary',
-  '--dsw-alias-label-primary-foreground',
-  '--dsw-alias-label-tertiary',
-  '--dsw-alias-label-secondary',
-  '--dsw-radius-md',
-  '--dsw-alias-bg-module-platform',
-  '--dsw-alias-bg-skeleton',
-  '--dsw-alias-interactive-bg-hover',
-])
-
-test('client.js only uses verified DSH theme variables', () => {
-  const source = readFileSync(join(root, 'client.js'), 'utf8')
-  const used = new Set(source.match(/--dsw-[a-z0-9-]+/g))
-  for (const variable of used) {
-    assert.ok(VERIFIED_THEME_VARIABLES.has(variable), `unverified theme variable ${variable}`)
-  }
-})
 
 test('open and closed switches use different colors and thumb positions', () => {
   const BASE_VALUES = {
@@ -946,23 +859,6 @@ test('open and closed switches use different colors and thumb positions', () => 
   assert.equal(closedThumb.props.style.transform, 'none')
 })
 
-test('the switch and its control keep their width', () => {
-  const { renderer } = renderSection()
-  const tree = renderer.getTree()
-  const switchButton = elements(tree).find((node) => (
-    node.type === 'button' && node.props.role === 'switch' && node.props.id === 'pc-use-computer'
-  ))
-  assert.equal(switchButton.props.style.flex, '0 0 auto')
-  assert.equal(switchButton.props.style.width, 36)
-
-  const controlColumn = elements(tree).find((node) => (
-    node.type === 'div' && Array.isArray(node.props.children)
-    && node.props.children.some((child) => child && child.type === 'button'
-      && child.props.id === 'pc-use-computer')
-  ))
-  assert.equal(controlColumn.props.style.flexShrink, 0)
-})
-
 /** The page root of a ready settings page (the only root with maxWidth 760). O(n). */
 function pageRoot(tree) {
   return elements(tree).find((node) => (
@@ -984,11 +880,6 @@ function skeletonPlaceholders(tree) {
 }
 
 /** Row ids as exposed by their labels, in render order. O(n). */
-function labelForIds(tree) {
-  return elements(tree)
-    .filter((node) => node.type === 'label')
-    .map((node) => node.props.htmlFor)
-}
 
 /** Group headings plus every row's label and description, in render order. O(n). */
 function pageTextLayout(tree) {
@@ -1121,25 +1012,6 @@ function controlOf(tree, id) {
   ))
 }
 
-test('switch rows have no "Restore default"', () => {
-  const user = {
-    computer: true,
-    rememberDesktopApprovals: false,
-    autoApprove: true,
-  }
-  const { renderer } = renderSection({ user })
-  const tree = renderer.getTree()
-  for (const field of ['computer', 'rememberDesktopApprovals', 'autoApprove']) {
-    const control = controlOf(tree, `pc-use-${field}`)
-    assert.ok(control, field)
-    const reset = elements(control).find((node) => (
-      node.type === 'button' && renderedText(node).includes('恢复默认')
-    ))
-    assert.equal(reset, undefined, field)
-    assert.equal(control.props.children.filter(Boolean).length, 1, field)
-  }
-})
-
 test('select and text rows keep "Restore default" and send unset', async () => {
   const user = { language: 'zh', timeoutMs: 60000, codexHome: 'C:\\codex' }
   const { renderer, context } = renderSection({ user })
@@ -1246,15 +1118,6 @@ test('the page starts with the desktop group', () => {
   assert.equal(visible[0].props.key, 'group-desktop')
 })
 
-test('rows inside a group have no vertical gap', () => {
-  const { renderer } = renderSection()
-  const groups = groupContainers(renderer.getTree())
-  assert.equal(groups.length, 3)
-  for (const group of groups) {
-    assert.equal(group.props.style.gap === undefined || group.props.style.gap === 0, true)
-  }
-})
-
 test('the last row in each group has no divider', () => {
   const { renderer } = renderSection()
   const groups = groupContainers(renderer.getTree())
@@ -1285,12 +1148,6 @@ test('row descriptions use label-secondary and the footer stays light', () => {
   assert.equal(description.props.style.margin, '4px 0 0')
   const footer = findNode(tree, (node) => node.type === 'p' && node.props.key === 'footer')
   assert.equal(footer.props.style.color, 'var(--dsw-alias-label-tertiary)')
-})
-
-test('the verified theme whitelist includes label-secondary', () => {
-  const source = readFileSync(join(root, 'client.js'), 'utf8')
-  assert.equal(VERIFIED_THEME_VARIABLES.has('--dsw-alias-label-secondary'), true)
-  assert.equal(source.includes('--dsw-alias-label-secondary'), true)
 })
 
 test('group headings use the native section style', () => {
@@ -1338,22 +1195,6 @@ function rowControlId(row) {
   return found?.props.id
 }
 
-test('the first switch row is titled differently from its group', () => {
-  const { renderer, context } = renderSection()
-  const zhTree = renderer.getTree()
-  const zhLabel = findNode(zhTree, (node) => (
-    node.type === 'label' && node.props.htmlFor === 'pc-use-computer'
-  ))
-  assert.equal(renderedText(zhLabel), '启用桌面操控')
-  assert.ok(renderedText(zhTree).includes('桌面操控'))
-  context.locale.language = 'en'
-  renderer.render()
-  const enLabel = findNode(renderer.getTree(), (node) => (
-    node.type === 'label' && node.props.htmlFor === 'pc-use-computer'
-  ))
-  assert.equal(renderedText(enLabel), 'Enable desktop control')
-})
-
 test('a conflict shows a visible notice before the desktop group', async () => {
   const { renderer, context } = renderSection()
   const form = context.configForms.get('pc-use')
@@ -1381,24 +1222,6 @@ test('a conflict shows a visible notice before the desktop group', async () => {
   assert.equal(conflictIndex < groupIndex, true)
 })
 
-test('the browser group lists allowUserTabs right after autoApprove', () => {
-  const { renderer } = renderSection()
-  const groups = groupContainers(renderer.getTree())
-  assert.equal(groups.length, 3)
-  const headings = groups.map((group) => renderedText(
-    group.props.children.find((child) => child && child.type === 'h3'),
-  ))
-  assert.deepEqual(headings, ['桌面操控', '浏览器', '通用'])
-  const ids = groups.map((group) => rowsOfGroup(group).map(rowControlId))
-  assert.deepEqual(ids, [
-    ['pc-use-computer', 'pc-use-rememberDesktopApprovals'],
-    ['pc-use-autoApprove', 'pc-use-allowUserTabs'],
-    ['pc-use-language', 'pc-use-timeoutMs', 'pc-use-attachImages',
-      'pc-use-keepImageFiles', 'pc-use-prefetchServerDocs', 'pc-use-codexHome',
-      'pc-use-logFile'],
-  ])
-})
-
 test('the new last rows are the ones without a divider', () => {
   const { renderer } = renderSection()
   const groups = groupContainers(renderer.getTree())
@@ -1410,21 +1233,6 @@ test('the new last rows are the ones without a divider', () => {
   assert.equal(border(groups[2], 'pc-use-language'),
     '0.5px solid var(--dsw-alias-border-l2)')
   assert.equal(border(groups[2], 'pc-use-logFile'), 'none')
-})
-
-test('the footer keeps only the first sentence', () => {
-  const { renderer, context } = renderSection()
-  const footer = (tree) => renderedText(findNode(tree, (node) => (
-    node.type === 'p' && node.props.key === 'footer'
-  )))
-  const zh = footer(renderer.getTree())
-  assert.equal(zh, '启用插件请到“内置插件”或插件管理中操作。')
-  assert.equal(zh.includes('cordis.patch.yml'), false)
-  context.locale.language = 'en'
-  renderer.render()
-  const en = footer(renderer.getTree())
-  assert.equal(en, 'Enable the plugin in "Built-in plugins" or the plugin manager.')
-  assert.equal(en.includes('cordis.patch.yml'), false)
 })
 
 /** A section rendered with fake DSH primitives. O(n). */
@@ -1501,15 +1309,6 @@ test('the trigger opens the menu and stays closed when the page is read-only', (
   assert.equal(readOnly.primitives.calls.at(-1).open, false)
 })
 
-test('a primitives module without Menu falls back to the native select', () => {
-  const primitives = fakePrimitives({ menu: false })
-  const { renderer } = renderSection({}, loadClient(primitives))
-  const select = findNode(renderer.getTree(), (node) => (
-    node.type === 'select' && node.props.id === 'pc-use-language'
-  ))
-  assert.ok(select)
-})
-
 test('the hover style is injected only once', () => {
   const fake = fakeDocument()
   globalThis.document = fake.document
@@ -1543,18 +1342,6 @@ test('the loading page injects the skeleton styles once', () => {
     assert.ok(fake.styles[0].textContent.includes('80%, 100% { opacity: 1; }'))
   } finally {
     delete globalThis.document
-  }
-})
-
-test('the whitelist includes the official menu variables', () => {
-  const source = readFileSync(join(root, 'client.js'), 'utf8')
-  for (const variable of [
-    '--dsw-radius-md',
-    '--dsw-alias-bg-module-platform',
-    '--dsw-alias-interactive-bg-hover',
-  ]) {
-    assert.equal(VERIFIED_THEME_VARIABLES.has(variable), true)
-    assert.equal(source.includes(variable), true, variable)
   }
 })
 

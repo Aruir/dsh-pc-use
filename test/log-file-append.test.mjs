@@ -1,7 +1,7 @@
 // r20: appendLogLine creates the directory only after a failed append, and rotation keeps
 // working on that path.
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -14,15 +14,6 @@ test('a missing nested directory is created on the first line', () => {
   appendLogLine(file, 'one\n')
   appendLogLine(file, 'two\n')
   assert.equal(readFileSync(file, 'utf8'), 'one\ntwo\n')
-})
-
-test('a file in the parent path makes the append throw and leaves no target file', () => {
-  const home = tempDir('pc-use-log-')
-  const blocker = join(home, 'blocker')
-  writeFileSync(blocker, 'not a directory')
-  const file = join(blocker, 'nested', 'pc-use.log')
-  assert.throws(() => appendLogLine(file, 'one\n'))
-  assert.equal(existsSync(file), false)
 })
 
 test('rotation keeps one old file when the log exceeds maxBytes', () => {

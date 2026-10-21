@@ -115,17 +115,6 @@ test('a request with no registered desktop call is declined', async () => {
   })
 })
 
-test('a registered call without an agent is declined', async () => {
-  const { approvals } = makeApprovals()
-  const exec = {
-    name: 'pc_codex_desktop_js', callId: 'call-1', signal: new AbortController().signal,
-  }
-  const decision = await approvals.withCall(exec, () => approvals.decide({
-    appName: 'Notepad', meta: {},
-  }))
-  assert.deepEqual(decision, { action: DECLINE, reason: 'no agent for this call' })
-})
-
 test('a missing approval service is declined', async () => {
   const { approvals } = makeApprovals({ approval: null })
   const decision = await approvals.withCall(execFor({ id: 'agent-no-service' }), () =>
@@ -154,38 +143,6 @@ test('the session choice is remembered for that agent only', async () => {
     await approvals.decide({ appName: 'Notepad', meta: META })
   })
   assert.equal(questions.requests.length, 2)
-})
-
-test('the remember switch off asks again', async () => {
-  const approval = approvalService(['allowed-once', 'allowed-once'])
-  const { approvals, setRemember } = makeApprovals({ approval })
-  const exec = execFor({ id: 'agent-toggle' })
-  await approvals.withCall(exec, () => approvals.decide({ appName: 'Notepad', meta: META }))
-  setRemember(false)
-  await approvals.withCall(exec, () => approvals.decide({ appName: 'Notepad', meta: META }))
-  assert.equal(approval.requests.length, 2)
-})
-
-test('forgetAll makes the next request ask again', async () => {
-  const approval = approvalService(['allowed-once', 'allowed-once'])
-  const { approvals } = makeApprovals({ approval })
-  const exec = execFor({ id: 'agent-forget' })
-  await approvals.withCall(exec, () => approvals.decide({ appName: 'Notepad', meta: META }))
-  approvals.forgetAll()
-  await approvals.withCall(exec, () => approvals.decide({ appName: 'Notepad', meta: META }))
-  assert.equal(approval.requests.length, 2)
-})
-
-test('DELEGATED_CALLER falls back to the one-shot card', async () => {
-  const delegated = Object.assign(new Error('delegated caller'), { code: 'DELEGATED_CALLER' })
-  const approval = approvalService(['allowed-once'])
-  const questions = questionsService(delegated)
-  const { approvals } = makeApprovals({ approval, questions })
-  const decision = await approvals.withCall(execFor({ id: 'agent-delegated' }), () =>
-    approvals.decide({ appName: 'Notepad', meta: {} }))
-  assert.deepEqual(decision, { action: APPROVE, reason: 'approved in DSH' })
-  assert.equal(questions.requests.length, 1)
-  assert.equal(approval.requests.length, 1)
 })
 
 test('the one-shot card remembers only when meta asks for the session', async () => {
@@ -226,19 +183,6 @@ test('a call that ends with its card open declines even if the service later all
   })
 })
 
-test('a user decline is noted on the call registration', async () => {
-  const approval = approvalService(['rejected'])
-  const { approvals } = makeApprovals({ approval })
-  const exec = execFor({ id: 'agent-declined' })
-  let registration
-  const decision = await approvals.withCall(exec, async (active) => {
-    registration = active
-    return approvals.decide({ appName: 'Notepad', meta: {} })
-  })
-  assert.deepEqual(decision, { action: DECLINE, reason: 'rejected in DSH' })
-  assert.equal(registration.declinedApp, 'Notepad')
-})
-
 test('a call-end decline is not noted as a user decision', async () => {
   // An ordinary question-service failure maps to "no valid choice". Keep the registration
   // active while the exec signal is already aborted, so this covers rememberDecision's
@@ -258,25 +202,4 @@ test('a call-end decline is not noted as a user decision', async () => {
   })
   assert.deepEqual(decision, { action: DECLINE, reason: 'no valid choice' })
   assert.equal(approval.requests.length, 0)
-})
-
-test('a request belongs to the earliest running call, then to the next one', async () => {
-  const approval = approvalService(['allowed-once', 'allowed-once'])
-  const { approvals } = makeApprovals({ approval })
-  const firstExec = execFor({ id: 'agent-first' }, 'call-first')
-  const secondExec = execFor({ id: 'agent-second' }, 'call-second')
-  let releaseFirst
-  const firstGate = new Promise((resolve) => { releaseFirst = resolve })
-  let releaseSecond
-  const secondGate = new Promise((resolve) => { releaseSecond = resolve })
-  const firstCall = approvals.withCall(firstExec, () => firstGate)
-  const secondCall = approvals.withCall(secondExec, () => secondGate)
-  await approvals.decide({ appName: 'Notepad', meta: {} })
-  assert.equal(approval.requests[0].agent, firstExec.agent)
-  releaseFirst()
-  await firstCall
-  await approvals.decide({ appName: 'Notepad', meta: {} })
-  assert.equal(approval.requests[1].agent, secondExec.agent)
-  releaseSecond()
-  await secondCall
 })

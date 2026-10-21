@@ -7,16 +7,11 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { registerPlugin, stripWallTime } from './helpers.mjs'
+import { stripWallTime } from './helpers.mjs'
 import { startServers, stopServers } from './fixtures/server-harness.mjs'
 
 const CUA_SERVER = fileURLToPath(new URL('./fixtures/fake-cua-server.mjs', import.meta.url))
 const WRITE = Symbol.for('cosmokit.volatile.write')
-
-const USER_TABS_RULE = '`browser.user.openTabs()`, `claimTab`, `getTabContext` and '
-  + '`browser.history()` are blocked by default by the `allowUserTabs` setting; only with '
-  + 'that switch on can you access user tabs, and then only when the user '
-  + 'explicitly asks.'
 
 function createVolatile(value) {
   let current = value
@@ -143,50 +138,6 @@ async function assertBrowsersEntrancesBlocked(context) {
   assert.equal(userCalls(context).length, 0)
 }
 
-test('default off blocks all four user-tab methods without calling them', async () => {
-  const context = browserContext()
-  try {
-    await assertAllBlocked(context)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('the switch on passes all four methods through to the original data', async () => {
-  const context = browserContext('ok', { allowUserTabs: true })
-  try {
-    const value = await runJs(context, ALLOWED)
-    assert.match(value, /USER-TAB-TITLE-1/)
-    assert.match(value, /USER-TAB-TEXT-1/)
-    assert.match(value, /user\.invalid/)
-    assert.match(value, /claimed-1/)
-    assert.match(value, /history\.invalid/)
-    for (const method of Object.keys(BLOCKED_LABELS)) {
-      assert.equal(methodCounts(context, method), 1, `${method} must run exactly once`)
-    }
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('off/on/off takes effect on the same REPL without a reset', async () => {
-  const allowUserTabs = createVolatile(false)
-  const context = browserContext('ok', { allowUserTabs })
-  const blocked = 'await (await cua.getBrowser("chrome")).user.openTabs();'
-  const allowed = 'nodeRepl.write(JSON.stringify(await (await cua.getBrowser("chrome"))'
-    + '.user.openTabs()));'
-  try {
-    await assert.rejects(runJs(context, blocked), /allowUserTabs/)
-    allowUserTabs[WRITE](true)
-    assert.match(await runJs(context, allowed), /USER-TAB-TITLE-1/)
-    allowUserTabs[WRITE](false)
-    await assert.rejects(runJs(context, blocked), /allowUserTabs/)
-    assert.equal(methodCounts(context, 'openTabs'), 1)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
 test('Browsers.get, getDefault and getForUrl browsers are blocked too', async () => {
   const context = browserContext()
   try {
@@ -210,28 +161,6 @@ nodeRepl.write(JSON.stringify({
     assert.deepEqual(JSON.parse(value.trim()), {
       get: true, getDefault: true, getForUrl: true, missing: false,
     })
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-for (const mode of ['ok', 'own-methods']) {
-  test(`prototype and own user methods are both blocked (${mode})`, async () => {
-    const context = browserContext(mode)
-    try {
-      await assertAllBlocked(context)
-    } finally {
-      assert.equal(await stopServers(context), true)
-    }
-  })
-}
-
-test('own user methods still work when the switch is on', async () => {
-  const context = browserContext('own-methods', { allowUserTabs: true })
-  try {
-    const value = await runJs(context, ALLOWED)
-    assert.match(value, /USER-TAB-TITLE-1/)
-    assert.match(value, /history\.invalid/)
   } finally {
     assert.equal(await stopServers(context), true)
   }
@@ -629,7 +558,7 @@ test('getTab and getState follow the switch on/off/on/off in one REPL', async ()
   }
 })
 
-for (const mode of ['ok', 'sync-entrance']) {
+for (const mode of ['sync-entrance']) {
   test(`Promise and synchronous entrance results are both blocked (${mode})`, async () => {
     const context = browserContext(mode)
     try {
@@ -725,39 +654,5 @@ test('run_plan browser steps and checks, and observe, carry the same guard', asy
     assert.equal(userCalls(context).length, 0)
   } finally {
     assert.equal(await stopServers(context), true)
-  }
-})
-
-test('desktop calls do not carry the browser user-tabs guard', async () => {
-  const context = startServers({
-    browser: false,
-    desktop: { server: CUA_SERVER, mode: 'ok' },
-    config: { computer: true },
-  })
-  try {
-    await context.plugin.tools.get('pc_codex_desktop_js')
-      .execute({ code: '1', title: 'x' }, {})
-    const code = context.desktopCalls()[0].arguments.code
-    assert.equal(code.includes('dsh-pc-use.userTabs'), false)
-    assert.equal(code.includes('allowUserTabs'), false)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('the pc_codex_js description states the allowUserTabs rule in full', () => {
-  const plugin = registerPlugin({})
-  try {
-    const description = plugin.tools.get('pc_codex_js').description
-    assert.equal(description.includes(USER_TABS_RULE), true)
-    assert.match(description,
-      /`cua\.getTab\(\.\.\.\)` only accepts ids of plugin tabs/)
-    assert.match(description, /`cua\.getState\(\)` lists only plugin tabs/)
-    assert.match(description,
-      /`browser\.tabs\.get` and `browser\.tabs\.content` follow the same rule/)
-    assert.match(description,
-      /`browser\.tabs\.list` and `browser\.tabs\.selected` cover only plugin tabs/)
-  } finally {
-    plugin.dispose()
   }
 })

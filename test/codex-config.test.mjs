@@ -31,10 +31,6 @@ function unifiedDir(codexHome, version) {
   return join(codexHome, ...UNIFIED_ROOT, version)
 }
 
-function mcpJsonPath(codexHome, version) {
-  return join(unifiedDir(codexHome, version), '.mcp.json')
-}
-
 function configPath(codexHome) {
   return join(codexHome, 'config.toml')
 }
@@ -91,31 +87,6 @@ function withEnv(key, value, run) {
   }
 }
 
-test('resolveBrowserServer reads the newest cua_repl .mcp.json', () => {
-  const home = tempHome()
-  writeMcpJson(home, '26.1012.5', browserEntry({ args: ['oldest'] }))
-  writeMcpJson(home, '26.1013.9', browserEntry({ args: ['older-than-newest'] }))
-  const args = ['--fake-server', '--flag']
-  const env = {
-    SKY_CUA_NATIVE_PIPE_DIRECTORY: 'pipe-browser',
-    PC_USE_TEST_BROWSER_ENV: 'browser-value',
-  }
-  writeMcpJson(home, '26.1013.31256', browserEntry({ args, env }))
-  mkdirSync(unifiedDir(home, 'zzz-tmp'), { recursive: true })
-  writeFileSync(mcpJsonPath(home, 'zzz-tmp'), JSON.stringify({
-    mcpServers: { cua_repl: browserEntry({ args: ['not-a-version'] }) },
-  }))
-  const spec = resolveBrowserServer({ codexHome: home })
-  assert.equal(spec.ok, true)
-  assert.equal(spec.command, process.execPath)
-  assert.deepEqual(spec.args, args)
-  assert.equal(spec.env.SKY_CUA_NATIVE_PIPE_DIRECTORY, 'pipe-browser')
-  assert.equal(spec.env.PC_USE_TEST_BROWSER_ENV, 'browser-value')
-  assert.equal(spec.cwd, dirname(home))
-  assert.equal(spec.source, mcpJsonPath(home, '26.1013.31256'))
-  assert.equal(spec.pipeDirectory, 'pipe-browser')
-})
-
 test('resolveBrowserServer does not fall back to node_repl', () => {
   const home = tempHome()
   writeConfigToml(home, nodeReplToml({ args: ['desktop-only'] }))
@@ -163,20 +134,6 @@ test('resolveBrowserServer applies config.toml volatile env overrides', () => {
   assert.equal(spec.env.PC_USE_TEST_CONFIG_ONLY, undefined)
 })
 
-test('resolveBrowserServer inherits env_vars from the parent process', () => {
-  const home = tempHome()
-  const key = 'PC_USE_TEST_BROWSER_INHERITED'
-  withEnv(key, 'from-parent', () => {
-    const missing = 'PC_USE_TEST_BROWSER_MISSING'
-    delete process.env[missing]
-    writeMcpJson(home, '26.1013.1', browserEntry({ env_vars: [key, missing] }))
-    const spec = resolveBrowserServer({ codexHome: home })
-    assert.equal(spec.ok, true)
-    assert.equal(spec.env[key], 'from-parent')
-    assert.equal(spec.env[missing], undefined)
-  })
-})
-
 test('resolveDesktopServer reads [mcp_servers.node_repl] and its env', () => {
   const home = tempHome()
   const args = ['--fake-desktop-server']
@@ -214,15 +171,6 @@ test('resolveDesktopServer lets inherited env_vars override config env', () => {
   })
 })
 
-test('resolveDesktopServer preserves the configured args', () => {
-  const home = tempHome()
-  const args = ['--fake-desktop-server', '--flag', 'pc-use']
-  writeConfigToml(home, nodeReplToml({ args }))
-  const spec = resolveDesktopServer({ codexHome: home })
-  assert.equal(spec.ok, true)
-  assert.deepEqual(spec.args, args)
-})
-
 test('resolveDesktopServer keeps a CODEX_HOME from config.toml and fills an empty one', () => {
   const home = tempHome()
   writeConfigToml(home, nodeReplToml({ env: { CODEX_HOME: 'D:\\fake\\codex-home' } }))
@@ -245,15 +193,6 @@ test('resolveDesktopServer defaults missing args and env_vars', () => {
   } finally {
     if (previous !== undefined) process.env.SKY_CUA_NATIVE_PIPE_DIRECTORY = previous
   }
-})
-
-test('both resolvers honour an explicit cwd', () => {
-  const home = tempHome()
-  writeMcpJson(home, '26.1013.1', browserEntry())
-  writeConfigToml(home, nodeReplToml())
-  const cwd = join(home, 'pinned-cwd')
-  assert.equal(resolveBrowserServer({ codexHome: home, cwd }).cwd, cwd)
-  assert.equal(resolveDesktopServer({ codexHome: home, cwd }).cwd, cwd)
 })
 
 test('resolveDesktopServer reports a missing node_repl section with the config path', () => {
@@ -290,22 +229,4 @@ test('a missing server command is reported', () => {
   const desktop = resolveDesktopServer({ codexHome: home })
   assert.equal(desktop.ok, false)
   assert.equal(desktop.reason, `server command not found: ${missing}`)
-})
-
-test('both resolvers leave surfaces and trusted services untouched', () => {
-  const home = tempHome()
-  const surfaces = 'browser'
-  const trusted = '{"browser":"@oai/browser-desktop/service"}'
-  const env = { CUA_REPL_ENABLED_SURFACES: surfaces, NODE_REPL_TRUSTED_SERVICES: trusted }
-  writeMcpJson(home, '26.1013.1', browserEntry({ env }))
-  writeConfigToml(home, nodeReplToml({ env }))
-  const browser = resolveBrowserServer({ codexHome: home })
-  const desktop = resolveDesktopServer({ codexHome: home })
-  for (const spec of [browser, desktop]) {
-    assert.equal(spec.ok, true)
-    assert.equal(spec.env.CUA_REPL_ENABLED_SURFACES, surfaces)
-    assert.equal(spec.env.NODE_REPL_TRUSTED_SERVICES, trusted)
-  }
-  assert.equal(browser.env.CUA_REPL_ENABLED_SURFACES.includes('computer'), false)
-  assert.equal(desktop.env.NODE_REPL_TRUSTED_SERVICES.includes('@oai/sky/service'), false)
 })

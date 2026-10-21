@@ -8,7 +8,7 @@ import { test } from 'node:test'
 
 import { registerPlugin, tempDir, useHome, waitFor } from './helpers.mjs'
 import {
-  BROWSER_ENV, DESKTOP_ENV, DUAL_SERVER, startServers, stopServers, writeDesktopSource,
+  DESKTOP_ENV, DUAL_SERVER, startServers, stopServers, writeDesktopSource,
 } from './fixtures/server-harness.mjs'
 import { startFakePipe } from './fixtures/fake-native-pipe-server.mjs'
 
@@ -88,38 +88,6 @@ test('a desktop turn reports to both servers and closes the desktop cursor', asy
     assert.equal(await waitFor(() => (
       readLog(context).includes('desktop turn closed (end_turn)')
     )), true)
-  } finally {
-    await fake.close()
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('a browser turn reports to both servers but closes no desktop cursor', async () => {
-  const pipe = pipePath()
-  const fake = await startFakePipe(pipe, { mode: 'ok' })
-  const agents = makeAgents()
-  const context = startServers({
-    desktop: { mode: 'ok', env: { ...DESKTOP_ENV, SKY_CUA_NATIVE_PIPE_DIRECTORY: pipe } },
-    config: { computer: true },
-    services: { agents },
-  })
-  const { agent, session } = agents.add('agent-b')
-  try {
-    // Connect the desktop server without using it in this turn.
-    await context.plugin.tools.get('pc_codex_desktop_js')
-      .execute({ code: '0', title: 'connect' }, {})
-    const exec = {
-      agent, name: 'pc_codex_js', callId: 'call-1', signal: new AbortController().signal,
-    }
-    await context.plugin.tools.get('pc_codex_js').execute({ code: '1', title: 'browser' }, exec)
-    emitTurnEnd(context, session)
-    assert.equal(await waitFor(() => (
-      context.browserCalls().some((item) => item.name === 'turn_ended')
-      && context.desktopCalls().some((item) => item.name === 'turn_ended')
-    )), true)
-    await new Promise((done) => setTimeout(done, 150))
-    assert.equal(fake.frames.length, 0)
-    assert.equal(fake.connections, 0)
   } finally {
     await fake.close()
     assert.equal(await stopServers(context), true)

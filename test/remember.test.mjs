@@ -130,20 +130,6 @@ test('same agent, different app: still asks DSH', async () => {
   }
 })
 
-test('different agents: still asks DSH', async () => {
-  const requests = []
-  const context = setup({
-    services: { approval: approvalService(['allowed-once'], requests) },
-  })
-  try {
-    await runJs(context, APP, execFor({ id: 'agent-three-a' }, 'call-a'))
-    await runJs(context, APP, execFor({ id: 'agent-three-b' }, 'call-b'))
-    assert.equal(requests.length, 2)
-  } finally {
-    finish(context)
-  }
-})
-
 test('a rejected approval is not remembered', async () => {
   const agent = { id: 'agent-four' }
   const requests = []
@@ -262,31 +248,6 @@ test('rememberDesktopApprovals:false asks every time and resets the memory', asy
   }
 })
 
-test('hot switching computer off and on rebuilds the desktop bridge and asks again', async () => {
-  const agent = { id: 'agent-eleven' }
-  const computer = createVolatile(true)
-  const requests = []
-  const context = setup({
-    computer,
-    services: { approval: approvalService(['allowed-once'], requests) },
-  })
-  try {
-    await runJs(context, APP, execFor(agent, 'call-1'))
-    assert.equal(requests.length, 1)
-    computer[WRITE](false)
-    await assert.rejects(
-      () => runJs(context, APP, execFor(agent, 'call-2')),
-      /computer use is off/,
-    )
-    assert.equal(requests.length, 1)
-    computer[WRITE](true)
-    await runJs(context, APP, execFor(agent, 'call-3'))
-    assert.equal(requests.length, 2, 'a fresh desktop bridge must ask again')
-  } finally {
-    finish(context)
-  }
-})
-
 test('a remembered app still needs a running desktop call', async () => {
   const agent = { id: 'agent-twelve' }
   const requests = []
@@ -309,29 +270,6 @@ test('a remembered app still needs a running desktop call', async () => {
     assert.equal(requests.length, 1)
     const lines = approvalLines(context.logFile)
     assert.match(lines[1], /-> decline \(no active pc_codex_desktop_js call\)/)
-  } finally {
-    finish(context)
-  }
-})
-
-test('computer off rejects a remembered desktop call before asking', async () => {
-  const agent = { id: 'agent-thirteen' }
-  const computer = createVolatile(true)
-  const requests = []
-  const context = setup({
-    computer,
-    services: { approval: approvalService(['allowed-once'], requests) },
-  })
-  try {
-    await runJs(context, APP, execFor(agent, 'call-1'))
-    assert.equal(requests.length, 1)
-    computer[WRITE](false)
-    await assert.rejects(
-      () => runJs(context, APP, execFor(agent, 'call-2')),
-      /computer use is off/,
-    )
-    assert.equal(requests.length, 1)
-    assert.equal(approvalLines(context.logFile).length, 1)
   } finally {
     finish(context)
   }

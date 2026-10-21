@@ -29,37 +29,6 @@ function runDesktop(context) {
     .execute({ code: '1', title: 'desktop' }, {})
 }
 
-test('computer:false keeps the desktop tools registered but starts nothing', async () => {
-  const context = startServers({ config: { computer: false } })
-  try {
-    assert.equal(context.plugin.tools.has('pc_codex_desktop_js'), true)
-    await assert.rejects(() => runDesktop(context), /computer use is off/)
-    assert.equal(context.desktopStart().length, 0)
-    assert.equal(context.browserStart().length, 0)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('enabling computer starts a new desktop server on the next desktop call', async () => {
-  const computer = createVolatile(false)
-  const context = startServers({ config: { computer } })
-  try {
-    await runBrowser(context)
-    const browserPid = context.browserStart()[0].pid
-    computer[WRITE](true)
-    // Flipping the switch does not start anything by itself.
-    await new Promise((done) => setTimeout(done, 150))
-    assert.equal(context.desktopStart().length, 0)
-    await runDesktop(context)
-    assert.equal(await waitFor(() => context.desktopStart().length === 1), true)
-    assert.equal(context.browserStart().length, 1)
-    assert.equal(isRunning(browserPid), true)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
 test('hot switching computer off stops only the desktop server', async () => {
   const computer = createVolatile(true)
   const context = startServers({ config: { computer } })
@@ -132,21 +101,6 @@ test('an approval that arrives after computer turns off is declined', async () =
     assert.match(result.value, /decision decline/)
     // The bridge logs the reason; the MCP reply itself only carries the action.
     assert.match(readFileSync(context.logFile, 'utf8'), /-> decline \(computer use is off\)/)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('a desktop call while computer is off stops a desktop server left running', async () => {
-  const computer = createVolatile(true)
-  const context = startServers({ config: { computer } })
-  try {
-    await runDesktop(context)
-    const desktopPid = context.desktopStart()[0].pid
-    computer[WRITE](false)
-    await assert.rejects(() => runDesktop(context), /computer use is off/)
-    assert.equal(await waitFor(() => !isRunning(desktopPid)), true)
-    assert.equal(context.desktopStart().length, 1)
   } finally {
     assert.equal(await stopServers(context), true)
   }

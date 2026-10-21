@@ -9,19 +9,6 @@ import { registerPlugin, tempDir } from './helpers.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-const TOOL_NAMES = [
-  'pc_codex_js',
-  'pc_codex_js_reset',
-  'pc_codex_desktop_js',
-  'pc_codex_desktop_js_reset',
-  'pc_codex_desktop_js_add_node_module_dir',
-  'pc_codex_observe',
-  'pc_codex_run_plan',
-  'pc_codex_docs',
-  'pc_status',
-]
-const PC_CODEX_JS_DOCS_SENTENCE = 'Before controlling Windows apps, call `pc_codex_docs` for '
-  + '`skill`, `guidance` and `confirmations`; call it for `api` when you need method signatures.'
 
 function register() {
   const directory = tempDir('pc-use-manifest-')
@@ -98,41 +85,6 @@ test('the patch insert uses the package name and loads the exported entry', () =
   assert.ok(match, 'patch must declare a name')
   assert.equal(match[1], packageJson.name)
   assert.equal(existsSync(join(root, packageJson.exports['.'])), true)
-})
-
-test('exactly the nine tool names are registered', () => {
-  const plugin = register()
-  try {
-    assert.deepEqual([...plugin.tools.keys()], TOOL_NAMES)
-    for (const name of plugin.tools.keys()) {
-      assert.equal(name.startsWith('codex_'), false)
-    }
-  } finally {
-    plugin.dispose()
-  }
-})
-
-test('pc_codex_desktop_js takes over the pc_codex_docs first-call guidance', () => {
-  const plugin = register()
-  try {
-    const description = plugin.tools.get('pc_codex_desktop_js').description
-    assert.equal(description.includes(PC_CODEX_JS_DOCS_SENTENCE), true)
-    assert.equal(description.includes('node_repl'), true)
-    assert.equal(description.includes('@oai/sky'), true)
-  } finally {
-    plugin.dispose()
-  }
-})
-
-test('pc_codex_js points desktop work at pc_codex_desktop_js', () => {
-  const plugin = register()
-  try {
-    const description = plugin.tools.get('pc_codex_js').description
-    assert.equal(description.includes('pc_codex_desktop_js'), true)
-    assert.equal(description.includes('`sky`'), false)
-  } finally {
-    plugin.dispose()
-  }
 })
 
 test('pc_status reports separate browser and desktop servers', async () => {

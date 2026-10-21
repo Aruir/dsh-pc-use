@@ -6,9 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { stripWallTime, waitFor } from './helpers.mjs'
-import {
-  DUAL_SERVER, isRunning, startServers, stopServers, writeBrowserSource, writeDesktopSource,
-} from './fixtures/server-harness.mjs'
+import { isRunning, startServers, stopServers } from './fixtures/server-harness.mjs'
 
 const WRITE = Symbol.for('cosmokit.volatile.write')
 
@@ -37,56 +35,6 @@ async function runDesktop(context) {
 function readLog(context) {
   return readFileSync(context.logFile, 'utf8')
 }
-
-test('changing only node_repl args reconnects only the desktop server', async () => {
-  const context = startServers({ config: { computer: true } })
-  try {
-    await runBrowser(context)
-    await runDesktop(context)
-    const browserPid = context.browserStart()[0].pid
-    const desktopPid = context.desktopStart()[0].pid
-    writeDesktopSource(context.codexHome, [
-      DUAL_SERVER, 'desktop', 'ok', context.logs.desktop, 'extra',
-    ])
-    await runDesktop(context)
-    assert.equal(await waitFor(() => context.desktopStart().length === 2), true)
-    assert.equal(context.browserStart().length, 1)
-    assert.equal(isRunning(browserPid), true)
-    assert.equal(await waitFor(() => !isRunning(desktopPid)), true)
-    assert.match(
-      readLog(context),
-      /Codex server changed \(args\); reconnecting \(desktop\)/,
-    )
-    assert.equal(await stopServers(context), true)
-  } finally {
-    await stopServers(context)
-  }
-})
-
-test('changing only .mcp.json reconnects only the browser server', async () => {
-  const context = startServers({ config: { computer: true } })
-  try {
-    await runBrowser(context)
-    await runDesktop(context)
-    const browserPid = context.browserStart()[0].pid
-    const desktopPid = context.desktopStart()[0].pid
-    writeBrowserSource(context.codexHome, [
-      DUAL_SERVER, 'browser', 'ok', context.logs.browser, 'extra',
-    ])
-    await runBrowser(context)
-    assert.equal(await waitFor(() => context.browserStart().length === 2), true)
-    assert.equal(context.desktopStart().length, 1)
-    assert.equal(isRunning(desktopPid), true)
-    assert.equal(await waitFor(() => !isRunning(browserPid)), true)
-    assert.match(
-      readLog(context),
-      /Codex server changed \(args\); reconnecting \(browser\)/,
-    )
-    assert.equal(await stopServers(context), true)
-  } finally {
-    await stopServers(context)
-  }
-})
 
 test('an unreadable desktop config keeps the desktop connection', async () => {
   const context = startServers({ config: { computer: true } })

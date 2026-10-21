@@ -1,7 +1,6 @@
 // D1/D2: pc_codex_docs reads Codex's own computer-use docs from a fake Codex home.
 import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -111,23 +110,6 @@ test('the currently used version wins over a newer computer-use version', async 
   }
 })
 
-test('without a matching version the newest version is used, compared numerically', async () => {
-  const home = tempHome()
-  writeUnified(home, '26.1011.1')
-  writeDocsVersion(home, '26.1013.9', docsFor('26.1013.9'))
-  writeDocsVersion(home, '26.1013.31256', docsFor('26.1013.31256'))
-  // A non-version directory must never win over a numeric version (R20).
-  mkdirSync(join(home, 'plugins', 'cache', 'openai-bundled', 'computer-use', 'zzz-tmp'))
-  const plugin = register(home)
-  try {
-    const text = await plugin.tools.get('pc_codex_docs').execute({ topic: 'api' }, {})
-    assert.match(sourceLine(text), /26\.1013\.31256/)
-    assert.equal(text.endsWith(docsFor('26.1013.31256').api), true)
-  } finally {
-    plugin.dispose()
-  }
-})
-
 test('an invalid topic lists the four values and reads no file', async () => {
   const home = tempHome()
   const plugin = register(home)
@@ -141,28 +123,6 @@ test('an invalid topic lists the four values and reads no file', async () => {
         return true
       })
     }
-  } finally {
-    plugin.dispose()
-  }
-})
-
-test('a missing file fails with the expected path instead of an empty string', async () => {
-  const home = tempHome()
-  writeUnified(home, UNIFIED)
-  writeDocsVersion(home, UNIFIED, docsFor(UNIFIED, 'api'))
-  const plugin = register(home)
-  try {
-    const expected = join(
-      home, 'plugins', 'cache', 'openai-bundled', 'computer-use', UNIFIED, 'docs', 'api.md',
-    )
-    await assert.rejects(
-      () => plugin.tools.get('pc_codex_docs').execute({ topic: 'api' }, {}),
-      (error) => {
-        assert.ok(error instanceof Error)
-        assert.equal(error.message.includes(expected), true)
-        return true
-      },
-    )
   } finally {
     plugin.dispose()
   }

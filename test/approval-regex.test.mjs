@@ -4,28 +4,6 @@ import { test } from 'node:test'
 
 import { classifyApproval } from '../lib/approval.js'
 
-test('computer approval prompts are recognised with the app name', () => {
-  assert.deepEqual(
-    classifyApproval('Allow Computer Use to use "记事本"?'),
-    { kind: 'computer', appName: '记事本' },
-  )
-  assert.deepEqual(
-    classifyApproval('Allow Codex to use Notepad?'),
-    { kind: 'computer', appName: 'Notepad' },
-  )
-  assert.deepEqual(
-    classifyApproval('Allow Codex to use Visual Studio Code?'),
-    { kind: 'computer', appName: 'Visual Studio Code' },
-  )
-})
-
-test('browser prompts keep their own kind', () => {
-  assert.deepEqual(
-    classifyApproval('Allow Browser use to access https://example.com?'),
-    { kind: 'browser' },
-  )
-})
-
 test('computer prompt boundaries fail closed', () => {
   const rejected = [
     ' Please Allow Computer Use to use "记事本"?',

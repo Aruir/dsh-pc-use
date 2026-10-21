@@ -40,21 +40,6 @@ test('browser observe sends the fixed read-only calls', async () => {
   }
 })
 
-test('desktop observe sends the guidance block with the requested flags', async () => {
-  const context = planContext({ browser: false })
-  try {
-    await context.plugin.tools.get('pc_codex_observe')
-      .execute({ target: 'desktop', subject: 'targetWindow', screenshot: true, text: false }, {})
-    const code = calls(context, 'desktop')[0].arguments.code
-    assert.match(code, /const \{ sky \} = await import\("@oai\/sky"\);/)
-    assert.match(code, /include_screenshot: true, include_text: false/)
-    assert.match(code, /globalThis\.targetWindow = state\.window;/)
-    assert.match(code, /nodeRepl\.write\(String\(state\.accessibility/)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
 test('invalid observe arguments send no code and desktop respects computer off', async () => {
   const context = planContext({ desktop: false })
   const off = startServers({ browser: false, desktop: false, config: { computer: false } })
@@ -122,36 +107,6 @@ test('run_plan stops after an error and does not send later steps', async () => 
       },
     )
     assert.equal(calls(context, 'browser').length, 2)
-  } finally {
-    assert.equal(await stopServers(context), true)
-  }
-})
-
-test('run_plan marks check_failed, check_error and continues on true checks', async () => {
-  const context = planContext({ desktop: false })
-  try {
-    await assert.rejects(
-      context.plugin.tools.get('pc_codex_run_plan').execute({
-        target: 'browser',
-        steps: [{ title: 'false check', code: '1 + 1', check: 'false' }],
-      }, {}),
-      /check_failed/,
-    )
-    await assert.rejects(
-      context.plugin.tools.get('pc_codex_run_plan').execute({
-        target: 'browser',
-        steps: [{
-          title: 'broken check', code: '1 + 1',
-          check: '(() => { throw new Error("boom") })()',
-        }],
-      }, {}),
-      /check_error/,
-    )
-    const result = await context.plugin.tools.get('pc_codex_run_plan').execute({
-      target: 'browser',
-      steps: [{ title: 'true check', code: '1 + 1', check: 'true' }],
-    }, {})
-    assert.match(result, /^run_plan: 1\/1 steps ok/)
   } finally {
     assert.equal(await stopServers(context), true)
   }

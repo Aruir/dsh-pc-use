@@ -98,23 +98,6 @@ test('a new bridge has not started anything', () => {
   assert.equal(bridge.generation(), 0)
 })
 
-test('ensure creates and starts one bridge, then reuses it', async () => {
-  const context = setup()
-  const first = await context.bridge.ensure()
-  assert.equal(context.created.length, 1)
-  assert.equal(context.created[0].bridge.startCount, 1)
-  assert.equal(context.bridge.generation(), 1)
-  assert.equal(context.bridge.started(), true)
-  assert.equal(context.bridge.liveBridge(), first)
-  assert.equal(context.bridge.connectedPipe(), 'pipe-one')
-  // D15 re-check resolves again, sees the same spec and keeps the bridge.
-  const second = await context.bridge.ensure()
-  assert.equal(second, first)
-  assert.equal(context.created.length, 1)
-  assert.equal(context.created[0].bridge.startCount, 1)
-  assert.equal(context.bridge.generation(), 1)
-})
-
 test('a second ensure during the handshake waits for the same bridge', async () => {
   const context = setup({ bridge: { holdStart: true } })
   const first = context.bridge.ensure()

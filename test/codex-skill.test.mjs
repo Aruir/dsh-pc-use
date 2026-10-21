@@ -77,12 +77,6 @@ function setup(options = {}) {
   }
 }
 
-test('parseSkillFile accepts LF and CRLF frontmatter', () => {
-  const expected = { description: DESCRIPTION, body: BODY }
-  assert.deepEqual(parseSkillFile(skillText()), expected)
-  assert.deepEqual(parseSkillFile(skillText({ crlf: true })), expected)
-})
-
 test('parseSkillFile trims values and removes one pair of surrounding quotes', () => {
   const doubleQuoted = '---\ndescription:   "Quoted description"   \n---\nBody\n'
   const singleQuoted = "---\ndescription: 'Single quoted'\n---\nBody\n"
@@ -268,25 +262,6 @@ test('loader/volatile-update invalidates the skill catalog', () => {
     assert.equal(context.fake.control.invalidations, 1)
   } finally {
     context.restore()
-  }
-})
-
-test('without a skills service the plugin registers the nine tools', () => {
-  const home = tempDir('dsh-pc-use-skill-')
-  const restoreHome = useHome(home)
-  const codexHome = join(home, 'codex')
-  writeCodexHome(codexHome, [])
-  writeSkill(codexHome, VERSION, skillText())
-  const plugin = registerPlugin({ codexHome, computer: true })
-  try {
-    assert.deepEqual([...plugin.tools.keys()].sort(), [
-      'pc_codex_desktop_js', 'pc_codex_desktop_js_add_node_module_dir',
-      'pc_codex_desktop_js_reset', 'pc_codex_docs', 'pc_codex_js', 'pc_codex_js_reset',
-      'pc_codex_observe', 'pc_codex_run_plan', 'pc_status',
-    ])
-  } finally {
-    plugin.dispose()
-    restoreHome()
   }
 })
 

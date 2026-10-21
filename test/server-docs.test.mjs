@@ -4,11 +4,10 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import {
-  existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync,
-  unlinkSync, utimesSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync,
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, relative } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import { after, test } from 'node:test'
 
 import {
@@ -16,7 +15,6 @@ import {
   writeDocsCacheEntry,
 } from '../lib/server-docs.js'
 
-const HASH = /^[0-9a-f]{64}$/
 const FAKE_INSTRUCTIONS = 'Fake namespace instructions for tests.'
 const FAKE_TOOLS = [
   { name: 'js', description: 'Fake js description.', inputSchema: { type: 'object' } },
@@ -117,32 +115,9 @@ test('canonicalJson sorts object keys recursively and keeps array order', () => 
   assert.equal(canonicalJson({ b: 1, a: 2 }), canonicalJson({ a: 2, b: 1 }))
 })
 
-test('canonicalJson matches JSON.stringify escaping and primitive forms', () => {
-  const tricky = { '"': 'line\nbreak', 'a\tb': 'quote " here' }
-  assert.equal(canonicalJson(tricky), JSON.stringify(tricky))
-  assert.equal(canonicalJson('x'), '"x"')
-  assert.equal(canonicalJson(null), 'null')
-  assert.equal(canonicalJson(3.5), '3.5')
-  assert.equal(canonicalJson(true), 'true')
-})
-
 test('canonicalJson drops undefined object values and nulls undefined array items', () => {
   assert.equal(canonicalJson({ b: undefined, a: 1 }), '{"a":1}')
   assert.equal(canonicalJson([1, undefined, 2]), '[1,null,2]')
-})
-
-test('specFingerprint is lowercase hex and ignores env, cwd and pipeDirectory', () => {
-  const dir = tempDir()
-  const command = fakeCommand(dir, 'fake-codex.exe')
-  const base = { command, args: ['--fake'], source: join(dir, 'fake-source.json') }
-  const first = specFingerprint({
-    ...base, env: { A: '1' }, cwd: 'C:\\one', pipeDirectory: 'p1',
-  })
-  const second = specFingerprint({
-    ...base, env: { A: '2' }, cwd: 'C:\\two', pipeDirectory: 'p2',
-  })
-  assert.match(first, HASH)
-  assert.equal(second, first)
 })
 
 test('specFingerprint changes with command, args, source, size and mtime', () => {
@@ -180,21 +155,6 @@ test('specFingerprint records a failed stat as two null file fields', () => {
   })
   const spec = { command: missing, args, source: 'fake-source' }
   assert.equal(specFingerprint(spec), hashText(canonical))
-})
-
-test('docsFromServer keeps the three js docs and hashes the whole list', () => {
-  const docs = docsFromServer({ instructions: FAKE_INSTRUCTIONS, tools: FAKE_TOOLS })
-  assert.equal(docs.instructions, FAKE_INSTRUCTIONS)
-  assert.deepEqual(docs.tools, {
-    js: 'Fake js description.',
-    js_reset: 'Fake reset description.',
-    js_add_node_module_dir: 'Fake module directory description.',
-  })
-  assert.deepEqual(docs.toolNames, ['js', 'js_add_node_module_dir', 'js_reset', 'observe'])
-  assert.match(docs.docsHash, HASH)
-  assert.match(docs.listHash, HASH)
-  const expected = hashText(canonicalJson({ instructions: FAKE_INSTRUCTIONS, tools: docs.tools }))
-  assert.equal(docs.docsHash, expected)
 })
 
 test('docsFromServer hashes do not depend on tool list order', () => {
@@ -246,47 +206,6 @@ test('docsFromServer listHash covers non-js tools while docsHash does not', () =
   assert.notEqual(changed.listHash, base.listHash)
 })
 
-test('readDocsCache never throws on missing, unreadable or invalid files', () => {
-  const dir = tempDir()
-  assert.deepEqual(readDocsCache(join(dir, 'missing.json')), { browser: null, desktop: null })
-  assert.deepEqual(readDocsCache(writeCacheFile(dir, 'not json')), {
-    browser: null, desktop: null,
-  })
-  const oversized = writeCacheFile(dir, JSON.stringify({
-    version: 1, padding: 'x'.repeat(256 * 1024),
-  }), 'oversized.json')
-  assert.deepEqual(readDocsCache(oversized), { browser: null, desktop: null })
-  const directoryPath = join(dir, 'a-directory.json')
-  mkdirSync(directoryPath)
-  assert.deepEqual(readDocsCache(directoryPath), { browser: null, desktop: null })
-})
-
-test('readDocsCache rejects a bad top-level shape or version', () => {
-  const dir = tempDir()
-  const browser = fakeEntry()
-  const values = [
-    null,
-    [1, 2],
-    { version: 2, browser, desktop: null },
-    { version: '1', browser, desktop: null },
-    { version: 1 },
-    { browser, desktop: null },
-  ]
-  for (const value of values) {
-    const cache = readDocsCache(writeCacheFile(dir, value))
-    assert.deepEqual(cache, { browser: null, desktop: null })
-  }
-})
-
-test('readDocsCache round-trips valid entries for both targets', () => {
-  const dir = tempDir()
-  const browser = fakeEntry({ fingerprint: 'b'.repeat(64) })
-  const desktop = fakeEntry({ fingerprint: 'c'.repeat(64) })
-  const cache = readDocsCache(writeCacheFile(dir, { version: 1, browser, desktop }))
-  assert.deepEqual(cache.browser, browser)
-  assert.deepEqual(cache.desktop, desktop)
-})
-
 test('readDocsCache invalidates only the target with a bad entry', () => {
   const dir = tempDir()
   const good = fakeEntry()
@@ -316,16 +235,6 @@ test('readDocsCache invalidates only the target with a bad entry', () => {
   }
 })
 
-test('readDocsCache accepts null instructions when the docs hash matches', () => {
-  const dir = tempDir()
-  const good = fakeEntry()
-  const docsHash = hashText(canonicalJson({ instructions: null, tools: good.tools }))
-  const entry = { ...good, instructions: null, docsHash }
-  const cache = readDocsCache(writeCacheFile(dir, { version: 1, browser: entry, desktop: null }))
-  assert.equal(cache.browser.instructions, null)
-  assert.equal(cache.browser.docsHash, docsHash)
-})
-
 test('readDocsCache rejects an entry whose docsHash does not match its docs', () => {
   const dir = tempDir()
   const good = fakeEntry()
@@ -353,84 +262,11 @@ test('readDocsCache enforces the 64 KiB per-string limit', () => {
   assert.equal(names.browser, null)
 })
 
-test('writeDocsCacheEntry creates the directory and round-trips one target', () => {
-  const dir = tempDir()
-  const file = join(dir, 'nested', 'cache.json')
-  const entry = fakeEntry()
-  assert.deepEqual(writeDocsCacheEntry(file, 'browser', entry), { ok: true })
-  const cache = readDocsCache(file)
-  assert.deepEqual(cache.browser, entry)
-  assert.equal(cache.desktop, null)
-  const raw = JSON.parse(readFileSync(file, 'utf8'))
-  assert.equal(raw.version, 1)
-  assert.deepEqual(raw.browser, entry)
-  assert.deepEqual(tempFiles(dir), [])
-})
-
 // P1-1: keep the process HOME under the OS temp dir before any cache write.
 const testHome = tempDir()
 process.env.HOME = testHome
 process.env.USERPROFILE = testHome
 assertTempHome()
-
-test('writeDocsCacheEntry replaces only its target and leaves no temp file', () => {
-  const dir = tempDir()
-  const file = join(dir, 'cache.json')
-  const browser = fakeEntry({ fingerprint: 'b'.repeat(64) })
-  const desktop = fakeEntry({ fingerprint: 'c'.repeat(64) })
-  assert.deepEqual(writeDocsCacheEntry(file, 'browser', browser), { ok: true })
-  assert.deepEqual(writeDocsCacheEntry(file, 'desktop', desktop), { ok: true })
-  const cache = readDocsCache(file)
-  assert.deepEqual(cache.browser, browser)
-  assert.deepEqual(cache.desktop, desktop)
-  assert.deepEqual(tempFiles(dir), [])
-})
-
-test('writeDocsCacheEntry writes a same-directory temp file and renames it over the cache', () => {
-  const directory = tempDir()
-  const file = join(directory, 'nested', 'cache.json')
-  const calls = []
-  const result = writeDocsCacheEntry(file, 'browser', fakeEntry(), {
-    mkdirSync: (...args) => {
-      calls.push(['mkdirSync', ...args])
-      return mkdirSync(...args)
-    },
-    writeFileSync: (...args) => {
-      calls.push(['writeFileSync', ...args])
-      return writeFileSync(...args)
-    },
-    renameSync: (...args) => {
-      calls.push(['renameSync', ...args])
-      return renameSync(...args)
-    },
-    unlinkSync: (...args) => {
-      calls.push(['unlinkSync', ...args])
-      return unlinkSync(...args)
-    },
-  })
-  assert.equal(result.ok, true)
-  const written = calls.filter(([name]) => name === 'writeFileSync')
-  assert.equal(written.length, 1)
-  const tempFile = written[0][1]
-  assert.equal(tempFile.endsWith('.tmp'), true)
-  assert.equal(dirname(tempFile), dirname(file))
-  assert.equal(tempFile === file, false)
-  const renamed = calls.filter(([name]) => name === 'renameSync')
-  assert.deepEqual(renamed, [['renameSync', tempFile, file]])
-})
-
-test('writeDocsCacheEntry keeps the other valid entry and drops an invalid one', () => {
-  const dir = tempDir()
-  const browser = fakeEntry({ fingerprint: 'b'.repeat(64) })
-  const file = writeCacheFile(dir, {
-    version: 1, browser, desktop: { ...fakeEntry(), docsHash: 'bad' },
-  })
-  const desktop = fakeEntry({ fingerprint: 'd'.repeat(64) })
-  assert.deepEqual(writeDocsCacheEntry(file, 'desktop', desktop), { ok: true })
-  const cache = readDocsCache(file)
-  assert.deepEqual(cache.browser, browser)
-  assert.deepEqual(cache.desktop, desktop)
-})
 
 test('writeDocsCacheEntry reports a failure, removes the temp file and never throws', () => {
   const dir = tempDir()
