@@ -2,7 +2,7 @@
 
 [中文](CHANGELOG.zh.md) | English
 
-## Unreleased
+## 0.10.1
 
 When `computer` is off, the plugin removes the `computer` surface from the browser server's
 environment before launching it, so the browser tools cannot read desktop apps or window titles;
