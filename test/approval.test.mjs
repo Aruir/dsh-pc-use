@@ -24,8 +24,6 @@ function approvalLines(logFile) {
   return readFileSync(logFile, 'utf8').split('\n').filter((line) => line.includes('approval "'))
 }
 
-/** The full initialize params the fake server received. O(n), n = log lines. */
-
 /** Start the plugin against the fake server; `logFile` null means the default log path. */
 function setup({ mode, autoApprove, customLogFile = true }) {
   const home = tempDir()

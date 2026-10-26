@@ -265,12 +265,16 @@ Codex servers, started in the same way as the Codex app starts them:
 `pc_codex_desktop_js_reset` / `pc_codex_desktop_js_add_node_module_dir` use the desktop server.
 Both are started lazily: the desktop server starts on the first desktop call and never while
 `computer` is `false`; turning `computer` off stops the desktop server immediately through the
-volatile-update event of the loader and leaves the browser server running. Before each call, the
-plugin re-reads
-the source of that server, so a Codex restart is picked up per server. The launch environment is
-passed through unchanged: the browser environment comes from `.mcp.json` and the desktop
+volatile-update event of the loader. Switching `computer` either way also restarts the browser
+server on its next call, because its capability surfaces change; bindings in its JavaScript
+kernel, such as `globalThis.tab`, are lost. Before each call, the plugin re-reads the source of
+that server, so a Codex restart is picked up per server. Apart from the `computer` surface
+described below, the launch environment is passed through unchanged: the browser environment
+comes from `.mcp.json` and the desktop
 environment from `config.toml`, in the same way that the Codex app starts them. The environment
-rewriting of 0.4.x is gone.
+rewriting of 0.4.x is gone. When `computer` is off, the plugin removes the `computer` surface from
+the browser server's environment before launching it, so the browser tools cannot read desktop apps
+or window titles; when `computer` is on, the browser server starts exactly as Codex starts it.
 
 How to enable: set it in the `cordis.patch.yml` of the profile and restart the desktop app. On the
 tested DSH desktop 0.2.1-rc.2, the "Settings → Built-in plugins" page only shows plugin status, not

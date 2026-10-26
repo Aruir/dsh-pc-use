@@ -175,12 +175,6 @@ function createEnvironment() {
   // Shape one Browser for the current mode; fresh objects let each entry point be checked alone.
   function shapeBrowser() {
     const created = new StubBrowser()
-    if (mode === 'own-methods') {
-      created.user.openTabs = async () => openTabs()
-      created.user.claimTab = async () => claimTab()
-      created.user.getTabContext = async () => getTabContext()
-      created.history = async () => history()
-    }
     if (mode === 'no-user') delete created.user
     if (mode === 'frozen-user') {
       created.user.openTabs = async () => openTabs()

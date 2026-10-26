@@ -3,7 +3,6 @@
 // Usage: node fake-computer-server.mjs <mode> <log-file>
 // Modes:
 //   computer               on tools/call ask `Allow Computer Use to use "记事本"?`
-//   computer-codex         on tools/call ask `Allow Codex to use Notepad?`
 //   spontaneous            right after initialize, ask the computer question (no tool call)
 //   spontaneous-after-call answer one tools/call, then ask with no call pending
 //   flow-meta              app + action from the `code` argument; meta under params._meta
@@ -126,7 +125,6 @@ function handleFlow(message, flowMode) {
 }
 
 const COMPUTER_QUESTION = 'Allow Computer Use to use "记事本"?'
-const CODEX_QUESTION = 'Allow Codex to use Notepad?'
 
 function handleTurnEnded(message, turnMode) {
   const name = message.params?.name
@@ -238,10 +236,6 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   }
   if (mode === 'computer') {
     ask(message.id, COMPUTER_QUESTION)
-    return
-  }
-  if (mode === 'computer-codex') {
-    ask(message.id, CODEX_QUESTION)
     return
   }
   if (mode === 'slow-ask-answer') {

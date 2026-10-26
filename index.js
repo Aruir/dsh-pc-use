@@ -362,7 +362,8 @@ export function apply(ctx, raw = {}) {
   const bridgeFor = (target) => (spec) => new McpBridge({
     command: spec.command,
     args: spec.args,
-    // The server receives its own copy of its environment, unchanged.
+    // The browser server's capability surfaces already follow the `computer` switch; the
+    // rest of its environment is passed through unchanged.
     env: { ...spec.env },
     cwd: spec.cwd,
     // Bridge-level session id for calls without an agent: generated in memory on
@@ -389,7 +390,9 @@ export function apply(ctx, raw = {}) {
   // what to forget when the desktop one stops (remembered approvals).
   const targetBridge = (target, onStop) => createTargetBridge({
     target,
-    resolveSpec: (home) => RESOLVERS[target]({ codexHome: home }),
+    resolveSpec: (home) => RESOLVERS[target]({
+      codexHome: home, computer: computerEnabled(),
+    }),
     codexHome,
     createBridge: bridgeFor(target),
     onConnected: (bridge, spec) => onServerConnected(target, bridge, spec),

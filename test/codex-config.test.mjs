@@ -218,6 +218,71 @@ test('resolveDesktopServer reports an unreadable config.toml', () => {
   assert.equal(spec.reason, `cannot read ${configPath(home)}`)
 })
 
+test('resolveBrowserServer keeps the computer surface only when the switch is on', () => {
+  const home = tempHome()
+  writeMcpJson(home, '26.1021.1', browserEntry({
+    env: { CUA_REPL_ENABLED_SURFACES: 'browser,computer' },
+  }))
+  for (const options of [{}, { computer: false }]) {
+    const spec = resolveBrowserServer({ codexHome: home, ...options })
+    assert.equal(spec.ok, true)
+    assert.equal(spec.env.CUA_REPL_ENABLED_SURFACES, 'browser')
+    assert.equal(spec.surfaces, 'browser')
+  }
+  const on = resolveBrowserServer({ codexHome: home, computer: true })
+  assert.equal(on.ok, true)
+  assert.equal(on.env.CUA_REPL_ENABLED_SURFACES, 'browser,computer')
+  assert.equal(on.surfaces, 'browser,computer')
+})
+
+test('resolveBrowserServer trims surfaces and drops empty segments', () => {
+  const home = tempHome()
+  writeMcpJson(home, '26.1021.1', browserEntry({
+    env: { CUA_REPL_ENABLED_SURFACES: ' browser , computer ' },
+  }))
+  const spec = resolveBrowserServer({ codexHome: home })
+  assert.equal(spec.ok, true)
+  assert.equal(spec.env.CUA_REPL_ENABLED_SURFACES, 'browser')
+  assert.equal(spec.surfaces, 'browser')
+})
+
+test('resolveBrowserServer reports a missing surfaces variable as null', () => {
+  const home = tempHome()
+  writeMcpJson(home, '26.1021.1', browserEntry({ env: {} }))
+  const spec = resolveBrowserServer({ codexHome: home })
+  assert.equal(spec.ok, true)
+  assert.equal(spec.surfaces, null)
+  assert.equal('CUA_REPL_ENABLED_SURFACES' in spec.env, false)
+})
+
+test('resolveBrowserServer fails when computer is the only surface and the switch is off', () => {
+  const home = tempHome()
+  writeMcpJson(home, '26.1021.1', browserEntry({
+    env: { CUA_REPL_ENABLED_SURFACES: 'computer' },
+  }))
+  const spec = resolveBrowserServer({ codexHome: home })
+  assert.deepEqual(spec, {
+    ok: false,
+    reason: 'cua_repl has no surface left without computer',
+  })
+})
+
+test('resolveBrowserServer leaves NODE_REPL_TRUSTED_SERVICES byte-identical', () => {
+  const home = tempHome()
+  const trusted = '{"browser":"/fake/browser","other":"/fake/other"}'
+  writeMcpJson(home, '26.1021.1', browserEntry({
+    env: {
+      CUA_REPL_ENABLED_SURFACES: 'browser,computer',
+      NODE_REPL_TRUSTED_SERVICES: trusted,
+    },
+  }))
+  for (const computer of [false, true]) {
+    const spec = resolveBrowserServer({ codexHome: home, computer })
+    assert.equal(spec.ok, true)
+    assert.equal(spec.env.NODE_REPL_TRUSTED_SERVICES, trusted)
+  }
+})
+
 test('a missing server command is reported', () => {
   const home = tempHome()
   const missing = join(home, 'missing-server-binary.exe')

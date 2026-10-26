@@ -236,10 +236,12 @@ Codex 应用一致：
 `pc_codex_js` / `pc_codex_js_reset` 使用浏览器服务器；`pc_codex_desktop_js` /
 `pc_codex_desktop_js_reset` / `pc_codex_desktop_js_add_node_module_dir` 使用桌面服务器。两者
 均为懒启动：桌面服务器在第一次桌面调用时启动，`computer` 为 `false` 时永不启动。关闭
-`computer` 后，桌面服务器立即停止（由加载器的 volatile 更新事件触发），浏览器服务器继续
-运行。每次调用前，插件重新读取该服务器自身的来源，因此 Codex 重启后按服务器分别更新。启动
+`computer` 后，桌面服务器立即停止（由加载器的 volatile 更新事件触发）。切换 `computer` 时，
+浏览器服务器的能力面随之改变，下一次浏览器调用会重启它，JavaScript 内核里的绑定（如
+`globalThis.tab`）随之清空。每次调用前，插件重新读取该服务器自身的来源，因此 Codex 重启后按服务器分别更新。除下文所说的 `computer` 能力面外，启动
 环境原样传入：浏览器环境来自 `.mcp.json`，桌面环境来自 `config.toml`，与 Codex 应用的启动
-方式一致。0.4.x 改写环境的做法已删除。
+方式一致。0.4.x 改写环境的做法已删除。`computer` 关闭时，插件在启动浏览器服务器前去掉能力面
+`computer`，浏览器工具读不到桌面应用和窗口；打开时按 Codex 原样启动。
 
 开启方式：在 profile 的 `cordis.patch.yml` 中设置，修改后重启桌面应用。实测 DSH 桌面版
 0.2.1-rc.2 的“设置 → 内置插件”页只显示插件状态，不显示配置表单。patch 会整体替换

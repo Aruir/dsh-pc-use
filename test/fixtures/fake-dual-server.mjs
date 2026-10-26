@@ -11,7 +11,6 @@
 //   spontaneous    ask the computer question right after initialize, with no call pending
 //   hang           never answer a tools/call (the client's own timeout is the only way out)
 //   error          answer tools/call with an isError result (`server error text`)
-//   illegal-return answer tools/call with text containing `Illegal return statement`
 //   pipe-error     answer tools/call with isError and the native pipe failure text
 //   pipe-text      answer tools/call with a successful result containing that text
 // `turn_ended` is always answered regardless of the mode.
@@ -131,14 +130,6 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       jsonrpc: '2.0',
       id: message.id,
       result: { content: [{ type: 'text', text: 'server error text' }], isError: true },
-    })
-    return
-  }
-  if (mode === 'illegal-return') {
-    send({
-      jsonrpc: '2.0',
-      id: message.id,
-      result: { content: [{ type: 'text', text: 'Illegal return statement' }] },
     })
     return
   }

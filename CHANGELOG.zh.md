@@ -2,6 +2,11 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+`computer` 关闭时，插件在启动浏览器服务器前去掉能力面 `computer`，浏览器工具读不到桌面应用和
+窗口；打开时按 Codex 原样启动。
+
 ## 0.10.0
 
 0.10.0 改变了 5 个 js 工具的结果文字：开头现在是原生 Codex 的 `Wall time:` 与 `Output:` 两行，

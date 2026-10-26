@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
 import { waitFor } from './helpers.mjs'
-import { isRunning, startServers, stopServers } from './fixtures/server-harness.mjs'
+import {
+  BROWSER_ENV, isRunning, startServers, stopServers,
+} from './fixtures/server-harness.mjs'
 
 const WRITE = Symbol.for('cosmokit.volatile.write')
 
@@ -76,6 +78,51 @@ test('the loader volatile event stops the desktop server immediately', async () 
     assert.equal(context.desktopStart().length, 1)
     await runDesktop(context)
     assert.equal(await waitFor(() => context.desktopStart().length === 2), true)
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('a computer-off browser call starts the server without the computer surface', async () => {
+  const computer = createVolatile(false)
+  const context = startServers({
+    browser: { env: { ...BROWSER_ENV, CUA_REPL_ENABLED_SURFACES: 'browser,computer' } },
+    config: { computer },
+  })
+  try {
+    await runBrowser(context)
+    const starts = context.browserStart()
+    assert.equal(starts.length, 1)
+    assert.equal(starts[0].env.CUA_REPL_ENABLED_SURFACES, 'browser')
+  } finally {
+    assert.equal(await stopServers(context), true)
+  }
+})
+
+test('hot switching computer restarts the browser server with the new surface', async () => {
+  const computer = createVolatile(false)
+  const context = startServers({
+    browser: { env: { ...BROWSER_ENV, CUA_REPL_ENABLED_SURFACES: 'browser,computer' } },
+    config: { computer },
+  })
+  try {
+    await runBrowser(context)
+    const firstPid = context.browserStart()[0].pid
+    assert.equal(context.browserStart()[0].env.CUA_REPL_ENABLED_SURFACES, 'browser')
+    assert.equal(context.desktopStart().length, 0)
+    computer[WRITE](true)
+    await runBrowser(context)
+    assert.equal(await waitFor(() => context.browserStart().length === 2), true)
+    assert.equal(await waitFor(() => !isRunning(firstPid)), true)
+    const second = context.browserStart()[1]
+    assert.equal(second.env.CUA_REPL_ENABLED_SURFACES, 'browser,computer')
+    assert.equal(context.desktopStart().length, 0)
+    computer[WRITE](false)
+    await runBrowser(context)
+    assert.equal(await waitFor(() => context.browserStart().length === 3), true)
+    assert.equal(await waitFor(() => !isRunning(second.pid)), true)
+    assert.equal(context.browserStart()[2].env.CUA_REPL_ENABLED_SURFACES, 'browser')
+    assert.equal(context.desktopStart().length, 0)
   } finally {
     assert.equal(await stopServers(context), true)
   }

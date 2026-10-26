@@ -41,8 +41,6 @@ function approvalService(outcome, requests) {
   }
 }
 
-/** An approval service that keeps every request open until the test answers. O(1). */
-
 test('a desktop approval while only pc_codex_js runs is declined', async () => {
   const requests = []
   const context = startServers({

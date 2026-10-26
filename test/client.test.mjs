@@ -825,8 +825,6 @@ test('a read-only form disables every control', () => {
   for (const control of controls) assert.equal(control.props.disabled, true)
 })
 
-// Variables verified in `dsh-client-ui-theme` (the built-in settings pages use them too).
-
 test('open and closed switches use different colors and thumb positions', () => {
   const BASE_VALUES = {
     computer: false,
@@ -878,8 +876,6 @@ function skeletonPlaceholders(tree) {
     && node.props.className.split(' ').includes('pc-use-skeleton')
   ))
 }
-
-/** Row ids as exposed by their labels, in render order. O(n). */
 
 /** Group headings plus every row's label and description, in render order. O(n). */
 function pageTextLayout(tree) {

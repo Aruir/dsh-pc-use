@@ -138,6 +138,19 @@ test('specFingerprint changes with command, args, source, size and mtime', () =>
   assert.notEqual(specFingerprint(base), retimed)
 })
 
+test('specFingerprint includes the browser surfaces but not the rest of env', () => {
+  const dir = tempDir()
+  const command = fakeCommand(dir, 'fake.exe', 'x')
+  const base = { command, args: [], source: 'fake-source', surfaces: 'browser' }
+  const fingerprint = specFingerprint(base)
+  assert.notEqual(specFingerprint({ ...base, surfaces: 'browser,computer' }), fingerprint)
+  assert.notEqual(specFingerprint({ ...base, surfaces: null }), fingerprint)
+  assert.equal(
+    specFingerprint({ ...base, env: { NODE_REPL_TRUSTED_SERVICES: '{"a":"b"}' } }),
+    fingerprint,
+  )
+})
+
 test('specFingerprint treats a non-array args as empty', () => {
   const dir = tempDir()
   const command = fakeCommand(dir, 'fake.exe', 'x')
@@ -151,7 +164,8 @@ test('specFingerprint records a failed stat as two null file fields', () => {
   const missing = join(dir, 'missing-command.exe')
   const args = ['--fake']
   const canonical = canonicalJson({
-    command: missing, args, source: 'fake-source', commandSize: null, commandMtimeMs: null,
+    command: missing, args, source: 'fake-source', surfaces: null,
+    commandSize: null, commandMtimeMs: null,
   })
   const spec = { command: missing, args, source: 'fake-source' }
   assert.equal(specFingerprint(spec), hashText(canonical))

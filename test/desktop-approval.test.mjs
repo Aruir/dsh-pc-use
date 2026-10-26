@@ -22,8 +22,6 @@ function approvalService(outcome, requests) {
   }
 }
 
-/** An approval service that keeps every request pending until the test answers it. */
-
 function execFixture(callId = 'call-42') {
   return {
     agent: { id: 'agent-test' },

@@ -2,6 +2,12 @@
 
 [中文](CHANGELOG.zh.md) | English
 
+## Unreleased
+
+When `computer` is off, the plugin removes the `computer` surface from the browser server's
+environment before launching it, so the browser tools cannot read desktop apps or window titles;
+when `computer` is on, the browser server starts exactly as Codex starts it.
+
 ## 0.10.0
 
 0.10.0 changes the result text of the five js tools: it now starts with native Codex's
